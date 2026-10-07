@@ -50,6 +50,11 @@ struct FrenchFormatTests {
         #expect(FrenchFormat.count(1, "réunion") == "1\(nbsp)réunion")
         #expect(FrenchFormat.count(9, "réunion") == "9\(nbsp)réunions")
         #expect(FrenchFormat.count(2, "entrée") == "2\(nbsp)entrées")
+        #expect(FrenchFormat.count(3, "raccourci vocal", "raccourcis vocaux") == "3\(nbsp)raccourcis vocaux")
+    }
+
+    @Test func guillemetsHoldTheirWords() {
+        #expect(FrenchFormat.quoted("Kubernetes") == "«\(nbsp)Kubernetes\(nbsp)»")
     }
 }
 
@@ -68,7 +73,7 @@ struct FrenchDatesTests {
     @Test func groupingByDayKeepsOrderAndMergesTheSameDay() {
         let dates = [date(2026, 10, 7, 14), date(2026, 10, 7, 10), date(2026, 10, 6, 18), date(2026, 10, 5), date(2026, 10, 5, 8)]
         let groups = FrenchDates.groupByDay(dates, date: { $0 }, now: now, calendar: paris)
-        #expect(groups.map(\.group) == [.today, .yesterday, .day(paris.startOfDay(for: date(2026, 10, 5)))])
+        #expect(groups.map(\.key) == [.today, .yesterday, .day(paris.startOfDay(for: date(2026, 10, 5)))])
         #expect(groups.map(\.items.count) == [2, 1, 2])
     }
 

@@ -1,10 +1,9 @@
 import SwiftUI
 import AppKit
 
-/// The iconic Aqua Voice glowing translucent orb.
-///
-/// Reproduces the Aqua Voice artistic style:
-/// Luminous cyan/aqua sphere with multi-layer specular highlights and dynamic breathing pulse.
+/// Fluence's mark: a drawn glass sphere, luminous blue to cyan, with specular highlights and
+/// a breathing halo while listening. Used for the sidebar, settings, onboarding and HUD
+/// (FLU-12 decision 4); the Dock icon is `AppIcon.icns`.
 struct AquaOrbView: View {
     var size: CGFloat = 26
     var isActive: Bool = false
@@ -35,17 +34,9 @@ struct AquaOrbView: View {
                     .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: pulse)
             }
 
-            // Orb Core (Image or Procedural glossy glass sphere)
-            if let orbImage = loadOrbImage() {
-                Image(nsImage: orbImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: size, height: size)
-                    .clipShape(Circle())
-                    .shadow(color: Color(hex: 0x0084FF).opacity(isActive ? 0.5 : 0.25), radius: isActive ? 6 : 3, y: 1)
-            } else {
-                proceduralOrb
-            }
+            // FLU-12 decision 4: the drawn glass sphere everywhere the brand mark appears —
+            // not the app-icon artwork, which stays the Dock icon only.
+            proceduralOrb
         }
         .frame(width: size, height: size)
         .onAppear {
@@ -101,19 +92,5 @@ struct AquaOrbView: View {
         }
         .frame(width: size, height: size)
         .shadow(color: Color(hex: 0x0084FF).opacity(isActive ? 0.55 : 0.28), radius: isActive ? 7 : 3.5, y: 1.5)
-    }
-
-    private func loadOrbImage() -> NSImage? {
-        if let img = NSImage(named: "AquaOrb") { return img }
-        if let img = NSImage(named: "AppIcon") { return img }
-        if let bundleURL = Bundle.main.url(forResource: "AquaOrb", withExtension: "png"),
-           let img = NSImage(contentsOf: bundleURL) {
-            return img
-        }
-        if let bundleURL = Bundle.main.url(forResource: "AppIcon", withExtension: "png"),
-           let img = NSImage(contentsOf: bundleURL) {
-            return img
-        }
-        return nil
     }
 }

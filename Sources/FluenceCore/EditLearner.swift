@@ -17,6 +17,11 @@ public enum EditLearner {
 
         public var id: String { "\(heard)→\(written)" }
 
+        public init(heard: String, written: String) {
+            self.heard = heard
+            self.written = written
+        }
+
         /// Whether to file it as a correction (`heard -> written`) rather than a plain term.
         ///
         /// A correction rewrites every future occurrence of `heard`, which is only safe when

@@ -45,6 +45,11 @@ public enum FrenchFormat {
         return String(format: "%02d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
     }
 
+    /// « texte », with the non-breaking spaces French puts inside the guillemets.
+    public static func quoted(_ text: String) -> String {
+        "«\(space)\(text)\(space)»"
+    }
+
     /// "1 réunion", "3 réunions". French takes the singular for 0 and 1.
     public static func count(_ value: Int, _ singular: String, _ plural: String? = nil) -> String {
         "\(value)\(space)" + (abs(value) > 1 ? plural ?? singular + "s" : singular)
@@ -112,7 +117,7 @@ public enum FrenchDates {
         date: (Item) -> Date,
         now: Date,
         calendar: Calendar
-    ) -> [(group: DayGroup, items: [Item])] {
+    ) -> [Grouped<DayGroup, Item>] {
         group(items) { dayGroup(for: date($0), now: now, calendar: calendar) }
     }
 
@@ -152,7 +157,7 @@ public enum FrenchDates {
         date: (Item) -> Date,
         now: Date,
         calendar: Calendar
-    ) -> [(group: WeekGroup, items: [Item])] {
+    ) -> [Grouped<WeekGroup, Item>] {
         group(items) { weekGroup(for: date($0), now: now, calendar: calendar) }
     }
 
@@ -213,8 +218,8 @@ public enum FrenchDates {
     private static func group<Item, Key: Hashable>(
         _ items: [Item],
         by key: (Item) -> Key
-    ) -> [(group: Key, items: [Item])] {
-        var result: [(group: Key, items: [Item])] = []
+    ) -> [Grouped<Key, Item>] {
+        var result: [Grouped<Key, Item>] = []
         var index: [Key: Int] = [:]
         for item in items {
             let k = key(item)
@@ -222,9 +227,16 @@ public enum FrenchDates {
                 result[i].items.append(item)
             } else {
                 index[k] = result.count
-                result.append((k, [item]))
+                result.append(Grouped(key: k, items: [item]))
             }
         }
         return result
     }
+}
+
+/// Items under one heading, in their original order.
+public struct Grouped<Key: Hashable, Item>: Identifiable {
+    public let key: Key
+    public var items: [Item]
+    public var id: Key { key }
 }
