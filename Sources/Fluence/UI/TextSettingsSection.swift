@@ -24,7 +24,7 @@ struct TextSettingsSection: View {
     // MARK: Cleanup
 
     private var cleanupPanel: some View {
-        SettingsPanel(label: "Cleanup") {
+        SettingsPanel(label: "Niveau de nettoyage") {
             SelectorKeys(
                 options: CleanupLevel.allCases,
                 title: \.title,
@@ -32,9 +32,13 @@ struct TextSettingsSection: View {
             ) { settings.cleanupLevel = $0 }
             SettingsNote(settings.cleanupLevel.explanation)
             if settings.cleanupLevel.usesModel, let reason = FoundationModelFormatter.unavailableReason {
-                SettingsNote("\(reason) Until then this level cleans up with the Light rules.")
+                SettingsNote("\(reason) En attendant, ce niveau nettoie avec les règles du niveau Léger.")
             }
-            SettingsNote("The dictionary's corrections and your snippets apply at every level.")
+            SettingsNote("Les corrections du dictionnaire et vos snippets s'appliquent à tous les niveaux.")
+            if settings.engine == .whisper, !settings.smartCleanupOnWhisper, settings.cleanupLevel.usesModel {
+                SettingsNote("Avec Whisper, le modèle n'est utilisé que si « Post-traitement LLM sur Whisper » "
+                    + "est activé (onglet IA & Formatage) ; sinon ce niveau nettoie avec les règles.")
+            }
         }
     }
 
@@ -43,7 +47,7 @@ struct TextSettingsSection: View {
     private static let quickLanguages: [DictationLanguage] = [.auto, .english, .french]
 
     private var languagePanel: some View {
-        SettingsPanel(label: "Language") {
+        SettingsPanel(label: "Langue de dictée") {
             HStack(spacing: DS.Space.snug) {
                 SelectorKeys(
                     options: Self.quickLanguages,
@@ -64,7 +68,7 @@ struct TextSettingsSection: View {
                 Button(language.displayName) { settings.dictationLanguage = language }
             }
         } label: {
-            Silkscreen(text: isOther ? settings.dictationLanguage.displayName : "Other…", color: DS.Color.ink)
+            Silkscreen(text: isOther ? settings.dictationLanguage.displayName : "Autre…", color: DS.Color.ink)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -84,20 +88,20 @@ struct TextSettingsSection: View {
     private var languageNote: String {
         switch settings.dictationLanguage {
         case .auto:
-            "Apple's engine listens in your Mac's language; Parakeet detects the language itself. "
-                + "Cleanup recognises the language of each dictation."
+            "Apple écoute dans la langue de votre Mac ; Whisper et Parakeet détectent la langue eux-mêmes. "
+                + "Le nettoyage reconnaît la langue de chaque dictée."
         case .english, .french:
-            "Both engines and the cleanup expect \(settings.dictationLanguage.displayName)."
+            "Les moteurs et le nettoyage attendent : \(settings.dictationLanguage.displayName)."
         default:
-            "Both engines expect \(settings.dictationLanguage.displayName). Cleanup fixes spacing and "
-                + "capitals; fillers and spoken punctuation are only known in English and French."
+            "Les moteurs attendent : \(settings.dictationLanguage.displayName). Le nettoyage corrige les espaces "
+                + "et les majuscules ; les hésitations et la ponctuation dictée ne sont connues qu'en anglais et en français."
         }
     }
 
     // MARK: Styles
 
     private var stylesPanel: some View {
-        SettingsPanel(label: "Styles") {
+        SettingsPanel(label: "Style par application") {
             ForEach(AppCategory.allCases, id: \.self) { category in
                 HStack(spacing: DS.Space.base) {
                     Silkscreen(text: category.displayName)
@@ -110,27 +114,34 @@ struct TextSettingsSection: View {
                 }
             }
             SettingsNote(settings.cleanupLevel == .high
-                ? "Chosen from the app you dictate into — Messages, Slack, Mail… — and, in a browser, "
-                    + "from the page (Gmail, Slack, WhatsApp Web). The page address is read once and never kept."
-                : "Styles apply at cleanup level High only.")
+                ? "Choisi d'après l'app où vous dictez — Messages, Slack, Mail… — et, dans un navigateur, "
+                    + "d'après la page (Gmail, Slack, WhatsApp Web). L'adresse de la page est lue une fois et jamais gardée."
+                : "Les styles ne s'appliquent qu'au niveau Élevé.")
         }
     }
 
     // MARK: Dictionary helpers
 
     private var dictionaryPanel: some View {
-        SettingsPanel(label: "Dictionary") {
+        SettingsPanel(label: "Dictionnaire") {
             Toggle(isOn: $settings.learnFromEdits) {
-                Silkscreen(text: "Learn from my corrections")
+                Silkscreen(text: "Apprendre de mes corrections")
             }
             .toggleStyle(.switch)
-            SettingsNote("Off unless you turn it on. For 20 seconds after typing, Fluence re-reads the "
-                + "text field; if you correct a name it wrote, it offers to add that name to the "
-                + "dictionary. Nothing is added without you, nothing read is kept, and password fields "
-                + "are never read.")
+            SettingsNote("Désactivé tant que vous ne l'activez pas. Pendant 20 secondes après la saisie, Fluence "
+                + "relit le champ ; si vous corrigez un nom qu'il a écrit, il propose de l'ajouter au "
+                + "dictionnaire. Rien n'est ajouté sans vous, rien de ce qui est lu n'est gardé, et les "
+                + "champs de mot de passe ne sont jamais lus.")
+
+            Toggle(isOn: $settings.learnFrequentTerms) {
+                Silkscreen(text: "Apprendre les termes fréquents")
+            }
+            .toggleStyle(.switch)
+            SettingsNote("Désactivé par défaut. Activé, un nom propre, un sigle ou un terme technique dicté "
+                + "deux fois est ajouté au dictionnaire sans vous le demander.")
 
             Toggle(isOn: Binding(get: { settings.parakeetVocabularyBoost }, set: setBoost)) {
-                Silkscreen(text: "Boost dictionary words in Parakeet")
+                Silkscreen(text: "Renforcer les mots du dictionnaire dans Parakeet")
             }
             .toggleStyle(.switch)
             SettingsNote(boostNote)
@@ -138,13 +149,13 @@ struct TextSettingsSection: View {
     }
 
     private var boostNote: String {
-        let what = "A second, small model listens for your dictionary's words and fixes Parakeet's "
-            + "transcript when it hears one. Needs a one-time ~100 MB download, and is tuned for English."
+        let what = "Un second petit modèle repère les mots de votre dictionnaire et corrige la transcription "
+            + "de Parakeet quand il en entend un. Téléchargement unique d'environ 100 Mo ; réglé pour l'anglais."
         switch boostStatus {
         case .idle: return what
-        case .downloading: return "Downloading the model (~100 MB)…"
-        case .ready: return what + " Model installed."
-        case .failed(let message): return "Download failed: \(message). Turn it off and on to retry."
+        case .downloading: return "Téléchargement du modèle (~100 Mo)…"
+        case .ready: return what + " Modèle installé."
+        case .failed(let message): return "Échec du téléchargement : \(message). Désactivez puis réactivez pour réessayer."
         }
     }
 
@@ -166,20 +177,21 @@ struct TextSettingsSection: View {
 extension CleanupLevel {
     var title: String {
         switch self {
-        case .none: "None"
-        case .light: "Light"
-        case .medium: "Medium"
-        case .high: "High"
+        case .none: "Aucun"
+        case .light: "Léger"
+        case .medium: "Moyen"
+        case .high: "Élevé"
         }
     }
 
     var explanation: String {
         switch self {
-        case .none: "What the engine heard, as heard."
-        case .light: "Removes fillers, turns spoken punctuation into marks, fixes spacing and capitals. Instant."
-        case .medium: "Light, then the on-device model: applies your self-corrections (\"5 pm, no, 6 pm\"), "
-            + "formats lists, writes numbers as digits."
-        case .high: "Medium, then rewritten in the style you chose for the kind of app you're typing into."
+        case .none: "Ce que le moteur a entendu, tel quel."
+        case .light: "Retire les hésitations, bégaiements et répétitions, transforme la ponctuation dictée, "
+            + "corrige espaces et majuscules. Instantané."
+        case .medium: "Léger, puis le modèle sur votre Mac : applique vos auto-corrections (« 17 h, non, 18 h »), "
+            + "met en forme les listes, écrit les nombres en chiffres."
+        case .high: "Moyen, puis réécrit dans le style choisi pour le type d'app où vous écrivez."
         }
     }
 }

@@ -204,4 +204,18 @@ actor AppleSpeechEngine: TranscriptionEngine {
             throw TranscriptionError.modelInstallFailed(error.localizedDescription)
         }
     }
+
+    /// Checks and installs the speech model for a locale in the background, so the first
+    /// hold after choosing a language doesn't wait on the asset download.
+    static func prewarm(locale: Locale) async {
+        guard SpeechTranscriber.isAvailable else { return }
+        guard let resolved = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else { return }
+        let transcriber = makeTranscriber(locale: resolved)
+        do {
+            try await ensureModelInstalled(for: transcriber)
+            Log.speech.info("prewarm: speech model ready for \(resolved.identifier, privacy: .public)")
+        } catch {
+            Log.speech.error("prewarm failed for \(resolved.identifier, privacy: .public): \(error.localizedDescription)")
+        }
+    }
 }

@@ -53,11 +53,31 @@ final class SnippetStore {
         save()
     }
 
+    // MARK: Clement's panel
+
+    /// The panel's list, newest first, as in his build.
+    var entries: [Snippet] { snippets.reversed() }
+
+    func add(cue: String, expansion: String) {
+        add(Snippet(trigger: cue, expansion: expansion, createdAt: Date()))
+    }
+
+    func toggle(_ snippet: Snippet) {
+        guard let index = snippets.firstIndex(where: { $0.id == snippet.id }) else { return }
+        snippets[index].isEnabled.toggle()
+        save()
+    }
+
+    /// The snippets dictation may expand: the enabled ones, or none when snippets are off.
+    var active: [Snippet] {
+        Settings.shared.snippetsEnabled ? snippets.filter(\.isEnabled) : []
+    }
+
     /// Case- and accent-insensitive search over both the trigger and the text.
     func filtered(by query: String) -> [Snippet] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return snippets }
-        return snippets.filter {
+        guard !trimmed.isEmpty else { return entries }
+        return entries.filter {
             $0.trigger.localizedStandardContains(trimmed) || $0.expansion.localizedStandardContains(trimmed)
         }
     }
@@ -80,6 +100,37 @@ final class SnippetStore {
         }
     }
 
+    /// Clement's build kept snippets in plaintext, in
+    /// `Application Support/ai.pivotstudio.murmur-youtube/snippets.json`. Once the sealed file
+    /// has been read they are merged in, sealed, and only then is the plaintext removed — a
+    /// failed seal leaves it in place for the next launch (FLU-11).
+    private func importLegacySnippets() {
+        guard AppPaths.override == nil else { return }
+        let legacy = LegacyMigration.legacySnippetsFile
+        guard FileManager.default.fileExists(atPath: legacy.path) else { return }
+        let imported: [Snippet]
+        do {
+            imported = try LegacyMerge.snippets(fromLegacyJSON: Data(contentsOf: legacy))
+        } catch {
+            Log.app.error("snippets: the legacy file couldn't be read and was left in place")
+            return
+        }
+        let merged = LegacyMerge.mergeSnippets(current: snippets, imported: imported)
+        let added = merged.count - snippets.count
+        snippets = merged
+        let url = Self.fileURL
+        queue.async {
+            do {
+                try Vault.write(try JSONEncoder().encode(merged), to: url)
+                try FileManager.default.removeItem(at: legacy)
+                LegacyMigration.removeIfEmpty(LegacyMigration.legacySnippetsDirectory)
+                Log.app.info("snippets: \(added, privacy: .public) imported from the plaintext file, which was removed")
+            } catch {
+                Log.app.error("snippets: legacy import not sealed — \(Self.describe(error), privacy: .public)")
+            }
+        }
+    }
+
     private func loaded(_ result: Result<[Snippet], Error>) {
         switch result {
         case .success(let stored):
@@ -89,8 +140,9 @@ final class SnippetStore {
             problem = nil
             Log.app.info("snippets: \(stored.count, privacy: .public) loaded")
             if !snippets.isEmpty, snippets.count != stored.count { save() }
+            importLegacySnippets()
         case .failure(let error):
-            problem = "Snippets couldn't be opened: \(Self.describe(error)). Changes are kept until you quit, not saved."
+            problem = "Les snippets n'ont pas pu être ouverts : \(Self.describe(error)). Les changements sont gardés jusqu'à ce que vous quittiez, sans être enregistrés."
             Log.app.error("snippets: load failed — \(Self.describe(error), privacy: .public)")
         }
     }
@@ -107,7 +159,7 @@ final class SnippetStore {
                 failure = Self.describe(error)
             }
             Task { @MainActor in
-                SnippetStore.shared.problem = failure.map { "Snippets aren't being saved: \($0)" }
+                SnippetStore.shared.problem = failure.map { "Les snippets ne sont pas enregistrés : \($0)" }
                 if let failure { Log.app.error("snippets: save failed — \(failure, privacy: .public)") }
             }
         }

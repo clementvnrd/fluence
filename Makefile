@@ -59,12 +59,10 @@ all: app
 build:
 	swift build -c $(CONFIG) --scratch-path "$(SCRATCH)"
 
-## Regenerates AppIcon.icns from Tools/makeicon.swift. Not a dependency of `app` — the
-## icon rarely changes and rendering 10 PNGs on every build is wasted time.
+## Re-packs AppIcon.icns from Resources/AppIcon.iconset. Not a dependency of `app` — the
+## icon rarely changes. For new artwork: `Tools/generate_fluence_icons.sh artwork.png`.
 icon:
-	@swift Tools/makeicon.swift
-	@iconutil -c icns Resources/AppIcon.iconset -o Resources/AppIcon.icns
-	@echo "wrote Resources/AppIcon.icns"
+	@Tools/generate_fluence_icons.sh
 
 ## Assemble a real .app bundle. TCC (microphone + Accessibility) keys on bundle identity
 ## and code signature, so the raw SwiftPM binary can't be used directly.
@@ -74,6 +72,8 @@ app: build
 	@cp $(BUILD) "$(CONTENTS)/MacOS/$(EXEC)"
 	@cp Resources/Info.plist "$(CONTENTS)/Info.plist"
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(CONTENTS)/Resources/"; fi
+	@# The Aqua orb drawn in the header, the settings and the HUD (`AquaOrbView`).
+	@cp Resources/AquaOrb.png "$(CONTENTS)/Resources/"
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"
 	@# Belt and braces: the staging dir isn't synced, but the copied binary can still carry
 	@# xattrs inherited from the synced .build directory.

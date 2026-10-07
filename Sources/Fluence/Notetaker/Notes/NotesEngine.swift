@@ -21,14 +21,14 @@ enum NotesFailure: Error, Equatable, Sendable {
 
     var message: String {
         switch self {
-        case .unavailable(let reason): "No notes: \(reason)"
-        case .tooShort: "No notes: too little was said to summarise."
-        case .timedOut: "No notes: the on-device model took too long. Try Regenerate."
-        case .declined: "No notes: the on-device model declined part of this transcript."
-        case .unsupportedLanguage: "No notes: the on-device model doesn't support this meeting's language."
-        case .empty: "No notes: the on-device model returned nothing usable."
-        case .cancelled: "Note writing was cancelled."
-        case .failed(let detail): "No notes: \(detail)"
+        case .unavailable(let reason): "Pas de notes : \(reason)"
+        case .tooShort: "Pas de notes : trop peu de choses ont été dites pour un résumé."
+        case .timedOut: "Pas de notes : le modèle local a mis trop de temps. Essayez « Régénérer les notes »."
+        case .declined: "Pas de notes : le modèle local a refusé une partie de cette transcription."
+        case .unsupportedLanguage: "Pas de notes : le modèle local ne prend pas en charge la langue de cette réunion."
+        case .empty: "Pas de notes : le modèle local n'a rien renvoyé d'exploitable."
+        case .cancelled: "La rédaction des notes a été annulée."
+        case .failed(let detail): "Pas de notes : \(detail)"
         }
     }
 }
@@ -354,28 +354,28 @@ struct NotesEngine: Sendable {
         #if compiler(>=6.4)
         if #available(macOS 27.0, *), let error = error as? LanguageModelError {
             switch error {
-            case .contextSizeExceeded: return .failed("the transcript did not fit the on-device model.")
+            case .contextSizeExceeded: return .failed("la transcription ne tenait pas dans le modèle local.")
             case .guardrailViolation, .refusal: return .declined
             case .unsupportedLanguageOrLocale: return .unsupportedLanguage
             case .timeout: return .timedOut
-            case .rateLimited: return .failed("the on-device model is busy. Try Regenerate in a moment.")
-            default: return .failed("the on-device model could not write them.")
+            case .rateLimited: return .failed("le modèle local est occupé. Essayez « Régénérer les notes » dans un instant.")
+            default: return .failed("le modèle local n'a pas pu les rédiger.")
             }
         }
         #endif
         if let error = error as? LanguageModelSession.GenerationError {
             switch error {
-            case .exceededContextWindowSize: return .failed("the transcript did not fit the on-device model.")
-            case .assetsUnavailable: return .unavailable("the on-device model is unavailable.")
+            case .exceededContextWindowSize: return .failed("la transcription ne tenait pas dans le modèle local.")
+            case .assetsUnavailable: return .unavailable("le modèle local n'est pas disponible.")
             case .guardrailViolation, .refusal: return .declined
             case .unsupportedLanguageOrLocale: return .unsupportedLanguage
             case .rateLimited, .concurrentRequests:
-                return .failed("the on-device model is busy. Try Regenerate in a moment.")
-            case .decodingFailure, .unsupportedGuide: return .failed("the on-device model returned malformed notes.")
-            @unknown default: return .failed("the on-device model could not write them.")
+                return .failed("le modèle local est occupé. Essayez « Régénérer les notes » dans un instant.")
+            case .decodingFailure, .unsupportedGuide: return .failed("le modèle local a renvoyé des notes mal formées.")
+            @unknown default: return .failed("le modèle local n'a pas pu les rédiger.")
             }
         }
-        return .failed("the on-device model could not write them.")
+        return .failed("le modèle local n'a pas pu les rédiger.")
     }
 
     /// For the log: the kind of failure only, never content.

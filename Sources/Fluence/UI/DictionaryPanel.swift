@@ -18,8 +18,8 @@ struct DictionaryPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                SearchField(text: $query, placeholder: "Search dictionary")
-                addButton
+                SearchField(text: $query, placeholder: "Rechercher dans le dictionnaire…")
+                actionButtons
                     .padding(.trailing, DS.Space.base)
                     .background(DS.Color.deck)
             }
@@ -29,10 +29,10 @@ struct DictionaryPanel: View {
 
             if entries.isEmpty {
                 EmptyPanel(
-                    label: store.entries.isEmpty ? "Dictionary empty" : "No matches",
+                    label: store.entries.isEmpty ? "Dictionnaire vide" : "Aucun résultat",
                     detail: store.entries.isEmpty
-                        ? "Add words it keeps getting wrong."
-                        : "Try a different search."
+                        ? "Ajoutez les mots que Fluence écrit souvent mal."
+                        : "Essayez une autre recherche."
                 )
             } else {
                 ScrollView {
@@ -64,35 +64,94 @@ struct DictionaryPanel: View {
         }
     }
 
-    private var addButton: some View {
-        Button { isAdding = true } label: {
-            HStack(spacing: DS.Space.tight) {
-                Image(systemName: "plus")
-                    .font(.system(size: 9, weight: .bold))
-                Silkscreen(text: "Add", color: DS.Color.inkOnDeck)
+    private var actionButtons: some View {
+        HStack(spacing: 8) {
+            Button {
+                store.importTechLexicon()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10))
+                    Text("Lexique Tech")
+                        .font(DS.Font.caption)
+                }
+                .foregroundStyle(DS.Color.accent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(DS.Color.selection, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(DS.Color.selectionEdge, lineWidth: 1)
+                )
             }
-            .foregroundStyle(DS.Color.inkOnDeck)
-            .padding(.horizontal, DS.Space.base)
-            .padding(.vertical, DS.Space.snug)
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.Radius.chip)
-                    .strokeBorder(DS.Color.inkOnDeck.opacity(0.35), lineWidth: DS.Border.hairline)
-            )
+            .buttonStyle(.plain)
+            .help("Importer les termes techniques, Git et anglicismes français")
+
+            Button {
+                scanFolder()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 10))
+                    Text("Scanner projet…")
+                        .font(DS.Font.caption)
+                }
+                .foregroundStyle(DS.Color.ink)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(DS.Color.seam, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Scanner un projet pour extraire automatiquement son vocabulaire")
+
+            Button { isAdding = true } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("Ajouter")
+                        .font(DS.Font.label)
+                }
+                .foregroundStyle(DS.Color.ink)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(DS.Color.cap, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(DS.Color.seam, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("n", modifiers: .command)
         }
-        .buttonStyle(.plain)
-        .keyboardShortcut("n", modifiers: .command)
+    }
+
+    private func scanFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Scanner"
+        if panel.runModal() == .OK, let url = panel.url {
+            Task {
+                _ = await AutoLearningEngine.shared.scanWorkspaceForVocabulary(at: url)
+            }
+        }
     }
 
     /// The file path is shown because the spec asks for the dictionary to be editable outside
     /// the UI — which is only true if you can find it.
     private var footer: some View {
         HStack(spacing: DS.Space.snug) {
-            Silkscreen(text: "\(store.entries.count) entries", color: DS.Color.inkOnDeck.opacity(0.5))
+            Silkscreen(text: "\(store.entries.count) entrée\(store.entries.count > 1 ? "s" : "")", color: DS.Color.inkOnDeck.opacity(0.5))
             Spacer()
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
             } label: {
-                Silkscreen(text: "Reveal dictionary.txt", color: DS.Color.inkOnDeck.opacity(0.5))
+                Silkscreen(text: "Afficher dictionary.txt dans le Finder", color: DS.Color.inkOnDeck.opacity(0.5))
             }
             .buttonStyle(.plain)
             .help(DictionaryStore.fileURL.path)
@@ -121,10 +180,10 @@ private struct DictionaryRow: View {
             Lamp(color: DS.Color.pilot, isLit: entry.isEnabled, size: 6)
 
             Silkscreen(
-                text: entry.kind == .correction ? "Fix" : "Term",
+                text: entry.kind == .correction ? "Correction" : "Terme",
                 color: DS.Color.inkOnDeck.opacity(0.5)
             )
-            .frame(width: 34, alignment: .leading)
+            .frame(width: 64, alignment: .leading)
 
             if entry.kind == .correction {
                 Text(entry.hear)
@@ -142,9 +201,9 @@ private struct DictionaryRow: View {
             Spacer()
 
             if isHovering {
-                rowButton("Edit", action: onEdit)
-                rowButton(entry.isEnabled ? "Off" : "On", action: onToggle)
-                rowButton("Delete", action: onDelete)
+                rowButton("Modifier", action: onEdit)
+                rowButton(entry.isEnabled ? "Désactiver" : "Activer", action: onToggle)
+                rowButton("Supprimer", action: onDelete)
             }
         }
         .opacity(entry.isEnabled ? 1 : 0.45)
@@ -200,16 +259,16 @@ private struct DictionaryEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.roomy) {
-            Silkscreen(text: entry == nil ? "New entry" : "Edit entry", large: true)
+            Silkscreen(text: entry == nil ? "Nouvelle entrée" : "Modifier l'entrée", large: true)
 
             kindPicker
 
             VStack(alignment: .leading, spacing: DS.Space.base) {
                 if kind == .correction {
-                    field("When you hear", text: $hear, prompt: "cloud code")
+                    field("Quand Fluence entend", text: $hear, prompt: "cloud code")
                 }
                 field(
-                    kind == .correction ? "Write" : "Word or phrase",
+                    kind == .correction ? "Écrire" : "Mot ou expression",
                     text: $write,
                     prompt: kind == .correction ? "Claude Code" : "Anthropic"
                 )
@@ -234,8 +293,8 @@ private struct DictionaryEditor: View {
 
             HStack(spacing: DS.Space.snug) {
                 Spacer()
-                TransportKey(title: "Cancel") { dismiss() }
-                TransportKey(title: "Save", isEngaged: isValid, engagedColor: DS.Color.ink) {
+                TransportKey(title: "Annuler") { dismiss() }
+                TransportKey(title: "Enregistrer", isEngaged: isValid, engagedColor: DS.Color.ink) {
                     guard isValid else { return }
                     onSave(draft)
                     dismiss()
@@ -252,7 +311,7 @@ private struct DictionaryEditor: View {
         HStack(spacing: DS.Space.snug) {
             ForEach([DictionaryEntry.Kind.term, .correction], id: \.self) { candidate in
                 TransportKey(
-                    title: candidate == .term ? "Term" : "Correction",
+                    title: candidate == .term ? "Terme" : "Correction",
                     isEngaged: kind == candidate,
                     engagedColor: DS.Color.ink
                 ) {

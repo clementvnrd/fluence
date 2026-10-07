@@ -23,14 +23,14 @@ enum CommandRewriter {
         /// is mid-task in another app; Settings explains the details.
         var message: String {
             switch self {
-            case .unavailable: "Command Mode needs Apple Intelligence."
-            case .timedOut: "The rewrite took too long. Nothing changed."
-            case .declined: "Apple's model declined this text."
-            case .unsupportedLanguage: "Apple's model doesn't support this language."
-            case .tooLong: "Too much text. Select a shorter passage."
-            case .rejected: "The rewrite looked wrong. Nothing changed."
-            case .unchanged: "Nothing to change."
-            case .failed: "The rewrite failed. Nothing changed."
+            case .unavailable: "Le Mode Commande nécessite Apple Intelligence."
+            case .timedOut: "La réécriture a pris trop de temps. Rien n'a changé."
+            case .declined: "Le modèle d'Apple a refusé ce texte."
+            case .unsupportedLanguage: "Le modèle d'Apple ne prend pas en charge cette langue."
+            case .tooLong: "Trop de texte. Sélectionnez un passage plus court."
+            case .rejected: "La réécriture semblait incorrecte. Rien n'a changé."
+            case .unchanged: "Rien à changer."
+            case .failed: "La réécriture a échoué. Rien n'a changé."
             }
         }
 

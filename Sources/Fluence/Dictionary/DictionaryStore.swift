@@ -50,10 +50,18 @@ final class DictionaryStore {
     }
 
     private init() {
-        if case .text(let text) = Self.read() {
+        switch Self.read() {
+        case .text(let text):
             lastText = text
             entries = Self.parse(text)
             revision += 1
+        case .missing:
+            // First run (a legacy dictionary has already been moved or merged in by then):
+            // start with Clement's tech and franglais lexicon rather than an empty file.
+            entries = TechLexicon.defaultEntries
+            save()
+        case .failed:
+            break
         }
         watchDirectory()
         watchFile()
@@ -96,6 +104,23 @@ final class DictionaryStore {
     var corrector: DictionaryCorrector { DictionaryCorrector(entries: entries) }
 
     var biasPhrases: [String] { DictionaryCorrector.biasPhrases(from: entries) }
+
+    /// Clement's "Lexique Tech" button: adds the lexicon's entries the dictionary lacks.
+    func importTechLexicon() {
+        var existingKeys = Set(entries.map { "\($0.hear.lowercased())->\($0.write.lowercased())" })
+        var newEntries: [DictionaryEntry] = []
+        for entry in TechLexicon.defaultEntries {
+            let key = "\(entry.hear.lowercased())->\(entry.write.lowercased())"
+            if !existingKeys.contains(key) {
+                newEntries.append(entry)
+                existingKeys.insert(key)
+            }
+        }
+        if !newEntries.isEmpty {
+            entries.append(contentsOf: newEntries)
+            save()
+        }
+    }
 
     // MARK: - Persistence
 

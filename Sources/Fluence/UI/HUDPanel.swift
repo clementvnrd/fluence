@@ -3,6 +3,9 @@ import SwiftUI
 
 /// The floating capsule that appears while you hold the key.
 ///
+/// Clement's capsule sits on a generous transparent canvas (`DS.HUD.size`) so its soft
+/// shadow is never clipped; clicks on the transparent part fall through to what's below.
+///
 /// The single most important property here is that this panel **never becomes key**.
 /// If it did, the user's text field would lose focus and `TextInjector` would have
 /// nothing to insert into. Hence `.nonactivatingPanel` plus `canBecomeKey == false`.
@@ -22,7 +25,9 @@ final class HUDPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         hidesOnDeactivate = false
         isMovableByWindowBackground = false
-        ignoresMouseEvents = true
+        // The capsule carries a language pill and a finish button, so it takes clicks — and
+        // still never focus: `canBecomeKey` is false, so the user's text field keeps it.
+        ignoresMouseEvents = false
 
         isOpaque = false
         backgroundColor = .clear
@@ -32,26 +37,13 @@ final class HUDPanel: NSPanel {
         // screenshots, so dictating during a call doesn't broadcast what you're writing.
         sharingType = .none
 
-        contentView = ClickThroughHostingView(rootView: HUDView(controller: controller))
-        followHandsFree()
+        let hosting = ClickThroughHostingView(rootView: HUDView(controller: controller))
+        hosting.wantsLayer = true
+        hosting.layer?.backgroundColor = NSColor.clear.cgColor
+        contentView = hosting
     }
-
-    // MARK: FLU-5 input
 
     private let controller: DictationController
-
-    /// The HUD ignores the mouse — it floats over whatever the user is working in — except
-    /// during a hands-free dictation, when it carries a Stop key. Clicking it still never
-    /// makes it key: `canBecomeKey` is false, so the user's text field keeps focus.
-    private func followHandsFree() {
-        withObservationTracking {
-            ignoresMouseEvents = !controller.isHandsFree
-        } onChange: { [weak self] in
-            // Hopped rather than asserted: see AGENTS.md on `MainActor.assumeIsolated`.
-            Task { @MainActor in self?.followHandsFree() }
-        }
-    }
-    // MARK: end FLU-5 input
 
     /// Bumped on every present, so a fade-out that finishes after the HUD was shown again
     /// knows it's stale.

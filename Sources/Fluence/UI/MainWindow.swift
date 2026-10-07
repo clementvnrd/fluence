@@ -1,30 +1,32 @@
 import MurmurDictionary
-import AppKit
 import SwiftUI
 
-/// The app's main window — the front panel of the unit.
-///
-/// Laid out the way a deck is: transport and meter across the top on the panel itself, then
-/// a recessed well below holding whichever section is selected. The section selector is a
-/// row of keys, not a segmented control, because everything else here is a physical control
-/// and one piece of stock UI would give the whole thing away.
+/// Main window:
+/// Understated, elegant native macOS interface (Things 3 / Apple Notes style).
+/// Optimized for native Dark and Light modes, with fluid navigation and clean cards.
 struct MainWindow: View {
     @Bindable var controller: DictationController
-
     @State private var section: Section = .transcriptions
+    @State private var hasAccessibility = Permissions.hasAccessibility
 
     enum Section: String, CaseIterable, Identifiable {
         case transcriptions
         case dictionary
-        // MARK: FLU-5 text
         case snippets
 
         var id: String { rawValue }
         var title: String {
             switch self {
             case .transcriptions: "Transcriptions"
-            case .dictionary: "Dictionary"
+            case .dictionary: "Dictionnaire"
             case .snippets: "Snippets"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .transcriptions: "waveform"
+            case .dictionary: "book.closed"
+            case .snippets: "text.badge.plus"
             }
         }
     }
@@ -34,59 +36,164 @@ struct MainWindow: View {
             DS.Color.chassis.ignoresSafeArea()
 
             VStack(spacing: DS.Space.base) {
-                TransportPanel(controller: controller)
+                // Top Native Toolbar
+                ModernTopBar(controller: controller)
 
-                sectionKeys
+                // Accessibility Permission Alert Banner
+                if !hasAccessibility {
+                    accessibilityBanner
+                }
 
-                // MARK: FLU-5 text — words learned from corrections, awaiting a yes or no.
+                // Native Segmented Tab Control
+                nativeTabBar
+
+                // Words learned from corrections, awaiting a yes or no (opt-in, FLU-5).
                 LearnedWordsStrip()
 
-                Well {
+                // Content Panel
+                ZStack {
+                    RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
+                        .fill(DS.Color.panel)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
+                                .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
+                        )
+
                     Group {
                         switch section {
                         case .transcriptions: TranscriptionList()
                         case .dictionary: DictionaryPanel()
-                        case .snippets: SnippetsPanel()
+                        case .snippets: SnippetPanel()
                         }
                     }
-                    .padding(DS.Space.hair)
+                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous))
                 }
                 .frame(maxHeight: .infinity)
             }
             .padding(DS.Space.roomy)
         }
         .frame(minWidth: DS.Window.mainMinimum.width, minHeight: DS.Window.mainMinimum.height)
+        .task {
+            while !Task.isCancelled {
+                hasAccessibility = Permissions.hasAccessibility
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
     }
 
-    private var sectionKeys: some View {
-        HStack(spacing: DS.Space.snug) {
-            ForEach(Section.allCases) { candidate in
-                TransportKey(
-                    title: candidate.title,
-                    isEngaged: section == candidate,
-                    engagedColor: DS.Color.ink
-                ) {
-                    withAnimation(DS.Motion.panel) { section = candidate }
-                }
-                .background {
-                    if section == candidate {
-                        RoundedRectangle(cornerRadius: DS.Radius.control)
-                            .fill(DS.Color.selection)
+    private var accessibilityBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(DS.Color.meterAmber)
+                .font(.system(size: 14))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Permission Accessibilité requise pour le collage automatique")
+                    .font(DS.Font.bodyEmphasis)
+                    .foregroundStyle(DS.Color.ink)
+                Text("macOS bloque l'injection directe de texte (⌘V) tant que l'accès n'est pas activé dans Réglages Système.")
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Color.inkSecondary)
+            }
+
+            Spacer()
+
+            Button("Autoriser dans Réglages…") {
+                Permissions.promptForAccessibility()
+                Permissions.openAccessibilitySettings()
+            }
+            .font(DS.Font.caption)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .foregroundStyle(DS.Color.accent)
+            .background(DS.Color.cap, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(DS.Color.seam, lineWidth: 1)
+            )
+            .buttonStyle(.plain)
+
+            Button("Réinitialiser TCC") {
+                Permissions.resetAccessibilityTCC()
+            }
+            .font(.system(size: 11))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .foregroundStyle(DS.Color.inkSecondary)
+            .background(DS.Color.cap, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(DS.Color.seam, lineWidth: 1)
+            )
+            .buttonStyle(.plain)
+            .help("Réinitialise l'autorisation si macOS affiche l'interrupteur activé sans l'appliquer.")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
+                .fill(DS.Color.meterAmber.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
+                        .strokeBorder(DS.Color.meterAmber.opacity(0.3), lineWidth: 1)
+                )
+        )
+    }
+
+    private var nativeTabBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 3) {
+                ForEach(Section.allCases) { item in
+                    Button {
+                        withAnimation(DS.Motion.panel) { section = item }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: item.icon)
+                                .font(.system(size: 11, weight: .medium))
+                            Text(item.title)
+                                .font(DS.Font.label)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .foregroundStyle(section == item ? DS.Color.ink : DS.Color.inkSecondary)
+                        .background {
+                            if section == item {
+                                Capsule()
+                                    .fill(DS.Color.panel)
+                                    .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1)
+                            }
+                        }
+                        .contentShape(Capsule())
                     }
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(3)
+            .background(DS.Color.well, in: Capsule())
+
             Spacer()
-            Vents(count: 8)
+
+            // Status Indicator Pill
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(controller.isHotkeyActive ? DS.Color.meterGreen : DS.Color.meterAmber)
+                    .frame(width: 6, height: 6)
+                Text(controller.isHotkeyActive ? "Raccourci : \(Settings.shared.pushToTalkKey.shortName)" : "Raccourci inactif")
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Color.inkSecondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(DS.Color.well, in: Capsule())
         }
     }
 }
 
-// MARK: - Transport
+// MARK: - Modern Top Bar
 
-/// Record / stop, the level meter, and the counter — the top of the unit.
-private struct TransportPanel: View {
+private struct ModernTopBar: View {
+    @Environment(\.openSettings) private var openSettings
     @Bindable var controller: DictationController
-
     @State private var elapsed: TimeInterval = 0
     @State private var startedAt: Date?
 
@@ -94,53 +201,130 @@ private struct TransportPanel: View {
 
     var body: some View {
         HStack(spacing: DS.Space.roomy) {
-            VStack(alignment: .leading, spacing: DS.Space.snug) {
-                Silkscreen(text: "Transport")
-                HStack(spacing: DS.Space.snug) {
-                    TransportKey(
-                        title: isRecording ? "Stop" : "Record",
-                        systemImage: isRecording ? "stop.fill" : "circle.fill",
-                        isEngaged: isRecording
-                    ) {
-                        if isRecording {
-                            controller.stopButtonRecording()
-                        } else {
-                            controller.startButtonRecording()
-                        }
+            // App Identity with Aqua Voice Orb
+            HStack(spacing: 10) {
+                AquaOrbView(size: 28, isActive: isRecording, isListening: isRecording)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 5) {
+                        Text("Fluence")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(DS.Color.ink)
+                        Text("AI")
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .background(
+                                LinearGradient(
+                                    colors: [Color(hex: 0x38BDF8), Color(hex: 0x0084FF)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                in: Capsule()
+                            )
                     }
-
-                    HStack(spacing: DS.Space.tight) {
-                        Lamp(color: DS.Color.record, isLit: isRecording)
-                        Silkscreen(text: "Rec")
-                    }
-                    .padding(.leading, DS.Space.tight)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: DS.Space.tight) {
-                Silkscreen(text: "Level")
-                VUMeter(level: controller.level, isActive: isRecording)
-                    .frame(width: 168, height: 54)
-            }
-
-            VStack(alignment: .leading, spacing: DS.Space.tight) {
-                Silkscreen(text: "Counter")
-                DeckWindow {
-                    Readout(text: counterText, large: true)
-                        .padding(.horizontal, DS.Space.base)
-                        .padding(.vertical, DS.Space.snug)
+                    Text("\(Settings.shared.dictationLanguage.displayName) • \(microphoneName)")
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Color.inkSecondary)
                 }
             }
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: DS.Space.snug) {
-                Screw()
-                Screw()
+            // Centered Subtle Level Meter
+            VUMeter(level: controller.level, isActive: isRecording)
+                .frame(width: 180, height: 32)
+
+            Spacer()
+
+            // Clean Timer
+            Text(counterText)
+                .font(DS.Font.counter)
+                .foregroundStyle(DS.Color.inkSecondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(DS.Color.well, in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+
+            // Action Button (Aqua Voice Styled Pill)
+            Button {
+                if isRecording {
+                    controller.stopButtonRecording()
+                } else {
+                    controller.startButtonRecording()
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    if isRecording {
+                        Circle()
+                            .fill(Color(hex: 0xEF4444))
+                            .frame(width: 8, height: 8)
+                        Text("Arrêter")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0xEF4444))
+                    } else {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.white)
+                        Text("Dicter")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.white)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 32)
+                .background {
+                    if isRecording {
+                        Capsule()
+                            .fill(Color(hex: 0xEF4444).opacity(0.12))
+                            .overlay(Capsule().strokeBorder(Color(hex: 0xEF4444).opacity(0.4), lineWidth: 1))
+                    } else {
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color(hex: 0x38BDF8), Color(hex: 0x0084FF)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .shadow(color: Color(hex: 0x0084FF).opacity(0.35), radius: 6, x: 0, y: 2)
+                    }
+                }
             }
+            .buttonStyle(.plain)
+
+            // Settings Button
+            Button {
+                openSettings()
+                NSApp.activate(ignoringOtherApps: true)
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(DS.Color.inkSecondary)
+                    .frame(width: 32, height: 32)
+                    .background {
+                        RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                            .fill(DS.Color.cap)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                                    .strokeBorder(DS.Color.seam, lineWidth: 1)
+                            )
+                    }
+            }
+            .buttonStyle(.plain)
+            .help("Ouvrir les Réglages (⌘,)")
         }
-        .padding(DS.Space.roomy)
-        .background(BrushedPanel())
+        .padding(.horizontal, DS.Space.roomy)
+        .padding(.vertical, DS.Space.snug)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
+                .fill(DS.Color.panel)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
+                        .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
+                )
+                .shadow(color: DS.Shadow.raised.color, radius: DS.Shadow.raised.radius, y: DS.Shadow.raised.y)
+        )
         .onChange(of: controller.state.isActive) { _, active in
             startedAt = active ? Date() : nil
             if !active { elapsed = 0 }
@@ -154,16 +338,25 @@ private struct TransportPanel: View {
         }
     }
 
-    /// Minutes and seconds, zero-padded, the way a tape counter reads.
     private var counterText: String {
         let total = Int(elapsed)
         return String(format: "%02d:%02d", total / 60, total % 60)
     }
+
+    private var microphoneName: String {
+        let uid = Settings.shared.selectedMicrophoneUID
+        if uid == "default" || uid.isEmpty {
+            return "Micro système"
+        }
+        if let dev = AudioDevices.availableInputDevices().first(where: { $0.id == uid }) {
+            return dev.name
+        }
+        return "Micro externe"
+    }
 }
 
-// MARK: - Transcriptions
+// MARK: - Modern Transcriptions List
 
-/// Past transcriptions, searchable, each copyable.
 private struct TranscriptionList: View {
     @State private var store = RunStore.shared
     @State private var query = ""
@@ -178,273 +371,339 @@ private struct TranscriptionList: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SearchField(text: $query, placeholder: "Search transcriptions")
+            SearchField(text: $query, placeholder: "Rechercher parmi les transcriptions…")
 
+            // History couldn't be read or saved (the Keychain refused the key). Persistent
+            // rather than a toast, because the failure persists.
             if let problem = store.problem {
                 ProblemStrip(message: problem)
             }
 
             if runs.isEmpty {
                 EmptyPanel(
-                    label: store.runs.isEmpty ? "No recordings" : "No matches",
-                    detail: store.runs.isEmpty ? "Press Record to start." : "Try a different search."
+                    label: store.runs.isEmpty ? "Aucune dictée enregistrée" : "Aucun résultat",
+                    detail: store.runs.isEmpty ? "Maintenez votre raccourci pour commencer." : "Essayez une autre recherche."
                 )
             } else {
                 ScrollView {
-                    LazyVStack(spacing: DS.Space.snug) {
+                    LazyVStack(spacing: 8) {
                         ForEach(runs) { run in
-                            TranscriptionRow(run: run) {
+                            ModernTranscriptionCard(run: run) {
                                 withAnimation(DS.Motion.panel) { RunLog.delete(run) }
                             }
                         }
                     }
                     .padding(DS.Space.base)
                 }
-                footer
+                modernFooter
             }
         }
     }
 
-    private var footer: some View {
+    private var modernFooter: some View {
         HStack {
-            Silkscreen(
-                text: "\(store.runs.count) recording\(store.runs.count == 1 ? "" : "s")",
-                color: DS.Color.inkOnDeck.opacity(0.5)
-            )
+            Text("\(store.runs.count) enregistrement\(store.runs.count == 1 ? "" : "s")")
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Color.inkSecondary)
             Spacer()
             Button { isConfirmingClear = true } label: {
-                Silkscreen(text: "Delete all", color: DS.Color.inkOnDeck.opacity(0.5))
+                Text("Tout effacer")
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Color.inkSecondary)
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, DS.Space.base)
-        .padding(.vertical, DS.Space.snug)
-        .background(DS.Color.deck)
+        .padding(.horizontal, DS.Space.roomy)
+        .padding(.vertical, 8)
+        .background(DS.Color.well)
         .overlay(alignment: .top) {
-            Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
+            Rectangle().fill(DS.Color.seam).frame(height: 1)
         }
-        // Confirmed, unlike a single row: one row is trivially re-recorded, the whole
-        // history is not, and there's no undo.
         .confirmationDialog(
-            "Delete all \(store.runs.count) recordings?",
+            "Supprimer l'ensemble des \(store.runs.count) enregistrements ?",
             isPresented: $isConfirmingClear,
             titleVisibility: .visible
         ) {
-            Button("Delete All", role: .destructive) { RunLog.clear() }
-            Button("Cancel", role: .cancel) {}
+            Button("Tout supprimer", role: .destructive) { RunLog.clear() }
+            Button("Annuler", role: .cancel) {}
         } message: {
-            Text("This can't be undone.")
+            Text("Cette action est irréversible.")
         }
     }
 }
 
-private struct TranscriptionRow: View {
+// MARK: - Modern Transcription Card
+
+private struct ModernTranscriptionCard: View {
     let run: DictationRun
     let onDelete: () -> Void
 
     @State private var didCopy = false
     @State private var isHovering = false
+    @State private var isShowingCorrection = false
+    /// What the engine heard before cleanup, when cleanup changed it (main's FLU-5 "Raw").
     @State private var showsRaw = false
 
+    private var shownText: String { showsRaw ? run.rawText ?? run.text : run.text }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.snug) {
-            HStack(spacing: DS.Space.snug) {
-                Silkscreen(text: run.engine, color: DS.Color.inkOnDeck.opacity(0.7))
-                Readout(text: String(format: "%.2fs", run.processSeconds))
-                    .foregroundStyle(DS.Color.inkOnDeck.opacity(0.6))
+        VStack(alignment: .leading, spacing: 8) {
+            // Header row with metadata badges
+            HStack(spacing: 8) {
+                // Engine Badge
+                Text(run.engine)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(DS.Color.accent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(DS.Color.selection, in: Capsule())
+
+                // Latency Badge
+                Text(String(format: "%.2fs", run.processSeconds))
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(DS.Color.inkSecondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(DS.Color.well, in: Capsule())
+
                 Spacer()
+
+                // Timestamp
                 Text(run.date, style: .time)
                     .font(DS.Font.caption)
-                    .foregroundStyle(DS.Color.inkOnDeck.opacity(0.5))
-                if run.rawText != nil { rawButton }
-                copyButton
-                deleteButton
-                    .opacity(isHovering ? 1 : 0)
+                    .foregroundStyle(DS.Color.inkSecondary)
+
+                // Learn & Correct Button
+                Button {
+                    isShowingCorrection = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "brain")
+                            .font(.system(size: 10))
+                        Text("Corriger")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(DS.Color.accent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(DS.Color.selection, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(DS.Color.selectionEdge, lineWidth: 0.5)
+                    )
+                }
+                .buttonStyle(.plain)
+                .help("Corriger cette dictée pour que Fluence apprenne automatiquement")
+                .sheet(isPresented: $isShowingCorrection) {
+                    CorrectionQuickSheet(initialText: run.text)
+                }
+
+                // Raw / cleaned switch, when cleanup changed something.
+                if run.rawText != nil {
+                    Button { showsRaw.toggle() } label: {
+                        Text(showsRaw ? "Nettoyé" : "Brut")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(showsRaw ? DS.Color.accent : DS.Color.inkSecondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(showsRaw ? DS.Color.selection : DS.Color.cap, in: Capsule())
+                            .overlay(Capsule().strokeBorder(DS.Color.seam, lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .help(showsRaw ? "Afficher le texte nettoyé" : "Afficher ce qui a été entendu, avant le nettoyage")
+                }
+
+                // Copy Button
+                Button {
+                    // Asked for, so an ordinary copy — but this Mac only: Universal Clipboard
+                    // would hand the dictation to every device on the account.
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.prepareForNewContents(with: .currentHostOnly)
+                    pasteboard.setString(shownText, forType: .string)
+                    didCopy = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.4))
+                        didCopy = false
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 10))
+                        Text(didCopy ? "Copié !" : "Copier")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(didCopy ? DS.Color.meterGreen : DS.Color.ink)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(didCopy ? DS.Color.meterGreen.opacity(0.12) : DS.Color.cap, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(DS.Color.seam, lineWidth: 0.5)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                // Delete Button
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 10))
+                        .foregroundStyle(DS.Color.inkSecondary)
+                        .padding(4)
+                }
+                .buttonStyle(.plain)
+                .opacity(isHovering ? 0.8 : 0.25)
+                .help("Supprimer cet enregistrement")
             }
 
-            Text(showsRaw ? run.rawText ?? run.text : run.text)
+            // Transcript Body Text
+            Text(shownText)
                 .font(DS.Font.body)
-                .foregroundStyle(DS.Color.inkOnDeck.opacity(showsRaw ? 0.7 : 1))
+                .foregroundStyle(DS.Color.ink)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .lineSpacing(2)
 
+            // Applied Corrections
             if let corrections = run.corrections, !corrections.isEmpty {
-                CorrectionBadges(corrections: corrections)
+                ModernCorrectionPills(corrections: corrections)
             }
         }
-        .padding(DS.Space.base)
-        .background {
-            DeckWindow { Color.clear }
-                .opacity(isHovering ? 0.85 : 1)
-        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(isHovering ? DS.Color.hover : DS.Color.panel)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
+                )
+                .shadow(
+                    color: isHovering ? DS.Shadow.panel.color : DS.Shadow.raised.color,
+                    radius: isHovering ? DS.Shadow.panel.radius : DS.Shadow.raised.radius,
+                    x: 0,
+                    y: isHovering ? DS.Shadow.panel.y : DS.Shadow.raised.y
+                )
+        )
         .onHover { isHovering = $0 }
-    }
-
-    /// What the engine heard before cleanup — there when cleanup changed something, so a
-    /// sentence the cleanup pass dropped can still be recovered.
-    private var rawButton: some View {
-        Button { showsRaw.toggle() } label: {
-            Silkscreen(text: "Raw", color: DS.Color.inkOnDeck.opacity(showsRaw ? 1 : 0.6))
-                .padding(.horizontal, DS.Space.snug)
-                .padding(.vertical, DS.Space.tight)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.chip)
-                        .strokeBorder(DS.Color.inkOnDeck.opacity(0.3), lineWidth: DS.Border.hairline)
-                )
-        }
-        .buttonStyle(.plain)
-        .help(showsRaw ? "Show the cleaned-up text" : "Show what was heard, before cleanup")
-    }
-
-    private var copyButton: some View {
-        Button {
-            // An explicit copy behaves like any other copy — clipboard managers may keep it —
-            // but stays on this Mac rather than syncing through Universal Clipboard.
-            let pasteboard = NSPasteboard.general
-            pasteboard.prepareForNewContents(with: .currentHostOnly)
-            pasteboard.setString(showsRaw ? run.rawText ?? run.text : run.text, forType: .string)
-            didCopy = true
-            Task {
-                try? await Task.sleep(for: .seconds(1.4))
-                didCopy = false
-            }
-        } label: {
-            Silkscreen(
-                text: didCopy ? "Copied" : "Copy",
-                color: DS.Color.inkOnDeck.opacity(didCopy ? 1 : 0.6)
-            )
-            .padding(.horizontal, DS.Space.snug)
-            .padding(.vertical, DS.Space.tight)
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.Radius.chip)
-                    .strokeBorder(DS.Color.inkOnDeck.opacity(0.3), lineWidth: DS.Border.hairline)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// Appears on hover only, and deletes without a confirmation — a single transcript is
-    /// cheap to redo, and a dialog on every row would make tidying up tedious. The
-    /// irreversible one is "Delete all", which does confirm.
-    private var deleteButton: some View {
-        Button(action: onDelete) {
-            Image(systemName: "trash")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(DS.Color.inkOnDeck.opacity(0.55))
-                .padding(.horizontal, DS.Space.snug)
-                .padding(.vertical, DS.Space.tight)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.chip)
-                        .strokeBorder(DS.Color.inkOnDeck.opacity(0.3), lineWidth: DS.Border.hairline)
-                )
-        }
-        .buttonStyle(.plain)
-        .help("Delete this transcription")
     }
 }
 
-/// Shows that the dictionary fired, and on what. Without this the dictionary is invisible
-/// and you can't tell a rule that works from one that never matches.
-private struct CorrectionBadges: View {
+private struct ModernCorrectionPills: View {
     let corrections: [AppliedCorrection]
 
     var body: some View {
-        HStack(spacing: DS.Space.snug) {
-            Silkscreen(text: "Corrected", color: DS.Color.inkOnDeck.opacity(0.7))
+        HStack(spacing: 6) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 9))
+                .foregroundStyle(DS.Color.meterAmber)
+
             ForEach(corrections, id: \.self) { correction in
-                HStack(spacing: DS.Space.tight) {
+                HStack(spacing: 4) {
                     Text(correction.from)
                         .strikethrough()
-                        .foregroundStyle(DS.Color.inkOnDeck.opacity(0.5))
+                        .foregroundStyle(DS.Color.inkSecondary)
                     Image(systemName: "arrow.right")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(DS.Color.inkOnDeck.opacity(0.4))
+                        .font(.system(size: 7))
+                        .foregroundStyle(DS.Color.inkSecondary)
                     Text(correction.to)
-                        .foregroundStyle(DS.Color.inkOnDeck)
+                        .foregroundStyle(DS.Color.ink)
                     if correction.count > 1 {
                         Text("×\(correction.count)")
-                            .foregroundStyle(DS.Color.inkOnDeck.opacity(0.5))
+                            .font(.system(size: 9))
+                            .foregroundStyle(DS.Color.inkSecondary)
                     }
                 }
-                .font(DS.Font.caption)
-                .padding(.horizontal, DS.Space.snug)
-                .padding(.vertical, DS.Space.hair)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.chip)
-                        .strokeBorder(DS.Color.inkOnDeck.opacity(0.3), lineWidth: DS.Border.hairline)
-                )
+                .font(.system(size: 10))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(DS.Color.meterAmber.opacity(0.10), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
             }
             Spacer()
         }
     }
 }
 
-// MARK: - Shared
+// MARK: - History fault
+
+/// A fault line under the search field: history couldn't be read or saved.
+private struct ProblemStrip: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: DS.Space.snug) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(DS.Color.meterAmber)
+            Text(message)
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Color.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DS.Space.roomy)
+        .padding(.vertical, DS.Space.snug)
+        .background(DS.Color.meterAmber.opacity(0.12))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(DS.Color.seam).frame(height: 1)
+        }
+    }
+}
+
+// MARK: - Modern Search Field
 
 struct SearchField: View {
     @Binding var text: String
     let placeholder: String
 
     var body: some View {
-        HStack(spacing: DS.Space.snug) {
+        HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(DS.Color.inkOnDeck.opacity(0.5))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(DS.Color.inkSecondary)
+
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .font(DS.Font.body)
-                .foregroundStyle(DS.Color.inkOnDeck)
+                .foregroundStyle(DS.Color.ink)
+
             if !text.isEmpty {
                 Button { text = "" } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(DS.Color.inkOnDeck.opacity(0.4))
+                        .font(.system(size: 11))
+                        .foregroundStyle(DS.Color.inkSecondary)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, DS.Space.base)
-        .padding(.vertical, DS.Space.snug)
-        .background(DS.Color.deck)
+        .padding(.horizontal, DS.Space.roomy)
+        .padding(.vertical, 8)
+        .background(DS.Color.well)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
+            Rectangle().fill(DS.Color.seam).frame(height: 1)
         }
     }
 }
 
-/// A fault line under the search field: history couldn't be read or saved. Persistent rather
-/// than a toast, because the failure it reports — the Keychain refusing the key — persists.
-private struct ProblemStrip: View {
-    let message: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: DS.Space.snug) {
-            Silkscreen(text: "Fault", color: DS.Color.inkOnDeck)
-            Text(message)
-                .font(DS.Font.label)
-                .foregroundStyle(DS.Color.inkOnDeck.opacity(0.8))
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, DS.Space.base)
-        .padding(.vertical, DS.Space.snug)
-        .background(DS.Color.deck)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
-        }
-    }
-}
+// MARK: - Modern Empty State
 
 struct EmptyPanel: View {
     let label: String
     let detail: String
 
     var body: some View {
-        VStack(spacing: DS.Space.snug) {
-            Silkscreen(text: label, large: true, color: DS.Color.inkOnDeck.opacity(0.55))
+        VStack(spacing: 6) {
+            Image(systemName: "mic.slash")
+                .font(.system(size: 24, weight: .light))
+                .foregroundStyle(DS.Color.inkSecondary.opacity(0.5))
+                .padding(.bottom, 2)
+
+            Text(label)
+                .font(DS.Font.bodyEmphasis)
+                .foregroundStyle(DS.Color.ink)
+
             Text(detail)
-                .font(DS.Font.label)
-                .foregroundStyle(DS.Color.inkOnDeck.opacity(0.4))
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Color.inkSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

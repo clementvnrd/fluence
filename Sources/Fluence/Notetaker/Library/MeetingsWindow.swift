@@ -4,9 +4,9 @@ import SwiftUI
 /// The meetings library: every recorded meeting, newest first, searchable, with its notes
 /// and transcript.
 ///
-/// Laid out like the main window: a panel across the top, then the list in a recessed well
-/// on the left and the selected meeting on the right — its own panel of facts and keys, a
-/// row of section keys, and a well holding the section.
+/// Laid out like the main window: a card across the top, then the list in a card on the
+/// left and the selected meeting on the right — its own card of facts and keys, a row of
+/// section keys, and a card holding the section.
 struct MeetingsWindow: View {
     @Bindable var model: MeetingLibraryModel
 
@@ -26,21 +26,20 @@ struct MeetingsWindow: View {
                 }
 
                 HStack(alignment: .top, spacing: DS.Space.base) {
-                    Well {
+                    LibraryCard {
                         MeetingList(model: model)
-                            .padding(DS.Space.hair)
                     }
                     .frame(width: DS.Library.listWidth)
 
                     if model.meeting != nil {
                         MeetingDetail(model: model)
                     } else {
-                        Well {
+                        LibraryCard {
                             EmptyPanel(
-                                label: model.store.summaries.isEmpty ? "No meetings yet" : "No meeting selected",
+                                label: model.store.summaries.isEmpty ? "Aucune réunion pour l'instant" : "Aucune réunion sélectionnée",
                                 detail: model.store.summaries.isEmpty
-                                    ? "Meetings appear here once Fluence has taken notes."
-                                    : "Choose one on the left."
+                                    ? "Les réunions apparaissent ici une fois que Fluence a pris des notes."
+                                    : "Choisissez-en une dans la liste."
                             )
                         }
                     }
@@ -56,6 +55,38 @@ struct MeetingsWindow: View {
     }
 }
 
+/// The owner's card: a white rounded surface with a hairline border, content clipped to it.
+private struct LibraryCard<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
+                    .fill(DS.Color.panel)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
+                    .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
+            )
+    }
+}
+
+/// French names of the notes templates, for this window only: `NotesTemplate.title` lives in
+/// FluenceNotesCore and is left as it is.
+fileprivate extension NotesTemplate {
+    var libraryTitle: String {
+        switch self {
+        case .general: "Général"
+        case .oneOnOne: "1:1"
+        case .clientCall: "Appel client"
+        case .standUp: "Stand-up"
+        }
+    }
+}
+
 // MARK: - Header
 
 private struct LibraryHeader: View {
@@ -63,14 +94,18 @@ private struct LibraryHeader: View {
 
     var body: some View {
         HStack(spacing: DS.Space.roomy) {
-            VStack(alignment: .leading, spacing: DS.Space.tight) {
-                Silkscreen(text: "Meetings", large: true)
-                Silkscreen(text: "Notes on this Mac only")
+            VStack(alignment: .leading, spacing: DS.Space.hair) {
+                Text("Réunions")
+                    .font(DS.Font.title)
+                    .foregroundStyle(DS.Color.ink)
+                Text("Notes conservées sur ce Mac uniquement")
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Color.inkSecondary)
             }
 
-            LabeledFact(label: "Count") {
+            LabeledFact(label: "Nombre") {
                 DeckWindow {
-                    Readout(text: String(format: "%03d", model.store.summaries.count))
+                    Readout(text: "\(model.store.summaries.count)")
                         .padding(.horizontal, DS.Space.snug)
                         .padding(.vertical, DS.Space.tight)
                 }
@@ -79,12 +114,6 @@ private struct LibraryHeader: View {
             Spacer()
 
             LibraryHeaderAccessories(model: model)
-
-            Vents(count: 6)
-            VStack(spacing: DS.Space.snug) {
-                Screw()
-                Screw()
-            }
         }
         .padding(DS.Space.roomy)
         .background(BrushedPanel())
@@ -96,16 +125,26 @@ private struct LibraryHeader: View {
 private struct MeetingList: View {
     @Bindable var model: MeetingLibraryModel
 
+    /// "3 réunions" or, while searching, "2 trouvées" (French: singular for 0 and 1).
+    private var footerText: String {
+        guard model.searchHits != nil else {
+            let count = model.store.summaries.count
+            return "\(count) réunion" + (count > 1 ? "s" : "")
+        }
+        let count = model.visible.count
+        return "\(count) trouvée" + (count > 1 ? "s" : "")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            SearchField(text: $model.query, placeholder: "Search meetings")
+            SearchField(text: $model.query, placeholder: "Rechercher parmi les réunions…")
 
             if model.visible.isEmpty {
                 EmptyPanel(
-                    label: model.store.summaries.isEmpty ? "No meetings" : "No matches",
+                    label: model.store.summaries.isEmpty ? "Aucune réunion" : "Aucun résultat",
                     detail: model.store.summaries.isEmpty
-                        ? "Nothing recorded yet."
-                        : "Titles, names, notes and transcripts are searched."
+                        ? "Rien n'a encore été enregistré."
+                        : "La recherche porte sur les titres, les noms, les notes et les transcriptions."
                 )
             } else {
                 ScrollView {
@@ -125,17 +164,14 @@ private struct MeetingList: View {
             }
 
             HStack {
-                Silkscreen(
-                    text: model.searchHits == nil
-                        ? "\(model.store.summaries.count) meeting\(model.store.summaries.count == 1 ? "" : "s")"
-                        : "\(model.visible.count) found",
-                    color: DS.Color.inkOnDeck.opacity(DS.Library.inkFaint)
-                )
+                Text(footerText)
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Color.inkSecondary)
                 Spacer()
             }
             .padding(.horizontal, DS.Space.base)
             .padding(.vertical, DS.Space.snug)
-            .background(DS.Color.deck)
+            .background(DS.Color.well)
             .overlay(alignment: .top) {
                 Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
             }
@@ -153,44 +189,46 @@ private struct MeetingRow: View {
         Button(action: onSelect) {
             VStack(alignment: .leading, spacing: DS.Space.tight) {
                 HStack(alignment: .firstTextBaseline, spacing: DS.Space.snug) {
-                    Text(summary.title.isEmpty ? "Untitled meeting" : summary.title)
+                    Text(summary.title.isEmpty ? "Réunion sans titre" : summary.title)
                         .font(DS.Font.bodyEmphasis)
-                        .foregroundStyle(DS.Color.inkOnDeck)
+                        .foregroundStyle(DS.Color.ink)
                         .lineLimit(1)
                     Spacer(minLength: DS.Space.tight)
                     // Lit: notes written. The lamp is the same instrument as the dictionary's
                     // "enabled" lamp.
                     Lamp(color: DS.Color.meterGreen, isLit: summary.hasNotes, size: DS.Library.lampSmall)
-                        .help(summary.hasNotes ? "Notes written" : (isWriting ? "Writing notes…" : "No notes"))
+                        .help(summary.hasNotes ? "Notes rédigées" : (isWriting ? "Rédaction des notes…" : "Pas de notes"))
                 }
                 HStack(spacing: DS.Space.snug) {
                     Text(summary.startedAt, format: .dateTime.day().month(.abbreviated).year().hour().minute())
                         .font(DS.Font.caption)
-                        .foregroundStyle(DS.Color.inkOnDeck.opacity(DS.Library.inkDim))
+                        .foregroundStyle(DS.Color.inkSecondary)
                     Readout(text: DurationText.format(summary.duration))
-                        .foregroundStyle(DS.Color.inkOnDeck.opacity(DS.Library.inkDim))
+                        .foregroundStyle(DS.Color.inkSecondary)
                 }
                 if !summary.speakerNames.isEmpty {
                     Text(summary.speakerNames.joined(separator: ", "))
                         .font(DS.Font.caption)
-                        .foregroundStyle(DS.Color.inkOnDeck.opacity(DS.Library.inkFaint))
+                        .foregroundStyle(DS.Color.inkSecondary)
                         .lineLimit(1)
                 }
                 if isWriting {
-                    Silkscreen(text: "Writing notes", color: DS.Color.inkOnDeck.opacity(DS.Library.inkDim))
+                    Silkscreen(text: "Rédaction des notes", color: DS.Color.accent)
                 }
             }
             .padding(DS.Space.base)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                DeckWindow { Color.clear }
-            }
-            .overlay {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: DS.Radius.panel)
-                        .strokeBorder(DS.Color.selectionEdge, lineWidth: DS.Border.bevel)
-                }
-            }
+            .background(
+                RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                    .fill(isSelected ? DS.Color.selection : DS.Color.panel)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                            .strokeBorder(
+                                isSelected ? DS.Color.selectionEdge : DS.Color.seam,
+                                lineWidth: isSelected ? DS.Border.bevel : DS.Border.hairline
+                            )
+                    )
+            )
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -218,7 +256,7 @@ private struct MeetingDetail: View {
                     Spacer()
                 }
 
-                Well {
+                LibraryCard {
                     Group {
                         switch model.tab {
                         case .recap: RecapSection(model: model, meeting: meeting)
@@ -228,9 +266,6 @@ private struct MeetingDetail: View {
                         case .myNotes: MyNotesSection(model: model)
                         }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(DS.Color.deck)
-                    .padding(DS.Space.hair)
                 }
                 .frame(maxHeight: .infinity)
             }
@@ -238,25 +273,27 @@ private struct MeetingDetail: View {
                 RenameSpeakerSheet(model: model)
             }
             .confirmationDialog(
-                "Delete “\(meeting.title)”?",
+                "Supprimer « \(meeting.title) » ?",
                 isPresented: $model.isConfirmingDelete,
                 titleVisibility: .visible
             ) {
-                Button("Delete Meeting", role: .destructive) { model.deleteSelected() }
-                Button("Cancel", role: .cancel) {}
+                Button("Supprimer la réunion", role: .destructive) { model.deleteSelected() }
+                Button("Annuler", role: .cancel) {}
             } message: {
-                Text("Its transcript, notes and any kept audio are erased with their encryption key. This can't be undone.")
+                Text("Sa transcription, ses notes et l'audio éventuellement conservé sont effacés avec leur clé de chiffrement. "
+                    + "Cette action est irréversible.")
             }
             .confirmationDialog(
-                "Replace these notes?",
+                "Remplacer ces notes ?",
                 isPresented: $model.isConfirmingRegenerate,
                 titleVisibility: .visible
             ) {
-                Button("Regenerate Notes") { model.regenerate() }
-                Button("Cancel", role: .cancel) {}
+                Button("Régénérer les notes") { model.regenerate() }
+                Button("Annuler", role: .cancel) {}
             } message: {
-                Text("New notes are written from the transcript with the \(model.template.title) template and "
-                    + "replace the current ones once they're ready. If writing fails, the current notes stay.")
+                Text("De nouvelles notes sont rédigées à partir de la transcription avec le modèle de notes "
+                    + "« \(model.template.libraryTitle) » et remplacent les actuelles dès qu'elles sont prêtes. "
+                    + "En cas d'échec, les notes actuelles sont conservées.")
             }
         }
     }
@@ -270,24 +307,24 @@ private struct DetailHeader: View {
         VStack(alignment: .leading, spacing: DS.Space.base) {
             HStack(alignment: .firstTextBaseline, spacing: DS.Space.snug) {
                 if model.isEditingTitle {
-                    TextField("Title", text: $model.titleDraft)
+                    TextField("Titre", text: $model.titleDraft)
                         .textFieldStyle(.plain)
                         .font(DS.Font.title)
-                        .foregroundStyle(DS.Color.inkOnDeck)
+                        .foregroundStyle(DS.Color.ink)
                         .padding(.horizontal, DS.Space.snug)
                         .padding(.vertical, DS.Space.tight)
-                        .background(DS.Color.deck, in: .rect(cornerRadius: DS.Radius.chip))
+                        .background(DS.Color.well, in: RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous))
                         .onSubmit { model.commitTitle() }
                         .onExitCommand { model.isEditingTitle = false }
-                    TransportKey(title: "Save", isEngaged: true, engagedColor: DS.Color.ink) { model.commitTitle() }
+                    TransportKey(title: "Enregistrer", isEngaged: true) { model.commitTitle() }
                 } else {
-                    Text(meeting.title.isEmpty ? "Untitled meeting" : meeting.title)
+                    Text(meeting.title.isEmpty ? "Réunion sans titre" : meeting.title)
                         .font(DS.Font.title)
                         .foregroundStyle(DS.Color.ink)
                         .lineLimit(2)
                         .textSelection(.enabled)
                     Button { model.beginEditingTitle() } label: {
-                        Silkscreen(text: "Edit title", color: DS.Color.inkSecondary)
+                        Silkscreen(text: "Modifier le titre", color: DS.Color.accent)
                     }
                     .buttonStyle(.plain)
                 }
@@ -300,7 +337,7 @@ private struct DetailHeader: View {
                         .font(DS.Font.label)
                         .foregroundStyle(DS.Color.ink)
                 }
-                LabeledFact(label: "Length") {
+                LabeledFact(label: "Durée") {
                     DeckWindow {
                         Readout(text: DurationText.format(meeting.duration))
                             .padding(.horizontal, DS.Space.snug)
@@ -317,33 +354,33 @@ private struct DetailHeader: View {
             }
 
             HStack(alignment: .bottom, spacing: DS.Space.base) {
-                LabeledFact(label: "Notes template") {
+                LabeledFact(label: "Modèle de notes") {
                     SelectorKeys(
                         options: NotesTemplate.allCases,
-                        title: \.title,
+                        title: \.libraryTitle,
                         selection: model.template
                     ) { model.setTemplate($0) }
                 }
                 Spacer()
                 TransportKey(
-                    title: meeting.notes == nil ? "Write notes" : "Regenerate notes",
+                    title: meeting.notes == nil ? "Rédiger les notes" : "Régénérer les notes",
                     systemImage: "text.badge.star",
                     isEnabled: !model.generator.isBusy(meeting.id)
                 ) {
                     model.requestRegenerate()
                 }
                 .help(meeting.notes == nil
-                    ? "Write notes with the on-device model"
-                    : "Write new notes from the transcript; they replace the current ones")
+                    ? "Rédiger les notes avec le modèle local"
+                    : "Rédiger de nouvelles notes à partir de la transcription ; elles remplacent les actuelles")
             }
 
             HStack(spacing: DS.Space.snug) {
                 MeetingExportKeys(model: model, meeting: meeting)
                 Spacer()
-                TransportKey(title: "Delete", systemImage: "trash") {
+                TransportKey(title: "Supprimer", systemImage: "trash") {
                     model.isConfirmingDelete = true
                 }
-                .help("Delete this meeting")
+                .help("Supprimer cette réunion")
             }
         }
         .padding(DS.Space.roomy)
@@ -361,20 +398,20 @@ private struct NotesStatusPanel: View {
         VStack(alignment: .leading, spacing: DS.Space.base) {
             switch model.status {
             case .queued:
-                statusLine(lit: true, label: "Notes queued", detail: "Another meeting's notes are being written first.")
+                statusLine(lit: true, label: "Notes en attente", detail: "Les notes d'une autre réunion sont en cours de rédaction.")
             case .working(let progress):
-                statusLine(lit: true, label: "Writing notes", detail: Self.describe(progress))
+                statusLine(lit: true, label: "Rédaction des notes", detail: Self.describe(progress))
             case .failed(let message):
-                statusLine(lit: false, label: "No notes", detail: message)
-                DeckKey(title: "Try again", systemImage: "arrow.clockwise") { model.regenerate() }
+                statusLine(lit: false, label: "Pas de notes", detail: message)
+                DeckKey(title: "Réessayer", systemImage: "arrow.clockwise") { model.regenerate() }
             case nil:
                 statusLine(
                     lit: false,
-                    label: "No notes",
-                    detail: FoundationModelFormatter.unavailableReason.map { "Notes need the on-device model: \($0)" }
-                        ?? "Notes haven't been written for this meeting. The transcript is complete."
+                    label: "Pas de notes",
+                    detail: FoundationModelFormatter.unavailableReason.map { "Les notes nécessitent le modèle local : \($0)" }
+                        ?? "Les notes de cette réunion n'ont pas encore été rédigées. La transcription est complète."
                 )
-                DeckKey(title: "Write notes", systemImage: "text.badge.star") { model.regenerate() }
+                DeckKey(title: "Rédiger les notes", systemImage: "text.badge.star") { model.regenerate() }
             }
         }
         .padding(DS.Space.roomy)
@@ -386,10 +423,12 @@ private struct NotesStatusPanel: View {
             Lamp(color: DS.Color.meterGreen, isLit: lit, size: DS.Library.lampSmall)
                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - DS.Library.lampBaselineNudge }
             VStack(alignment: .leading, spacing: DS.Space.tight) {
-                Silkscreen(text: label, color: DS.Color.inkOnDeck)
+                Text(label)
+                    .font(DS.Font.bodyEmphasis)
+                    .foregroundStyle(DS.Color.ink)
                 Text(detail)
                     .font(DS.Font.label)
-                    .foregroundStyle(DS.Color.inkOnDeck.opacity(DS.Library.inkDim))
+                    .foregroundStyle(DS.Color.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -397,10 +436,10 @@ private struct NotesStatusPanel: View {
 
     static func describe(_ progress: NotesProgress) -> String {
         switch progress {
-        case .preparing: "Preparing the transcript…"
-        case .reading(let index, let count): "Reading part \(index) of \(count)…"
-        case .merging: "Merging what each part said…"
-        case .writing: "Writing the final notes…"
+        case .preparing: "Préparation de la transcription…"
+        case .reading(let index, let count): "Lecture de la partie \(index) sur \(count)…"
+        case .merging: "Assemblage de ce que dit chaque partie…"
+        case .writing: "Rédaction des notes finales…"
         }
     }
 }
@@ -411,22 +450,22 @@ private struct RegeneratingLine: View {
 
     var body: some View {
         if case .working(let progress) = model.status {
-            line("Rewriting notes — " + NotesStatusPanel.describe(progress))
+            line("Réécriture des notes — " + NotesStatusPanel.describe(progress))
         } else if case .queued = model.status {
-            line("Rewriting notes — queued")
+            line("Réécriture des notes — en attente")
         } else if case .failed(let message) = model.status {
             line(message)
         }
     }
 
     private func line(_ text: String) -> some View {
-        Silkscreen(text: text, color: DS.Color.inkOnDeck.opacity(DS.Library.inkDim))
+        Silkscreen(text: text, color: DS.Color.inkSecondary)
             .padding(.horizontal, DS.Space.roomy)
             .padding(.top, DS.Space.base)
     }
 }
 
-/// Scrolling deck content with the notes' provenance at the bottom.
+/// Scrolling card content with the notes' provenance at the bottom.
 private struct NotesPage<Content: View>: View {
     @Bindable var model: MeetingLibraryModel
     let notes: MeetingNotes
@@ -436,9 +475,9 @@ private struct NotesPage<Content: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.roomy) {
                 content
-                Text("Written on this Mac by \(notes.model), \(notes.generatedAt.formatted(date: .abbreviated, time: .shortened)).")
+                Text("Rédigé sur ce Mac par \(notes.model), le \(notes.generatedAt.formatted(date: .abbreviated, time: .shortened)).")
                     .font(DS.Font.caption)
-                    .foregroundStyle(DS.Color.inkOnDeck.opacity(DS.Library.inkFaint))
+                    .foregroundStyle(DS.Color.inkSecondary)
             }
             .padding(DS.Space.roomy)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -458,7 +497,7 @@ private struct RecapSection: View {
             NotesPage(model: model, notes: notes) {
                 Text(notes.recap)
                     .font(DS.Font.body)
-                    .foregroundStyle(DS.Color.inkOnDeck)
+                    .foregroundStyle(DS.Color.ink)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -476,25 +515,25 @@ private struct NextStepsSection: View {
         if let notes = meeting.notes {
             NotesPage(model: model, notes: notes) {
                 if notes.nextSteps.isEmpty {
-                    Silkscreen(text: "No next steps", color: DS.Color.inkOnDeck.opacity(DS.Library.inkFaint))
+                    Silkscreen(text: "Aucune prochaine étape", color: DS.Color.inkSecondary)
                 }
                 ForEach(Array(notes.nextSteps.enumerated()), id: \.offset) { _, step in
                     HStack(alignment: .firstTextBaseline, spacing: DS.Space.snug) {
                         Image(systemName: "square")
                             .font(.system(size: DS.Library.glyphLarge, weight: .regular))
-                            .foregroundStyle(DS.Color.inkOnDeck.opacity(DS.Library.inkDim))
+                            .foregroundStyle(DS.Color.inkSecondary)
                         VStack(alignment: .leading, spacing: DS.Space.hair) {
                             Text(step.text)
                                 .font(DS.Font.body)
-                                .foregroundStyle(DS.Color.inkOnDeck)
+                                .foregroundStyle(DS.Color.ink)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
                             HStack(spacing: DS.Space.snug) {
                                 if let owner = step.owner {
-                                    Silkscreen(text: owner, color: DS.Color.inkOnDeck.opacity(DS.Library.inkDim))
+                                    Silkscreen(text: owner, color: DS.Color.inkSecondary)
                                 }
                                 if let due = step.due {
-                                    Silkscreen(text: "Due " + due, color: DS.Color.inkOnDeck.opacity(DS.Library.inkFaint))
+                                    Silkscreen(text: "Échéance : " + due, color: DS.Color.inkSecondary)
                                 }
                             }
                         }
@@ -514,8 +553,8 @@ private struct DecisionsSection: View {
     var body: some View {
         if let notes = meeting.notes {
             NotesPage(model: model, notes: notes) {
-                BulletGroup(label: "Decisions", items: notes.decisions, none: "No decisions recorded")
-                BulletGroup(label: "Open questions", items: notes.openQuestions, none: "No open questions")
+                BulletGroup(label: "Décisions", items: notes.decisions, none: "Aucune décision enregistrée")
+                BulletGroup(label: "Questions ouvertes", items: notes.openQuestions, none: "Aucune question ouverte")
             }
         } else {
             NotesStatusPanel(model: model)
@@ -530,20 +569,20 @@ private struct BulletGroup: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.snug) {
-            Silkscreen(text: label, color: DS.Color.inkOnDeck.opacity(DS.Library.inkDim))
+            Silkscreen(text: label, color: DS.Color.inkSecondary)
             if items.isEmpty {
                 Text(none)
                     .font(DS.Font.label)
-                    .foregroundStyle(DS.Color.inkOnDeck.opacity(DS.Library.inkFaint))
+                    .foregroundStyle(DS.Color.inkSecondary)
             }
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .firstTextBaseline, spacing: DS.Space.snug) {
                     Text("—")
                         .font(DS.Font.body)
-                        .foregroundStyle(DS.Color.inkOnDeck.opacity(DS.Library.inkFaint))
+                        .foregroundStyle(DS.Color.inkSecondary)
                     Text(item)
                         .font(DS.Font.body)
-                        .foregroundStyle(DS.Color.inkOnDeck)
+                        .foregroundStyle(DS.Color.ink)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -562,7 +601,7 @@ private struct TranscriptSection: View {
         VStack(spacing: 0) {
             speakerStrip
             if meeting.segments.isEmpty {
-                EmptyPanel(label: "No transcript", detail: "Nothing was transcribed in this meeting.")
+                EmptyPanel(label: "Pas de transcription", detail: "Rien n'a été transcrit pendant cette réunion.")
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: DS.Space.base) {
@@ -580,34 +619,32 @@ private struct TranscriptSection: View {
     private var speakerStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DS.Space.snug) {
-                Silkscreen(text: "Speakers", color: DS.Color.inkOnDeck.opacity(DS.Library.inkFaint))
+                Silkscreen(text: "Intervenants", color: DS.Color.inkSecondary)
                 ForEach(meeting.speakers) { speaker in
                     Button { model.beginRenaming(speaker) } label: {
                         HStack(spacing: DS.Space.tight) {
                             Text(speaker.displayName)
                                 .font(DS.Font.label)
-                                .foregroundStyle(DS.Color.inkOnDeck)
-                            Silkscreen(
-                                text: Self.source(speaker),
-                                color: DS.Color.inkOnDeck.opacity(DS.Library.inkFaint)
-                            )
+                                .foregroundStyle(DS.Color.ink)
+                            Silkscreen(text: Self.source(speaker), color: DS.Color.inkSecondary)
                         }
                         .padding(.horizontal, DS.Space.snug)
                         .padding(.vertical, DS.Space.tight)
+                        .background(DS.Color.cap, in: Capsule())
                         .overlay(
-                            RoundedRectangle(cornerRadius: DS.Radius.chip)
-                                .strokeBorder(DS.Color.inkOnDeck.opacity(DS.Library.edgeFaint), lineWidth: DS.Border.hairline)
+                            Capsule()
+                                .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
                         )
-                        .contentShape(.rect)
+                        .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
-                    .help("Rename \(speaker.displayName) everywhere in this meeting")
+                    .help("Renommer \(speaker.displayName) partout dans cette réunion")
                 }
             }
             .padding(.horizontal, DS.Space.roomy)
             .padding(.vertical, DS.Space.snug)
         }
-        .background(DS.Color.deck)
+        .background(DS.Color.well)
         .overlay(alignment: .bottom) {
             Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
         }
@@ -618,19 +655,19 @@ private struct TranscriptSection: View {
         return HStack(alignment: .firstTextBaseline, spacing: DS.Space.base) {
             Text(Clock.format(segment.start))
                 .font(DS.Font.counter)
-                .foregroundStyle(DS.Color.inkOnDeck.opacity(DS.Library.inkFaint))
+                .foregroundStyle(DS.Color.inkSecondary)
                 .frame(width: DS.Library.timestampWidth, alignment: .leading)
             VStack(alignment: .leading, spacing: DS.Space.hair) {
                 Button { model.beginRenaming(speaker) } label: {
                     Text(speaker.displayName)
                         .font(DS.Font.bodyEmphasis)
-                        .foregroundStyle(DS.Color.inkOnDeck)
+                        .foregroundStyle(DS.Color.ink)
                 }
                 .buttonStyle(.plain)
-                .help("Rename \(speaker.displayName) everywhere in this meeting")
+                .help("Renommer \(speaker.displayName) partout dans cette réunion")
                 Text(segment.text)
                     .font(DS.Font.body)
-                    .foregroundStyle(DS.Color.inkOnDeck.opacity(segment.isFinal ? 1 : DS.Library.inkDim))
+                    .foregroundStyle(DS.Color.ink.opacity(segment.isFinal ? 1 : DS.Library.inkDim))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -639,11 +676,11 @@ private struct TranscriptSection: View {
 
     static func source(_ speaker: Speaker) -> String {
         switch speaker.nameSource {
-        case .user: "named by you"
-        case .meetingWindow: "from the call"
-        case .voicePrint: "voice print"
-        case .calendar: "calendar"
-        case nil: speaker.isMe ? "mic" : "unnamed"
+        case .user: "nommé par vous"
+        case .meetingWindow: "depuis l'appel"
+        case .voicePrint: "empreinte vocale"
+        case .calendar: "calendrier"
+        case nil: speaker.isMe ? "micro" : "sans nom"
         }
     }
 }
@@ -653,30 +690,32 @@ private struct RenameSpeakerSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.roomy) {
-            Silkscreen(text: "Rename speaker", large: true)
-            Text("The new name applies to every line this speaker said in this meeting, and to "
-                + "their next steps. Leave it empty to go back to a numbered speaker.")
+            Text("Renommer l'intervenant")
+                .font(DS.Font.title)
+                .foregroundStyle(DS.Color.ink)
+            Text("Le nouveau nom s'applique à chaque réplique de cet intervenant dans cette réunion, "
+                + "ainsi qu'à ses prochaines étapes. Laissez le champ vide pour revenir à un intervenant numéroté.")
                 .font(DS.Font.label)
                 .foregroundStyle(DS.Color.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: DS.Space.tight) {
-                Silkscreen(text: "Name")
-                TextField(model.renaming?.displayName ?? "Name", text: $model.renameDraft)
+                Silkscreen(text: "Nom")
+                TextField(model.renaming?.displayName ?? "Nom", text: $model.renameDraft)
                     .textFieldStyle(.plain)
                     .font(DS.Font.body)
-                    .foregroundStyle(DS.Color.inkOnDeck)
+                    .foregroundStyle(DS.Color.ink)
                     .padding(DS.Space.snug)
-                    .background(DS.Color.deck, in: .rect(cornerRadius: DS.Radius.chip))
+                    .background(DS.Color.well, in: RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: DS.Radius.chip)
+                        RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)
                             .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
                     )
                     .onSubmit { model.commitRename() }
             }
             HStack(spacing: DS.Space.snug) {
                 Spacer()
-                TransportKey(title: "Cancel") { model.renaming = nil }
-                TransportKey(title: "Rename", isEngaged: true, engagedColor: DS.Color.ink) { model.commitRename() }
+                TransportKey(title: "Annuler") { model.renaming = nil }
+                TransportKey(title: "Renommer", isEngaged: true) { model.commitRename() }
             }
         }
         .padding(DS.Space.panel)
@@ -694,18 +733,18 @@ private struct MyNotesSection: View {
         VStack(alignment: .leading, spacing: 0) {
             TextEditor(text: $model.notesDraft)
                 .font(DS.Font.body)
-                .foregroundStyle(DS.Color.inkOnDeck)
+                .foregroundStyle(DS.Color.ink)
                 .scrollContentBackground(.hidden)
                 .padding(DS.Space.base)
                 .frame(minHeight: DS.Library.editorMinHeight)
 
             HStack(spacing: DS.Space.snug) {
                 Silkscreen(
-                    text: "What you typed during the meeting — the notes treat it as most important",
-                    color: DS.Color.inkOnDeck.opacity(DS.Library.inkFaint)
+                    text: "Ce que vous avez saisi pendant la réunion — les notes le considèrent comme le plus important",
+                    color: DS.Color.inkSecondary
                 )
                 Spacer()
-                DeckKey(title: model.hasUnsavedNotes ? "Save" : "Saved", isEnabled: model.hasUnsavedNotes) {
+                DeckKey(title: model.hasUnsavedNotes ? "Enregistrer" : "Enregistré", isEnabled: model.hasUnsavedNotes) {
                     model.saveUserNotes()
                 }
                 .keyboardShortcut("s", modifiers: .command)

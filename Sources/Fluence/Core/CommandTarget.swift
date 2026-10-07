@@ -31,11 +31,11 @@ struct CommandTarget {
         /// Short enough for the HUD's two-line readout.
         var message: String {
             switch self {
-            case .noFocus: "Click into the text to change first."
-            case .secureField: "Command Mode skips password fields."
-            case .unreadable: "This app hides its text from Fluence."
-            case .empty: "Select some text first."
-            case .tooLong: "Too much text. Select a shorter passage."
+            case .noFocus: "Cliquez d'abord dans le texte à modifier."
+            case .secureField: "Le Mode Commande ignore les mots de passe."
+            case .unreadable: "Cette app cache son texte à Fluence."
+            case .empty: "Sélectionnez d'abord du texte."
+            case .tooLong: "Trop de texte. Sélectionnez un passage plus court."
             }
         }
     }

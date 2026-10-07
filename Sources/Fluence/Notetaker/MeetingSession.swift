@@ -173,8 +173,8 @@ final class MeetingSession {
             guard !warnedPermission else { return nil }
             warnedPermission = true
             rebuildTap()
-            return "Fluence hears nothing from the call. Allow it in System Settings › Privacy & Security › "
-                + "Screen & System Audio Recording (System Audio Recording Only), then start again."
+            return "Fluence n'entend rien de l'appel. Autorisez-le dans Réglages Système › Confidentialité et sécurité › "
+                + "Enregistrement de l'écran et de l'audio système (Enregistrement audio du système uniquement), puis relancez l'enregistrement."
         }
         guard elapsed - lastRebuild >= 15, rebuilds < 20 else { return nil }
         rebuildTap()

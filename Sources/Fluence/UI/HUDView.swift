@@ -1,134 +1,183 @@
 import SwiftUI
 
-/// The readout that floats above the Dock while you dictate: a small deck window with the
-/// record lamp, a level meter and the live transcript.
+/// Understated, elegant floating capsule HUD.
 ///
-/// Flat and opaque on purpose. The glass pill it replaced — blur, soft shadow, a blue-purple
-/// gradient on the bars — was the one piece of the app that didn't look like the equipment.
+/// Designed with a minimalist Apple aesthetic: obsidian glass, delicate hairline border,
+/// pure monochrome audio visualizer, and crisp typography without garish AI clichés.
 struct HUDView: View {
     @Bindable var controller: DictationController
 
     var body: some View {
-        HStack(spacing: DS.Space.base) {
-            // Red means recording, and only that: lit while the mic is open.
-            Lamp(color: DS.Color.record, isLit: isRecording)
+        ZStack {
+            // Margin clearance for soft diffused shadows
+            Color.clear
+                .frame(width: DS.HUD.size.width, height: DS.HUD.size.height)
 
-            Waveform(level: controller.level, isActive: controller.state == .listening)
-                .frame(width: DS.HUD.meterSize.width, height: DS.HUD.meterSize.height)
+            // Luminous Aqua Voice floating capsule
+            HStack(spacing: 12) {
+                // The iconic Aqua Voice Orb
+                AquaOrbView(
+                    size: 24,
+                    isActive: controller.state.isActive,
+                    isListening: controller.state == .listening
+                )
 
-            if isError {
-                Silkscreen(text: "Fault", color: DS.Color.fault)
-            }
+                // Clean vibrant Aqua waveform
+                AquaWaveform(level: controller.level, isActive: controller.state == .listening)
+                    .frame(width: 48, height: 20)
 
-            // MARK: FLU-5 input — which mode the key is in, printed like a mode label on a
-            // deck, above the readout rather than in a colour.
-            VStack(alignment: .leading, spacing: DS.Space.hair) {
-                if let modeLabel {
-                    Silkscreen(text: modeLabel, color: DS.Color.inkOnDeck)
-                        .lineLimit(1)
-                }
+                // Spoken text / Status label
                 Text(label)
-                    .font(DS.Font.bodyEmphasis)
-                    .foregroundStyle(isError ? DS.Color.fault : DS.Color.inkOnDeck)
-                    .lineLimit(modeLabel == nil ? 2 : 1)
-                    // A live transcript keeps its newest words; a message keeps its start.
-                    .truncationMode(isMessage ? .tail : .head)
-                    .animation(DS.Motion.readout, value: controller.transcript)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(DS.Color.ink)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .animation(.easeOut(duration: 0.12), value: controller.transcript)
 
-            // A hands-free dictation has no key to let go of: Stop is how the mouse ends it.
-            // The panel takes clicks only while this key is showing, and still never focus.
-            if controller.isHandsFree, isRecording {
-                TransportKey(title: "Stop", systemImage: "stop.fill", isEngaged: true) {
-                    controller.stopHandsFree()
+                // Quick Language Switcher Pill (FR / EN / AUTO)
+                if Settings.shared.engine != .parakeet {
+                    Button {
+                        Settings.shared.toggleLanguage()
+                    } label: {
+                        Text(Settings.shared.dictationLanguage.shortDisplay)
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundStyle(DS.Color.accent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(DS.Color.selection, in: Capsule())
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(DS.Color.selectionEdge, lineWidth: 0.5)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Cliquer pour basculer de langue (ou ⌥L)")
+                }
+
+                // Finish / Validate checkmark button when active
+                if controller.state.isActive, controller.state != .finishing {
+                    Button {
+                        // Ends a hands-free (locked) dictation, or a hold, and types it.
+                        if controller.isHandsFree {
+                            controller.stopHandsFree()
+                        } else {
+                            controller.stopButtonRecording()
+                        }
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(DS.Color.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Terminer la dictée")
                 }
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .frame(width: DS.HUD.capsule.width, height: DS.HUD.capsule.height)
+            .background {
+                Capsule()
+                    .fill(DS.Color.panel.opacity(0.95))
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.7),
+                                        Color(hex: 0x38BDF8).opacity(controller.state.isActive ? 0.45 : 0.15),
+                                        Color.white.opacity(0.3)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 0.75
+                            )
+                    )
+                    .shadow(
+                        color: Color(hex: 0x0084FF).opacity(controller.state.isActive ? 0.35 : 0.08),
+                        radius: controller.state.isActive ? 20 : 10,
+                        x: 0,
+                        y: 5
+                    )
+                    .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
+            }
         }
-        .padding(.horizontal, DS.Space.roomy)
-        .padding(.vertical, DS.Space.base)
-        .frame(width: DS.HUD.size.width, height: DS.HUD.size.height)
-        .background(DS.Color.deck, in: .rect(cornerRadius: DS.Radius.window))
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.Radius.window)
-                .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
-        )
-    }
-
-    private var isRecording: Bool {
-        controller.state == .starting || controller.state == .listening
-    }
-
-    private var isError: Bool {
-        if case .error = controller.state { return true }
-        return false
-    }
-
-    // MARK: FLU-5 input
-    private var isMessage: Bool {
-        switch controller.state {
-        case .error, .notice: true
-        default: false
-        }
-    }
-
-    private var modeLabel: String? {
-        guard controller.state.isActive else { return nil }
-        // Short: the readout beside it is narrow, and the Stop key says how to end it.
-        if controller.isCommand { return "Command" }
-        return controller.isHandsFree ? "Hands-free" : nil
     }
 
     private var label: String {
         switch controller.state {
-        case .starting where controller.isCommand,
-             .listening where controller.isCommand && controller.transcript.isEmpty:
-            "Say what to change…"
-        case .starting: "Listening…"
-        case .listening: controller.transcript.isEmpty ? "Listening…" : controller.transcript
-        // Parakeet transcribes in one pass on release, so there's nothing to show until
-        // it lands — say what's happening instead of leaving an empty pill.
-        case .finishing: controller.transcript.isEmpty ? "Transcribing…" : controller.transcript
-        case .error(let message): message
-        case .notice(let message): message
-        case .idle: ""
+        case .starting:
+            return controller.isCommandMode ? "Mode Commande…" : "Écoute…"
+        case .listening:
+            if controller.transcript.isEmpty {
+                if controller.isCommandMode { return "Énoncez votre commande…" }
+                // Locked on by a tap or ⌥␣ + Espace: say how to end it.
+                return controller.isHandsFree ? "Mains libres — touchez le raccourci pour finir" : "Parlez maintenant…"
+            }
+            return controller.isCommandMode ? "CMD: \(controller.transcript)" : controller.transcript
+        case .finishing:
+            if controller.isCommandMode {
+                return controller.transcript.isEmpty ? "Application…" : "CMD: \(controller.transcript)"
+            }
+            return controller.transcript.isEmpty ? "Transcription…" : controller.transcript
+        case .error(let message):
+            return message
+        case .notice(let message):
+            return message
+        case .idle:
+            return "Fluence • Prêt"
         }
     }
 }
 
-/// Level-reactive bars — instrumentation, so the meter green is allowed here. Each
-/// bar gets a fixed phase offset so the group ripples rather than pumping in unison.
-private struct Waveform: View {
+/// Luminous Aqua Voice audio meter waveform bars.
+private struct AquaWaveform: View {
     let level: Float
     let isActive: Bool
 
-    private static let phases: [Double] = (0..<DS.HUD.barCount).map { index in
-        // Irrational multiplier keeps the offsets from lining up into a visible period.
+    private static let barCount = 7
+    private static let phases: [Double] = (0..<barCount).map { index in
         (Double(index) * 0.618).truncatingRemainder(dividingBy: 1)
     }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / DS.HUD.meterFrameRate, paused: !isActive)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isActive)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
-            HStack(alignment: .center, spacing: DS.HUD.barGap) {
-                ForEach(0..<DS.HUD.barCount, id: \.self) { index in
-                    Rectangle()
-                        .fill(DS.Color.meterGreen)
-                        .frame(width: DS.HUD.barWidth, height: height(for: index, at: t))
+            HStack(alignment: .center, spacing: 3) {
+                ForEach(0..<Self.barCount, id: \.self) { index in
+                    Capsule()
+                        .fill(barGradient(for: index))
+                        .frame(width: 2.5, height: height(for: index, at: t))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
+    private func barGradient(for index: Int) -> LinearGradient {
+        guard isActive else {
+            return LinearGradient(
+                colors: [Color(hex: 0x0084FF).opacity(0.25), Color(hex: 0x0EA5E9).opacity(0.15)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        return LinearGradient(
+            colors: [Color(hex: 0x38BDF8), Color(hex: 0x0084FF)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
     private func height(for index: Int, at time: TimeInterval) -> CGFloat {
-        guard isActive else { return DS.HUD.barFloor }
+        let floorHeight: CGFloat = 3.5
+        guard isActive else { return floorHeight }
 
         let phase = Self.phases[index]
-        let wave = sin(time * 6.0 + phase * .pi * 2)
-        let amplitude = CGFloat(max(0.04, level))
-        // Wave rides on top of the level so bars still breathe during quiet passages.
-        let scaled = amplitude * (0.55 + 0.45 * CGFloat(wave))
-        return DS.HUD.barFloor + max(0, scaled) * DS.HUD.barTravel
+        let wave = sin(time * 6.5 + phase * .pi * 2)
+        let amplitude = CGFloat(max(0.08, level))
+        let scaled = amplitude * (0.65 + 0.35 * CGFloat(wave))
+        return min(18, floorHeight + max(0, scaled) * 16)
     }
 }

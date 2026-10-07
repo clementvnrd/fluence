@@ -16,7 +16,7 @@ final class MeetingSettingsModel {
     var isConfirmingRetention = false
     var isConfirmingVoicePrintsOff = false
     var isConfirmingDeleteAll = false
-    /// Short-lived "Copied" on the consent keys.
+    /// Short-lived "Copié !" on the consent keys.
     private(set) var flash: String?
 
     @ObservationIgnored private var flashTask: Task<Void, Never>?
@@ -101,137 +101,139 @@ struct MeetingSettingsSection: View {
             consentPanel
         }
         .confirmationDialog(
-            "Keep meetings for \(model.pendingRetention?.title.lowercased() ?? "")?",
+            "Conserver les réunions \(model.pendingRetention.map(Self.retentionPhrase) ?? "") ?",
             isPresented: $model.isConfirmingRetention,
             titleVisibility: .visible,
             presenting: model.pendingRetention
         ) { choice in
-            Button("Delete \(model.pendingRetentionCount) Older Meeting\(model.pendingRetentionCount == 1 ? "" : "s")", role: .destructive) {
+            Button(Self.deleteOlderTitle(model.pendingRetentionCount), role: .destructive) {
                 model.applyRetention(choice)
             }
-            Button("Cancel", role: .cancel) { model.pendingRetention = nil }
+            Button("Annuler", role: .cancel) { model.pendingRetention = nil }
         } message: { _ in
-            Text("\(model.pendingRetentionCount) meeting\(model.pendingRetentionCount == 1 ? " is" : "s are") older "
-                + "than that and will be deleted now, with their notes and transcripts. This can't be undone.")
+            Text(Self.deleteOlderMessage(model.pendingRetentionCount))
         }
         .confirmationDialog(
-            "Turn off voice prints?",
+            "Désactiver les empreintes vocales ?",
             isPresented: $model.isConfirmingVoicePrintsOff,
             titleVisibility: .visible
         ) {
-            Button("Turn Off and Delete Voice Prints", role: .destructive) { model.turnVoicePrintsOff() }
-            Button("Cancel", role: .cancel) {}
+            Button("Désactiver et supprimer les empreintes vocales", role: .destructive) { model.turnVoicePrintsOff() }
+            Button("Annuler", role: .cancel) {}
         } message: {
-            Text("Every saved voice print is deleted. Names already in your meetings stay.")
+            Text("Toutes les empreintes vocales enregistrées sont supprimées. Les noms déjà présents dans vos réunions sont conservés.")
         }
         .confirmationDialog(
-            "Delete all \(model.store.summaries.count) meetings?",
+            "Supprimer toutes les réunions (\(model.store.summaries.count)) ?",
             isPresented: $model.isConfirmingDeleteAll,
             titleVisibility: .visible
         ) {
-            Button("Delete All Meetings", role: .destructive) { model.deleteAllMeetings() }
-            Button("Cancel", role: .cancel) {}
+            Button("Supprimer toutes les réunions", role: .destructive) { model.deleteAllMeetings() }
+            Button("Annuler", role: .cancel) {}
         } message: {
-            Text("Every transcript, set of notes and kept recording is erased with its encryption key. This can't be undone.")
+            Text("Chaque transcription, chaque ensemble de notes et chaque enregistrement conservé est effacé avec sa clé "
+                + "de chiffrement. Cette action est irréversible.")
         }
     }
 
     // MARK: Panels
 
     private var detectionPanel: some View {
-        SettingsPanel(label: "Meetings") {
+        SettingsPanel(label: "Réunions") {
             Toggle(isOn: Bindable(settings).detectMeetings) {
-                Silkscreen(text: "Detect meetings")
+                toggleLabel("Détecter les réunions")
             }
             .toggleStyle(.switch)
-            SettingsNote("Watches for calls — the microphone in use by Zoom, Teams, Meet or a browser — "
-                + "and offers to take notes. Fluence never records without showing it.")
+            SettingsNote("Repère les appels — le micro utilisé par Zoom, Teams, Meet ou un navigateur — "
+                + "et propose de prendre des notes. Fluence n'enregistre jamais sans l'afficher.")
 
-            LabeledFact(label: "Countdown before recording") {
+            LabeledFact(label: "Compte à rebours avant l'enregistrement") {
                 SelectorKeys(
                     options: Self.countdowns,
-                    title: { $0 == 0 ? "Off" : "\($0) s" },
+                    title: { $0 == 0 ? "Aucun" : "\($0) s" },
                     selection: settings.countdownSeconds
                 ) { settings.countdownSeconds = $0 }
             }
             SettingsNote(settings.countdownSeconds == 0
-                ? "The Meeting detected card waits for you to press Start."
-                : "The Meeting detected card starts recording after \(settings.countdownSeconds) seconds unless you cancel.")
+                ? "La carte « Réunion détectée » attend que vous appuyiez sur Enregistrer."
+                : "La carte « Réunion détectée » lance l'enregistrement après \(settings.countdownSeconds) secondes, "
+                    + "sauf si vous choisissez « Pas maintenant ».")
 
-            LabeledFact(label: "Stop after") {
+            LabeledFact(label: "Arrêter après") {
                 SelectorKeys(
                     options: Self.maxDurations,
                     title: { "\($0 / 60) h" },
                     selection: settings.maxDurationMinutes
                 ) { settings.maxDurationMinutes = $0 }
             }
-            SettingsNote("A recording stops on its own after this long, whatever happens.")
+            SettingsNote("Un enregistrement s'arrête de lui-même au bout de cette durée, quoi qu'il arrive.")
         }
     }
 
     private var namesPanel: some View {
-        SettingsPanel(label: "Speaker names") {
+        SettingsPanel(label: "Noms des intervenants") {
             Toggle(isOn: Bindable(settings).readNamesFromMeetingWindow) {
-                Silkscreen(text: "Read names from the meeting window")
+                toggleLabel("Lire les noms dans la fenêtre de la réunion")
             }
             .toggleStyle(.switch)
-            SettingsNote("Reads the names Zoom, Teams and Meet display, through Accessibility, to label who spoke.")
+            SettingsNote("Lit les noms affichés par Zoom, Teams et Meet, via l'Accessibilité, pour indiquer qui a parlé.")
 
             Toggle(isOn: Bindable(settings).useCalendar) {
-                Silkscreen(text: "Use my calendar")
+                toggleLabel("Utiliser mon calendrier")
             }
             .toggleStyle(.switch)
-            SettingsNote("Takes the meeting title and the list of attendees from your calendar.")
+            SettingsNote("Reprend le titre de la réunion et la liste des participants depuis votre calendrier.")
 
             Toggle(isOn: Binding(get: { settings.voicePrintsEnabled }, set: { model.setVoicePrints($0) })) {
-                Silkscreen(text: "Recognise voices (voice prints)")
+                toggleLabel("Reconnaître les voix (empreintes vocales)")
             }
             .toggleStyle(.switch)
-            SettingsNote("Off unless you turn it on. When on, Fluence keeps a voice print — a set of numbers "
-                + "describing how a person you named sounds — to recognise them in later meetings. A voice "
-                + "print is biometric data: it identifies someone from their body, so the law protects it "
-                + "more strictly. Prints stay on this Mac, are never exported, and turning this off deletes "
-                + "all of them.")
+            SettingsNote("Désactivé tant que vous ne l'activez pas. Une fois activé, Fluence conserve une empreinte "
+                + "vocale — une série de nombres qui décrit la voix d'une personne que vous avez nommée — pour la "
+                + "reconnaître lors des réunions suivantes. Une empreinte vocale est une donnée biométrique : elle "
+                + "identifie quelqu'un à partir de son corps, la loi la protège donc plus strictement. Les empreintes "
+                + "restent sur ce Mac, ne sont jamais exportées, et désactiver cette option les supprime toutes.")
         }
     }
 
     private var storagePanel: some View {
-        SettingsPanel(label: "Storage") {
+        SettingsPanel(label: "Stockage") {
             Toggle(isOn: Bindable(settings).keepAudioByDefault) {
-                Silkscreen(text: "Keep meeting audio")
+                toggleLabel("Conserver l'audio des réunions")
             }
             .toggleStyle(.switch)
-            SettingsNote("Off: the recording is deleted once the transcript is final; only the encrypted "
-                + "transcript and notes are kept. You can still keep one meeting's audio while recording it.")
+            SettingsNote("Désactivé : l'enregistrement est supprimé dès que la transcription est finalisée ; seules "
+                + "la transcription et les notes chiffrées sont conservées. Vous pouvez toujours garder l'audio "
+                + "d'une réunion pendant son enregistrement.")
 
-            LabeledFact(label: "Keep meetings for") {
+            LabeledFact(label: "Conserver les réunions") {
                 SelectorKeys(
                     options: RetentionChoice.allCases,
-                    title: \.title,
+                    title: \.settingsTitle,
                     selection: model.retention
                 ) { model.chooseRetention($0) }
             }
             SettingsNote(model.retention == nil
-                ? "Currently \(settings.retentionDays ?? 0) days. Older meetings are deleted when Fluence starts."
-                : "Older meetings are deleted when Fluence starts and when you change this.")
+                ? "Actuellement \(settings.retentionDays ?? 0) jours. Les réunions plus anciennes sont supprimées au démarrage de Fluence."
+                : "Les réunions plus anciennes sont supprimées au démarrage de Fluence et quand vous modifiez ce réglage.")
 
             HStack(spacing: DS.Space.base) {
                 TransportKey(
-                    title: "Delete all meetings",
+                    title: "Supprimer toutes les réunions",
                     systemImage: "trash",
                     isEnabled: !model.store.summaries.isEmpty
                 ) {
                     model.isConfirmingDeleteAll = true
                 }
-                SettingsNote("\(model.store.summaries.count) stored, encrypted on this Mac.")
+                SettingsNote(Self.storedNote(model.store.summaries.count))
             }
         }
     }
 
     private var consentPanel: some View {
-        SettingsPanel(label: "Consent") {
-            SettingsNote("Recording people without telling them is illegal in many places, France included. "
-                + "Copy this notice and paste it in the meeting chat before you start:")
+        SettingsPanel(label: "Consentement") {
+            SettingsNote("Enregistrer des personnes sans les prévenir est illégal dans de nombreux pays, dont la France. "
+                + "Copiez cet avis et collez-le dans le chat de la réunion avant de commencer :")
             Text(NotetakerConsent.text(.french))
                 .font(DS.Font.label)
                 .italic()
@@ -243,9 +245,57 @@ struct MeetingSettingsSection: View {
 
     private static let countdowns = [0, 5, 10, 20, 30, 60]
     private static let maxDurations = [60, 120, 180, 240]
+
+    // MARK: Wording
+
+    /// A switch's label, in the cards' body ink.
+    private func toggleLabel(_ text: String) -> some View {
+        Text(text)
+            .font(DS.Font.label)
+            .foregroundStyle(DS.Color.ink)
+    }
+
+    /// "pendant 7 jours" / "pour toujours", after "Conserver les réunions".
+    private static func retentionPhrase(_ choice: RetentionChoice) -> String {
+        choice == .forever ? "pour toujours" : "pendant " + choice.settingsTitle
+    }
+
+    private static func deleteOlderTitle(_ count: Int) -> String {
+        count > 1
+            ? "Supprimer les \(count) réunions plus anciennes"
+            : "Supprimer la réunion plus ancienne"
+    }
+
+    private static func deleteOlderMessage(_ count: Int) -> String {
+        count > 1
+            ? "\(count) réunions sont plus anciennes et seront supprimées maintenant, avec leurs notes et "
+                + "transcriptions. Cette action est irréversible."
+            : "1 réunion est plus ancienne et sera supprimée maintenant, avec ses notes et sa transcription. "
+                + "Cette action est irréversible."
+    }
+
+    private static func storedNote(_ count: Int) -> String {
+        count > 1
+            ? "\(count) réunions stockées, chiffrées sur ce Mac."
+            : "\(count) réunion stockée, chiffrée sur ce Mac."
+    }
 }
 
-/// A labelled brushed panel, as in the rest of Settings.
+/// French names of the retention presets, for this section only: `RetentionChoice.title`
+/// lives in FluenceNotesCore and is left as it is.
+fileprivate extension RetentionChoice {
+    var settingsTitle: String {
+        switch self {
+        case .forever: "Toujours"
+        case .week: "7 jours"
+        case .month: "30 jours"
+        case .quarter: "90 jours"
+        case .year: "1 an"
+        }
+    }
+}
+
+/// A labelled card, as in the rest of Settings.
 struct SettingsPanel<Content: View>: View {
     let label: String
     @ViewBuilder var content: Content

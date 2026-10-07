@@ -1,3 +1,4 @@
+import FluenceCore
 import Foundation
 
 /// Where Fluence keeps its files, and the one-time move from the app's previous identity.
@@ -6,12 +7,25 @@ import Foundation
 /// owner-only, excluded from Time Machine and never indexed by Spotlight — so a transcript
 /// cannot leak through a backup disk or a system-wide search.
 enum AppPaths {
+    /// `~/Library/Application Support`.
+    static let applicationSupport: URL =
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+
+    /// Development only: `FLUENCE_SUPPORT_DIRECTORY` points the app at a scratch folder (for
+    /// screenshots of a fresh install). Legacy data is then never touched — the migration
+    /// below works on the real folders only.
+    static let override: URL? = ProcessInfo.processInfo.environment["FLUENCE_SUPPORT_DIRECTORY"]
+        .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+
     /// `~/Library/Application Support/Fluence`.
     static let support: URL = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let directory = base.appendingPathComponent("Fluence", isDirectory: true)
-        LegacyMigration.moveSupportDirectory(from: base.appendingPathComponent("MurmurYouTube"), to: directory)
+        if let override {
+            protect(override)
+            return override
+        }
+        let directory = applicationSupport.appendingPathComponent("Fluence", isDirectory: true)
         protect(directory)
+        LegacyMigration.mergeSupportFiles(into: directory)
         return directory
     }()
 
@@ -45,24 +59,106 @@ enum AppPaths {
     }
 }
 
-/// The app was called "Murmur YouTube" (`ai.pivotstudio.murmur-youtube`). Renaming changed
-/// both its preferences domain and its support directory; without this the user would
-/// lose their dictionary, history and settings on the first launch as Fluence.
+/// The app was called "Murmur YouTube" (`ai.pivotstudio.murmur-youtube`), and Clement's own
+/// build kept that identity. Renaming changed both its preferences domain and where its
+/// files live; without this the user would lose their dictionary, history, snippets and
+/// settings on the first launch as Fluence.
+///
+/// File by file, not folder by folder (FLU-11): on Clement's Mac `Fluence/` already exists —
+/// it holds his Whisper models — so moving the old folder only "when the new one doesn't
+/// exist" would silently skip everything. The decisions are `FluenceCore.LegacyMerge`'s.
 enum LegacyMigration {
     static let legacyBundleID = "ai.pivotstudio.murmur-youtube"
-    private static let doneKey = "migratedFromMurmurYouTube"
+    /// Set by the first Fluence builds, which copied settings once and then never again.
+    private static let firstDoneKey = "migratedFromMurmurYouTube"
+    /// This version's copy: also brings over the keys Clement's build added.
+    private static let doneKey = "migratedFromMurmurYouTube.v2"
 
-    static func moveSupportDirectory(from old: URL, to new: URL) {
+    /// `MurmurYouTube/`: history (`runs.jsonl`, plaintext) and `dictionary.txt`.
+    static var legacySupport: URL {
+        AppPaths.applicationSupport.appendingPathComponent("MurmurYouTube", isDirectory: true)
+    }
+
+    /// `ai.pivotstudio.murmur-youtube/`: Clement's `snippets.json`, plaintext.
+    static var legacySnippetsDirectory: URL {
+        AppPaths.applicationSupport.appendingPathComponent(legacyBundleID, isDirectory: true)
+    }
+
+    static var legacySnippetsFile: URL {
+        legacySnippetsDirectory.appendingPathComponent("snippets.json")
+    }
+
+    /// The plaintext history files still waiting to be sealed, oldest location first.
+    /// `HistoryFile` seals them and removes each only once its runs are written.
+    static func legacyRunFiles(in support: URL) -> [URL] {
+        var files = [support.appendingPathComponent("runs.jsonl")]
+        if AppPaths.override == nil {
+            files.insert(legacySupport.appendingPathComponent("runs.jsonl"), at: 0)
+        }
+        return files.filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// Brings `MurmurYouTube/dictionary.txt` into `Fluence/` (moved, or merged entry by entry
+    /// when Fluence already has one) and drops the rendered dashboard, a copy of the history
+    /// in plaintext HTML. History is left where it is for `HistoryFile` to seal; snippets
+    /// for `SnippetStore`, which seals them. Runs before anything reads `AppPaths.support`.
+    static func mergeSupportFiles(into support: URL) {
         let manager = FileManager.default
-        guard manager.fileExists(atPath: old.path), !manager.fileExists(atPath: new.path) else { return }
-        try? manager.moveItem(at: old, to: new)
+        let legacy = legacySupport
+        guard manager.fileExists(atPath: legacy.path) else { return }
+
+        try? manager.removeItem(at: legacy.appendingPathComponent("dashboard.html"))
+
+        let oldDictionary = legacy.appendingPathComponent("dictionary.txt")
+        let newDictionary = support.appendingPathComponent("dictionary.txt")
+        switch LegacyMerge.step(
+            legacyExists: manager.fileExists(atPath: oldDictionary.path),
+            currentExists: manager.fileExists(atPath: newDictionary.path)
+        ) {
+        case .nothing:
+            break
+        case .move:
+            do {
+                try manager.moveItem(at: oldDictionary, to: newDictionary)
+                Log.app.info("migration: dictionary moved into Fluence")
+            } catch {
+                Log.app.error("migration: dictionary not moved — \(error.localizedDescription)")
+            }
+        case .merge:
+            do {
+                let current = try String(contentsOf: newDictionary, encoding: .utf8)
+                let old = try String(contentsOf: oldDictionary, encoding: .utf8)
+                if let merged = LegacyMerge.mergeDictionary(current: current, legacy: old) {
+                    try merged.write(to: newDictionary, atomically: true, encoding: .utf8)
+                }
+                try manager.removeItem(at: oldDictionary)
+                Log.app.info("migration: dictionary merged into Fluence")
+            } catch {
+                // Both files stay as they are; the merge is tried again next launch.
+                Log.app.error("migration: dictionary not merged — \(error.localizedDescription)")
+            }
+        }
+        removeIfEmpty(legacy)
+    }
+
+    /// Removes a legacy folder once nothing but Finder or Spotlight litter is left in it.
+    static func removeIfEmpty(_ directory: URL) {
+        let manager = FileManager.default
+        guard let contents = try? manager.contentsOfDirectory(atPath: directory.path) else { return }
+        let litter: Set<String> = [".DS_Store", ".metadata_never_index"]
+        guard contents.allSatisfy(litter.contains) else { return }
+        try? manager.removeItem(at: directory)
     }
 
     /// Copies settings the user had set under the old identity. Never overwrites a value
-    /// already set under the new one, and runs once.
+    /// already set under the new one, and runs once per version of the copy.
     static func migrateDefaults(into defaults: UserDefaults = .standard) {
+        guard AppPaths.override == nil else { return }
         guard !defaults.bool(forKey: doneKey) else { return }
-        defer { defaults.set(true, forKey: doneKey) }
+        defer {
+            defaults.set(true, forKey: doneKey)
+            defaults.set(true, forKey: firstDoneKey)
+        }
 
         guard let legacy = UserDefaults(suiteName: legacyBundleID)?
             .persistentDomain(forName: legacyBundleID) else { return }

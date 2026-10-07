@@ -29,10 +29,10 @@ final class SystemAudioTap: @unchecked Sendable {
 
         var errorDescription: String? {
             switch self {
-            case .tap(let status): "Could not tap the meeting's audio (\(status))."
-            case .format: "The meeting audio format is not supported."
-            case .aggregate(let status): "Could not create the capture device (\(status))."
-            case .ioProc(let status): "Could not start the capture device (\(status))."
+            case .tap(let status): "Impossible de capter l'audio de la réunion (\(status))."
+            case .format: "Le format audio de la réunion n'est pas pris en charge."
+            case .aggregate(let status): "Impossible de créer le périphérique de capture (\(status))."
+            case .ioProc(let status): "Impossible de démarrer le périphérique de capture (\(status))."
             }
         }
     }

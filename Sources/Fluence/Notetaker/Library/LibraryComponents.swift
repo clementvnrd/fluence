@@ -2,8 +2,8 @@ import SwiftUI
 
 // Small pieces shared by the meetings library and the Meetings settings.
 
-/// A small outlined key printed on a dark deck — the Copy / Delete chips of the existing
-/// transcription list, as a component.
+/// A small pill key — the Copier / Supprimer chips of the transcription list, as a
+/// component.
 struct DeckKey: View {
     let title: String
     var systemImage: String?
@@ -15,18 +15,20 @@ struct DeckKey: View {
             HStack(spacing: DS.Space.tight) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.system(size: DS.Library.glyph, weight: .semibold))
+                        .font(.system(size: DS.Library.glyphLarge, weight: .medium))
                 }
-                Silkscreen(text: title, color: DS.Color.inkOnDeck.opacity(DS.Library.inkDim))
+                Text(title)
+                    .font(DS.Font.label)
             }
-            .foregroundStyle(DS.Color.inkOnDeck.opacity(DS.Library.inkDim))
+            .foregroundStyle(DS.Color.ink)
             .padding(.horizontal, DS.Space.snug)
             .padding(.vertical, DS.Space.tight)
+            .background(DS.Color.cap, in: Capsule())
             .overlay(
-                RoundedRectangle(cornerRadius: DS.Radius.chip)
-                    .strokeBorder(DS.Color.inkOnDeck.opacity(DS.Library.edgeFaint), lineWidth: DS.Border.hairline)
+                Capsule()
+                    .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
             )
-            .contentShape(.rect)
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -45,34 +47,29 @@ struct SelectorKeys<Value: Hashable>: View {
     var body: some View {
         HStack(spacing: DS.Space.snug) {
             ForEach(options, id: \.self) { option in
+                // Engaged: the accent on the selection tint, drawn by the key itself.
                 TransportKey(
                     title: title(option),
-                    isEngaged: selection == option,
-                    engagedColor: DS.Color.ink
+                    isEngaged: selection == option
                 ) {
                     onSelect(option)
-                }
-                .background {
-                    if selection == option {
-                        RoundedRectangle(cornerRadius: DS.Radius.control)
-                            .fill(DS.Color.selection)
-                    }
                 }
             }
         }
     }
 }
 
-/// Something went wrong that the user must know about. Printed on the panel with an
-/// indicator lamp, like the dictionary editor's warnings — never red, which means recording.
+/// Something went wrong that the user must know about. An amber card with a warning
+/// sign, like the main window's Accessibility banner — never red, which means recording.
 struct ProblemBanner: View {
     let message: String
     var onDismiss: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: DS.Space.snug) {
-            Lamp(color: DS.Color.meterAmber, isLit: true, size: DS.Library.lampSmall)
-                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - DS.Library.lampBaselineNudge }
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: DS.Library.glyphLarge + 2))
+                .foregroundStyle(DS.Color.meterAmber)
             Text(message)
                 .font(DS.Font.label)
                 .foregroundStyle(DS.Color.ink)
@@ -85,21 +82,24 @@ struct ProblemBanner: View {
                         .foregroundStyle(DS.Color.inkSecondary)
                 }
                 .buttonStyle(.plain)
-                .help("Dismiss")
+                .help("Masquer")
             }
         }
         .padding(.horizontal, DS.Space.base)
         .padding(.vertical, DS.Space.snug)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(BrushedPanel())
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.Radius.panel)
-                .strokeBorder(DS.Color.meterAmber.opacity(DS.Library.inkFaint), lineWidth: DS.Border.hairline)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
+                .fill(DS.Color.meterAmber.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
+                        .strokeBorder(DS.Color.meterAmber.opacity(DS.Library.edgeFaint), lineWidth: DS.Border.seam)
+                )
         )
     }
 }
 
-/// A silkscreen caption over a value, as printed beside a control on the panel.
+/// A small label over a value, as beside a control on a card.
 struct LabeledFact<Content: View>: View {
     let label: String
     @ViewBuilder var content: Content

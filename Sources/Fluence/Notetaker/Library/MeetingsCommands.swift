@@ -6,13 +6,13 @@ enum MeetingsWindowID {
     static let library = "meetings"
 }
 
-/// "Meetings" in the Window menu, ⇧⌘M.
+/// "Réunions" in the Window menu, ⇧⌘M.
 struct MeetingsCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(after: .windowArrangement) {
-            Button("Meetings") {
+            Button("Réunions") {
                 openWindow(id: MeetingsWindowID.library)
                 NSApp.activate(ignoringOtherApps: true)
             }
@@ -26,7 +26,7 @@ struct MeetingsMenuButton: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Meetings…") {
+        Button("Réunions…") {
             openWindow(id: MeetingsWindowID.library)
             NSApp.activate(ignoringOtherApps: true)
         }

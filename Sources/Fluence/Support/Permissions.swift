@@ -50,6 +50,27 @@ enum Permissions {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
         NSWorkspace.shared.open(url)
     }
+
+    /// Resets the TCC accessibility entry for this app when macOS permission gets wedged across rebuilds.
+    ///
+    /// Only this app's row: the bundle ID is always passed, because a bare
+    /// `tccutil reset Accessibility` wipes every app on the machine (see AGENTS.md).
+    static func resetAccessibilityTCC() {
+        guard let bundleID = Bundle.main.bundleIdentifier, !bundleID.isEmpty else { return }
+        let task = Process()
+        task.launchPath = "/usr/bin/tccutil"
+        task.arguments = ["reset", "Accessibility", bundleID]
+        try? task.run()
+        task.waitUntilExit()
+
+        let kill = Process()
+        kill.launchPath = "/usr/bin/killall"
+        kill.arguments = ["System Settings"]
+        try? kill.run()
+        kill.waitUntilExit()
+
+        openAccessibilitySettings()
+    }
 }
 
 // MARK: FLU-5 input — what the onboarding window needs beyond the two hard requirements.

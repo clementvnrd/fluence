@@ -236,6 +236,16 @@ enum TextInjector {
     }
 
     private static func postCommandV() {
+        // Clement's fallback: without the Accessibility grant a posted ⌘V is silently
+        // dropped, while System Events can still type it (it asks for Automation once).
+        // Carbon shortcuts work without the grant, so this keeps dictation usable before it.
+        guard AXIsProcessTrusted() else {
+            var error: NSDictionary?
+            NSAppleScript(source: "tell application \"System Events\" to keystroke \"v\" using command down")?
+                .executeAndReturnError(&error)
+            if error != nil { Log.inject.error("paste via System Events failed") }
+            return
+        }
         guard let source = CGEventSource(stateID: .privateState) else { return }
         let vKey = keyCode(producing: "v") ?? CGKeyCode(kVK_ANSI_V)
 

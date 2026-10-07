@@ -46,12 +46,20 @@ public struct PushToTalkGesture: Equatable, Sendable {
 
     /// A press shorter than this is a tap.
     public static let tapMaximum: TimeInterval = 0.3
+    /// With `tapLocks`, Clement's threshold: a press shorter than this locks the recording on.
+    public static let lockTapMaximum: TimeInterval = 0.35
     /// The second tap must start within this long after the first one's release.
     public static let doubleTapWindow: TimeInterval = 0.35
 
     public private(set) var phase: Phase = .idle
 
-    public init() {}
+    /// Clement's behaviour (FLU-11): a single short tap starts a recording that keeps going
+    /// until the next press — no double-tap needed. Off, a tap waits for a second one.
+    public var tapLocks: Bool
+
+    public init(tapLocks: Bool = false) {
+        self.tapLocks = tapLocks
+    }
 
     /// When the pending double-tap window closes, if one is open.
     public var tapDeadline: TimeInterval? {
@@ -88,6 +96,14 @@ public struct PushToTalkGesture: Equatable, Sendable {
     public mutating func keyUp(at time: TimeInterval) -> [Action] {
         switch phase {
         case .holding(let since):
+            if tapLocks {
+                if time - since < Self.lockTapMaximum {
+                    phase = .handsFree(keyDown: false)
+                    return [.enterHandsFree]
+                }
+                phase = .idle
+                return [.finish]
+            }
             if time - since < Self.tapMaximum {
                 phase = .tapped(at: time)
                 return []

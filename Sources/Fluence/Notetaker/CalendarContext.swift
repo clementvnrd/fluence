@@ -63,7 +63,7 @@ final class CalendarContext {
             .filter { !$0.isCurrentUser && $0.participantType != .room && $0.participantType != .resource }
             .compactMap(Self.name)
         return CalendarMeeting(
-            title: event.title ?? "Meeting",
+            title: event.title ?? "Réunion",
             attendees: attendees,
             userName: user,
             service: Self.service(of: event),
