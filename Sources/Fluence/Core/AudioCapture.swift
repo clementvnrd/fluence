@@ -49,13 +49,13 @@ final class AudioCapture: @unchecked Sendable {
 
     /// - Parameters:
     ///   - onBuffer: each captured chunk, on the audio thread, in capture order.
-    ///   - onLevel: a 0…1 level per chunk, for the meters.
+    ///   - onLevel: a 0…1 level per chunk (`AudioLevel`) and the chunk's duration, for the meters.
     ///   - onInterrupted: capture ended on its own — the device disappeared, or kept changing.
     ///     Called on the main thread with a reason fit for the user.
     func start(
         deviceUID: String? = nil,
         onBuffer: @escaping @Sendable (AudioChunk) -> Void,
-        onLevel: @escaping @Sendable (Float) -> Void,
+        onLevel: @escaping @Sendable (Float, TimeInterval) -> Void,
         onInterrupted: @escaping @Sendable (String) -> Void
     ) throws {
         guard sink == nil else { return }
@@ -205,7 +205,7 @@ final class AudioCapture: @unchecked Sendable {
     private static func tap(into sink: TapSink, as mono: AVAudioFormat) -> AVAudioNodeTapBlock {
         return { buffer, _ in
             guard let chunk = monoCopy(of: buffer, as: mono) else { return }
-            sink.onLevel(level(of: chunk))
+            sink.onLevel(level(of: chunk), Double(chunk.frameLength) / chunk.format.sampleRate)
             sink.onBuffer(AudioChunk(buffer: chunk))
         }
     }
@@ -241,28 +241,19 @@ final class AudioCapture: @unchecked Sendable {
         let count = Int(buffer.frameLength)
         guard count > 0 else { return 0 }
 
-        var sum: Float = 0
-        for i in 0..<count {
-            let sample = channel[i]
-            sum += sample * sample
-        }
-        let rms = (sum / Float(count)).squareRoot()
-
-        // Map roughly -50…0 dBFS onto 0…1 so quiet speech still moves the meter.
-        let db = 20 * log10(max(rms, 1e-7))
-        return max(0, min(1, (db + 50) / 50))
+        return AudioLevel.level(UnsafeBufferPointer(start: channel, count: count))
     }
 }
 
 /// What a running tap delivers into. Immutable, so the audio thread can share it freely.
 private final class TapSink: Sendable {
     let onBuffer: @Sendable (AudioChunk) -> Void
-    let onLevel: @Sendable (Float) -> Void
+    let onLevel: @Sendable (Float, TimeInterval) -> Void
     let onInterrupted: @Sendable (String) -> Void
 
     init(
         onBuffer: @escaping @Sendable (AudioChunk) -> Void,
-        onLevel: @escaping @Sendable (Float) -> Void,
+        onLevel: @escaping @Sendable (Float, TimeInterval) -> Void,
         onInterrupted: @escaping @Sendable (String) -> Void
     ) {
         self.onBuffer = onBuffer

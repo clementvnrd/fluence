@@ -228,7 +228,7 @@ private struct RecordingPill: View {
         HStack(spacing: 10) {
             Lamp(color: DS.Color.meetingRecord, isLit: controller.isRecording, size: 7)
             Text(FrenchFormat.clock(controller.elapsed)).font(DS.Font.counter).foregroundStyle(DS.Color.ink)
-            MiniWave(isActive: controller.isHearingSpeech, count: 6, maxHeight: 14)
+            MiniWave(isActive: controller.isRecording, level: controller.inputLevel, count: 6, maxHeight: 14)
             Rectangle().fill(DS.Color.seam).frame(width: 1, height: 18)
             Button { controller.isPanelExpanded = true } label: {
                 Image(systemName: "text.bubble")
@@ -388,7 +388,7 @@ struct LiveMeetingBanner: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                MiniWave(isActive: controller.isHearingSpeech, count: 9, maxHeight: 16)
+                MiniWave(isActive: controller.isRecording, level: controller.inputLevel, count: 9, maxHeight: 16)
                 Text(FrenchFormat.clock(controller.elapsed))
                     .font(DS.Font.counterLarge)
                     .foregroundStyle(DS.Color.ink)

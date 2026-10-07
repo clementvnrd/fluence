@@ -1,4 +1,5 @@
 import CryptoKit
+import FluenceCore
 import Foundation
 import MurmurDictionary
 
@@ -11,6 +12,8 @@ final class MeetingSession {
     let directory: URL
     let key: SymmetricKey
     let speechClock = SpeechClock()
+    /// The loudest buffer heard on either channel since the meters last looked (FLU-23).
+    let inputLevel = InputLevelBox()
     /// Meeting time the app was last seen on the mic (call-ended rule).
     var appLastOnMic: TimeInterval = 0
     /// Remote display names read from the meeting window so far, cleaned.
@@ -100,13 +103,22 @@ final class MeetingSession {
             hasSystemChannel: self.tap != nil, corrector: corrector, callbacks: callbacks
         )
 
+        // The level is measured here rather than in the capture callbacks: those run on the
+        // real-time audio thread, where a lock has no place.
         let micPipeline = micPipeline
+        let levels = inputLevel
         consumers.append(Task.detached(priority: .userInitiated) {
-            for await audio in micStream { await micPipeline.consume(audio) }
+            for await audio in micStream {
+                levels.record(AudioLevel.level(audio.samples))
+                await micPipeline.consume(audio)
+            }
         })
         if let systemPipeline {
             consumers.append(Task.detached(priority: .userInitiated) {
-                for await audio in systemStream { await systemPipeline.consume(audio) }
+                for await audio in systemStream {
+                    levels.record(AudioLevel.level(audio.samples))
+                    await systemPipeline.consume(audio)
+                }
             })
         }
 
