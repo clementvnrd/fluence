@@ -1,3 +1,4 @@
+import FluenceCore
 import MurmurDictionary
 import AVFoundation
 import Foundation
@@ -8,7 +9,9 @@ import Speech
 /// No model ships with the app — the OS downloads and manages the assets, so the first
 /// run for a given locale may block briefly while `AssetInstallationRequest` completes.
 actor AppleSpeechEngine: TranscriptionEngine {
-    private let locale: Locale
+    /// The locale asked for. Nil until first needed: then it comes from the language setting
+    /// (FLU-5), read on the main actor where the setting lives.
+    private var locale: Locale?
 
     private var transcriber: SpeechTranscriber?
     private var analyzer: SpeechAnalyzer?
@@ -19,22 +22,41 @@ actor AppleSpeechEngine: TranscriptionEngine {
     /// but discarded as soon as a final result covering the same range arrives.
     private var finalizedText = ""
 
-    init(locale: Locale = Locale.current) {
+    /// - Parameter locale: a fixed locale; nil (the default) follows Settings ▸ Language,
+    ///   whose Auto is the system locale — what this engine always used before.
+    init(locale: Locale? = nil) {
         self.locale = locale
     }
 
+    // MARK: FLU-5 text
+    private func requestedLocale() async -> Locale {
+        if let locale { return locale }
+        let identifier = await MainActor.run {
+            Settings.shared.dictationLanguage.appleLocaleIdentifier(current: .current)
+        }
+        let resolved = Locale(identifier: identifier)
+        locale = resolved
+        return resolved
+    }
+
     func preferredInputFormat() async -> AVAudioFormat? {
-        let module = transcriber ?? Self.makeTranscriber(locale: locale)
+        let module = if let transcriber { transcriber } else { Self.makeTranscriber(locale: await requestedLocale()) }
         return await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module])
     }
 
     func start() async throws -> AsyncThrowingStream<TranscriptionChunk, Error> {
+        let locale = await requestedLocale()
         guard SpeechTranscriber.isAvailable else {
             throw TranscriptionError.localeUnsupported(locale)
         }
 
-        let resolvedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: locale)
-            ?? Locale(identifier: "en-US")
+        let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale)
+        if supported == nil {
+            // Said once in the log rather than silently: the user picked a language this
+            // Mac's transcriber doesn't have, and gets English instead.
+            Log.speech.info("SpeechTranscriber has no locale for \(locale.identifier, privacy: .public) — using en-US")
+        }
+        let resolvedLocale = supported ?? Locale(identifier: "en-US")
 
         let transcriber = Self.makeTranscriber(locale: resolvedLocale)
         self.transcriber = transcriber

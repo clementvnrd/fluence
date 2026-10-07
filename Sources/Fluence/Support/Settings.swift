@@ -37,15 +37,47 @@ final class Settings {
         didSet { defaults.set(compareMode, forKey: Keys.compareMode) }
     }
 
-    /// Run the cleanup pass before injecting. Off = raw engine output.
-    var cleanupEnabled: Bool {
-        didSet { defaults.set(cleanupEnabled, forKey: Keys.cleanupEnabled) }
+    // MARK: FLU-5 text
+
+    /// How much cleanup runs between the engine and the text field. Replaces the old
+    /// `cleanupEnabled` / `smartCleanup` switches, which are migrated once (see `init`).
+    var cleanupLevel: CleanupLevel {
+        didSet { defaults.set(cleanupLevel.rawValue, forKey: Keys.cleanupLevel) }
     }
 
-    /// Use the on-device LLM for cleanup instead of the deterministic rule pass.
-    var smartCleanup: Bool {
-        didSet { defaults.set(smartCleanup, forKey: Keys.smartCleanup) }
+    /// The language dictated in. Auto keeps the system locale for Apple's engine, lets
+    /// Parakeet detect, and has cleanup detect each transcript's language.
+    var dictationLanguage: DictationLanguage {
+        didSet { defaults.set(dictationLanguage.rawValue, forKey: Keys.dictationLanguage) }
     }
+
+    /// The writing style per kind of app, applied at cleanup level High only.
+    var styles: [AppCategory: WritingStyle] {
+        didSet {
+            for (category, style) in styles {
+                defaults.set(style.rawValue, forKey: Keys.style(category))
+            }
+        }
+    }
+
+    func style(for category: AppCategory) -> WritingStyle {
+        styles[category] ?? category.defaultStyle
+    }
+
+    /// Parakeet only: rescore its transcript against the dictionary with FluidAudio's CTC
+    /// keyword spotter. Opt-in because it downloads a second model (~100 MB) and costs a
+    /// second encoder pass per dictation.
+    var parakeetVocabularyBoost: Bool {
+        didSet { defaults.set(parakeetVocabularyBoost, forKey: Keys.parakeetVocabularyBoost) }
+    }
+
+    /// Re-read the text field after typing and offer, never add, words the user corrected.
+    /// Off by default: it reads what is in the field around the dictation for 20 seconds.
+    var learnFromEdits: Bool {
+        didSet { defaults.set(learnFromEdits, forKey: Keys.learnFromEdits) }
+    }
+
+    // MARK: end FLU-5 text
 
     /// Play a short tick when capture starts and stops.
     var soundEnabled: Bool {
@@ -67,17 +99,43 @@ final class Settings {
 
     static let recordingLimitChoices = [2, 5, 10, 30]
 
+    // MARK: FLU-5 input
+
+    /// Held with the push-to-talk key, turns the hold into a Command Mode instruction.
+    var commandModifier: CommandModifier {
+        didSet { defaults.set(commandModifier.rawValue, forKey: Keys.commandModifier) }
+    }
+
+    /// ⌃⌘V pastes and ⌃⌘C copies the last transcript. Switchable because the chords are
+    /// global: someone whose editor already uses them needs a way to give them back.
+    var lastTranscriptShortcuts: Bool {
+        didSet { defaults.set(lastTranscriptShortcuts, forKey: Keys.lastTranscriptShortcuts) }
+    }
+
+    // MARK: end FLU-5 input
+
     private let defaults = UserDefaults.standard
 
     private enum Keys {
         static let pushToTalkKey = "pushToTalkKey"
+        /// Legacy (before FLU-5): read once by the cleanup-level migration, never written.
         static let cleanupEnabled = "cleanupEnabled"
         static let soundEnabled = "soundEnabled"
         static let engine = "engine"
+        /// Legacy (before FLU-5), as above.
         static let smartCleanup = "smartCleanup"
         static let compareMode = "compareMode"
         static let historyRetention = "historyRetention"
         static let maxRecordingMinutes = "maxRecordingMinutes"
+        // MARK: FLU-5 input
+        static let commandModifier = "commandModifier"
+        static let lastTranscriptShortcuts = "lastTranscriptShortcuts"
+        // MARK: FLU-5 text
+        static let cleanupLevel = "cleanupLevel"
+        static let dictationLanguage = "dictationLanguage"
+        static let parakeetVocabularyBoost = "parakeetVocabularyBoost"
+        static let learnFromEdits = "learnFromEdits"
+        static func style(_ category: AppCategory) -> String { "style.\(category.rawValue)" }
     }
 
     private init() {
@@ -87,14 +145,41 @@ final class Settings {
         pushToTalkKey = PushToTalkKey(rawValue: raw) ?? .rightOption
         // Apple by default: no download, no dependency, live text while speaking.
         engine = SpeechEngineChoice(rawValue: defaults.string(forKey: Keys.engine) ?? "") ?? .apple
-        cleanupEnabled = defaults.object(forKey: Keys.cleanupEnabled) as? Bool ?? true
-        smartCleanup = defaults.object(forKey: Keys.smartCleanup) as? Bool ?? false
+        // MARK: FLU-5 text
+        // The level is stored as soon as it is first derived, so the migration from the two
+        // old switches runs exactly once and a later change to them can't override it. The
+        // old keys are left in place: a downgraded build still finds what it expects.
+        if let level = CleanupLevel(rawValue: defaults.string(forKey: Keys.cleanupLevel) ?? "") {
+            cleanupLevel = level
+        } else {
+            // Through a local: reading the @Observable property back would touch `self`
+            // before every stored property is set.
+            let migrated = CleanupLevel.migrated(
+                cleanupEnabled: defaults.object(forKey: Keys.cleanupEnabled) as? Bool,
+                smartCleanup: defaults.object(forKey: Keys.smartCleanup) as? Bool
+            )
+            cleanupLevel = migrated
+            defaults.set(migrated.rawValue, forKey: Keys.cleanupLevel)
+        }
+        dictationLanguage = DictationLanguage(rawValue: defaults.string(forKey: Keys.dictationLanguage) ?? "") ?? .auto
+        var styles: [AppCategory: WritingStyle] = [:]
+        for category in AppCategory.allCases {
+            styles[category] = WritingStyle(rawValue: defaults.string(forKey: Keys.style(category)) ?? "")
+                ?? category.defaultStyle
+        }
+        self.styles = styles
+        parakeetVocabularyBoost = defaults.object(forKey: Keys.parakeetVocabularyBoost) as? Bool ?? false
+        learnFromEdits = defaults.object(forKey: Keys.learnFromEdits) as? Bool ?? false
+        // MARK: end FLU-5 text
         compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         historyRetention = HistoryRetention(rawValue: defaults.string(forKey: Keys.historyRetention) ?? "")
             ?? .default
         let limit = defaults.integer(forKey: Keys.maxRecordingMinutes)
         maxRecordingMinutes = limit > 0 ? limit : 10
+        // MARK: FLU-5 input
+        commandModifier = CommandModifier(rawValue: defaults.string(forKey: Keys.commandModifier) ?? "") ?? .control
+        lastTranscriptShortcuts = defaults.object(forKey: Keys.lastTranscriptShortcuts) as? Bool ?? true
     }
 }
 

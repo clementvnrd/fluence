@@ -9,6 +9,7 @@ import SwiftUI
 @MainActor
 final class HUDPanel: NSPanel {
     init(controller: DictationController) {
+        self.controller = controller
         super.init(
             contentRect: NSRect(origin: .zero, size: DS.HUD.size),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -31,8 +32,26 @@ final class HUDPanel: NSPanel {
         // screenshots, so dictating during a call doesn't broadcast what you're writing.
         sharingType = .none
 
-        contentView = NSHostingView(rootView: HUDView(controller: controller))
+        contentView = ClickThroughHostingView(rootView: HUDView(controller: controller))
+        followHandsFree()
     }
+
+    // MARK: FLU-5 input
+
+    private let controller: DictationController
+
+    /// The HUD ignores the mouse — it floats over whatever the user is working in — except
+    /// during a hands-free dictation, when it carries a Stop key. Clicking it still never
+    /// makes it key: `canBecomeKey` is false, so the user's text field keeps focus.
+    private func followHandsFree() {
+        withObservationTracking {
+            ignoresMouseEvents = !controller.isHandsFree
+        } onChange: { [weak self] in
+            // Hopped rather than asserted: see AGENTS.md on `MainActor.assumeIsolated`.
+            Task { @MainActor in self?.followHandsFree() }
+        }
+    }
+    // MARK: end FLU-5 input
 
     /// Bumped on every present, so a fade-out that finishes after the HUD was shown again
     /// knows it's stale.
@@ -92,4 +111,12 @@ final class HUDPanel: NSPanel {
             }
         }
     }
+}
+
+// MARK: FLU-5 input
+
+/// A window that never becomes key only ever receives "first" clicks. Without this, the
+/// first click on the Stop key would be spent bringing the panel forward instead of pressing.
+private final class ClickThroughHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
