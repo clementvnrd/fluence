@@ -17,6 +17,8 @@
         <TrayIcon.Menu>
           <NativeMenu>
             <NativeMenuItem Header="Show Fluence" Click="OnTrayShow" />
+            <NativeMenuItem Header="Take meeting notes" Click="OnTrayTakeNotes" />
+            <NativeMenuItem Header="Meetings" Click="OnTrayMeetings" />
             <NativeMenuItem Header="Settings…" Click="OnTraySettings" />
             <NativeMenuItemSeparator />
             <NativeMenuItem Header="Quit" Click="OnTrayQuit" />

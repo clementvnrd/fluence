@@ -34,6 +34,27 @@ public sealed record SettingsData
     /// <summary>How long dictations stay in the (sealed) history. Defaults to 30 days.</summary>
     public HistoryRetention HistoryRetention { get; init; } = HistoryRetention.ThirtyDays;
 
+    /// <summary>Notetaker: offer to record when a call starts. On by default, as on macOS.</summary>
+    public bool NotetakerDetectMeetings { get; init; } = true;
+
+    /// <summary>Notetaker: seconds on the "call detected" card before recording starts; 0 waits for a click.</summary>
+    public int NotetakerCountdownSeconds { get; init; } = 10;
+
+    /// <summary>Notetaker: the "keep audio" checkbox's starting value. Off: audio is deleted after processing.</summary>
+    public bool NotetakerKeepAudioByDefault { get; init; }
+
+    /// <summary>
+    /// Notetaker: opt-in voice prints (biometric data). Off by default; turning it off deletes
+    /// every print.
+    /// </summary>
+    public bool NotetakerVoicePrints { get; init; }
+
+    /// <summary>Notetaker: days meetings are kept; null keeps them until deleted.</summary>
+    public int? NotetakerRetentionDays { get; init; }
+
+    /// <summary>Notetaker: a recording stops by itself after this many minutes.</summary>
+    public int NotetakerMaxMinutes { get; init; } = 180;
+
     /// <summary>
     /// The pre-retention on/off switch. Read once from old settings files so "off" becomes
     /// <see cref="HistoryRetention.Never"/>, and never written again.

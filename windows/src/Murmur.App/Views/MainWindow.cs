@@ -34,6 +34,8 @@ public sealed class MainWindow : Window
     private readonly ContentControl _sectionHost;
     private readonly TransportKey _transcriptionsKey;
     private readonly TransportKey _dictionaryKey;
+    private readonly TransportKey _meetingsKey;
+    private readonly TransportKey _takeNotesKey;
     private readonly DispatcherTimer _counterTimer;
     private readonly BrushedPanel _banner;
     private readonly TextBlock _bannerText = new()
@@ -47,6 +49,7 @@ public sealed class MainWindow : Window
 
     private Control? _transcriptionsView;
     private Control? _dictionaryView;
+    private MeetingsView? _meetingsView;
     private DateTimeOffset? _startedAt;
 
     /// <summary>Builds a window with no engine behind it. Used by headless tests.</summary>
@@ -80,8 +83,15 @@ public sealed class MainWindow : Window
 
         _transcriptionsKey = new TransportKey { Content = "TRANSCRIPTIONS", IsEngaged = true };
         _dictionaryKey = new TransportKey { Content = "DICTIONARY" };
-        _transcriptionsKey.Click += (_, _) => ShowSection(transcriptions: true);
-        _dictionaryKey.Click += (_, _) => ShowSection(transcriptions: false);
+        _meetingsKey = new TransportKey { Content = "MEETINGS" };
+        _transcriptionsKey.Click += (_, _) => ShowSection(Section.Transcriptions);
+        _dictionaryKey.Click += (_, _) => ShowSection(Section.Dictionary);
+        _meetingsKey.Click += (_, _) => ShowSection(Section.Meetings);
+
+        // The Notetaker's manual start. Detection offers it by itself; this is for calls it
+        // does not know, and it is never a silent start: the recording panel appears at once.
+        _takeNotesKey = new TransportKey { Content = "TAKE NOTES", EngagedColor = Tokens.Colors.Ink };
+        _takeNotesKey.Click += (_, _) => ToggleMeetingNotes();
 
         _sectionHost = new ContentControl();
         _banner = BuildBanner();
@@ -97,7 +107,7 @@ public sealed class MainWindow : Window
         _counterTimer.Start();
 
         Content = BuildLayout();
-        ShowSection(transcriptions: true);
+        ShowSection(Section.Transcriptions);
 
         if (_composition?.Engine is not null) _composition.Engine.Start();
     }
@@ -153,7 +163,7 @@ public sealed class MainWindow : Window
             Orientation = Orientation.Horizontal,
             Spacing = Tokens.Space.Base,
             VerticalAlignment = VerticalAlignment.Bottom,
-            Children = { settings, new Vents { Count = 8, VerticalAlignment = VerticalAlignment.Center } },
+            Children = { _takeNotesKey, settings, new Vents { Count = 8, VerticalAlignment = VerticalAlignment.Center } },
         });
 
         return new BrushedPanel { Child = row, Margin = new Thickness(0, 0, 0, Tokens.Space.Base) };
@@ -164,7 +174,7 @@ public sealed class MainWindow : Window
         Orientation = Orientation.Horizontal,
         Spacing = Tokens.Space.Snug,
         Margin = new Thickness(0, 0, 0, Tokens.Space.Base),
-        Children = { _transcriptionsKey, _dictionaryKey },
+        Children = { _transcriptionsKey, _dictionaryKey, _meetingsKey },
     };
 
     /// <summary>
@@ -248,43 +258,66 @@ public sealed class MainWindow : Window
         Child = content,
     };
 
-    private void ShowSection(bool transcriptions)
+    private enum Section
     {
-        _transcriptionsKey.IsEngaged = transcriptions;
-        _dictionaryKey.IsEngaged = !transcriptions;
+        Transcriptions,
+        Dictionary,
+        Meetings,
+    }
+
+    private void ShowSection(Section section)
+    {
+        _transcriptionsKey.IsEngaged = section == Section.Transcriptions;
+        _dictionaryKey.IsEngaged = section == Section.Dictionary;
+        _meetingsKey.IsEngaged = section == Section.Meetings;
 
         if (_composition is null)
         {
-            _sectionHost.Content = Panels.EmptyState(
-                transcriptions ? "NO RECORDINGS" : "DICTIONARY EMPTY",
-                transcriptions ? "Press Record to start." : "Add words it keeps getting wrong.");
+            _sectionHost.Content = section switch
+            {
+                Section.Transcriptions => Panels.EmptyState("NO RECORDINGS", "Press Record to start."),
+                Section.Dictionary => Panels.EmptyState("DICTIONARY EMPTY", "Add words it keeps getting wrong."),
+                _ => Panels.EmptyState("NO MEETINGS", "Calls you take notes of appear here."),
+            };
             return;
         }
 
         // Built once and reused: rebuilding would drop the user's search text every time
         // they switched tabs.
-        if (transcriptions)
+        _sectionHost.Content = section switch
         {
-            _transcriptionsView ??= new TranscriptionsView(_composition.Transcripts);
-            _sectionHost.Content = _transcriptionsView;
-        }
-        else
-        {
-            _dictionaryView ??= new DictionaryView(_composition.Dictionary);
-            _sectionHost.Content = _dictionaryView;
-        }
+            Section.Transcriptions => _transcriptionsView ??= new TranscriptionsView(_composition.Transcripts),
+            Section.Dictionary => _dictionaryView ??= new DictionaryView(_composition.Dictionary),
+            _ => _meetingsView ??= new MeetingsView(_composition.Meetings.Store, _composition.Meetings.Problem),
+        };
+    }
+
+    /// <summary>Shows the Meetings section. Used by the tray and after a meeting is saved.</summary>
+    public void ShowMeetings() => ShowSection(Section.Meetings);
+
+    /// <summary>Starts taking notes, or stops. Exposed for the tray.</summary>
+    public void ToggleMeetingNotes()
+    {
+        if (_composition?.Meetings.Controller is not { } meetings) return;
+        _ = meetings.IsRecording ? meetings.StopAsync(Meeting.StopReason.User) : meetings.TakeNotesAsync();
     }
 
     private void ShowSettings()
     {
         if (_composition is null) return;
-        _ = new SettingsWindow(_composition.Settings, _composition.Transcripts, _composition.Model).ShowDialog(this);
+        _ = new SettingsWindow(_composition.Settings, _composition.Transcripts, _composition.Model, _composition.Meetings.Store)
+            .ShowDialog(this);
     }
 
     /// <summary>Pulls state from the engine onto the panel.</summary>
     private void SyncFromEngine()
     {
         UpdateBanner();
+
+        var meetings = _composition?.Meetings.Controller;
+        _takeNotesKey.IsEnabled = meetings is not null;
+        _takeNotesKey.IsEngaged = meetings?.IsRecording ?? false;
+        _takeNotesKey.Content = meetings?.IsRecording == true ? "STOP NOTES" : "TAKE NOTES";
 
         var engine = _composition?.Engine;
         if (engine is null)
