@@ -90,6 +90,29 @@ struct StopPolicyTests {
     }
 }
 
+struct BlockScheduleTests {
+    @Test("due on the first block, then every eighth")
+    func firstThenEvery() {
+        var schedule = BlockSchedule(every: 8)
+        let due = (0..<17).map { _ in schedule.tick() }
+        #expect(due.indices.filter { due[$0] } == [0, 8, 16])
+    }
+
+    @Test("a three-hour meeting of 4096-sample blocks never overflows")
+    func longMeeting() {
+        var schedule = BlockSchedule(every: 8)
+        let blocks = 3 * 3600 * 16_000 / 4_096
+        let checks = (0..<blocks).reduce(0) { count, _ in count + (schedule.tick() ? 1 : 0) }
+        #expect(checks == (blocks + 7) / 8)
+    }
+
+    @Test("an interval below one checks every block")
+    func degenerateInterval() {
+        var schedule = BlockSchedule(every: 0)
+        #expect(schedule.tick() && schedule.tick() && schedule.tick())
+    }
+}
+
 struct HungarianTests {
     @Test("square matrix: the global optimum, not greedy")
     func square() {

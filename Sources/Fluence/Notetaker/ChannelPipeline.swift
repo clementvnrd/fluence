@@ -92,7 +92,7 @@ actor ChannelPipeline {
     private var echoStream: LocalVqeStream?
     private var echoUnavailable = false
     private var echoActive = false
-    private var blocksSinceRouteCheck = Int.max
+    private var routeCheck = BlockSchedule(every: 8)  // ~2 s
     private var outputIsHeadphones = true
 
     // VAD and segmentation.
@@ -199,9 +199,7 @@ actor ChannelPipeline {
         rawBlock.removeAll(keepingCapacity: true)
         rawPosition += block.count
 
-        blocksSinceRouteCheck += 1
-        if blocksSinceRouteCheck >= 8 {  // ~2 s
-            blocksSinceRouteCheck = 0
+        if routeCheck.tick() {
             outputIsHeadphones = CoreAudioObjects.outputIsHeadphones
         }
         let wantEcho = hasSystemChannel && !outputIsHeadphones && !echoUnavailable
