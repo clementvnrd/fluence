@@ -76,6 +76,8 @@ public sealed class MeetingSession : IAsyncDisposable
     private long _start;
     private double? _lastSpeech;
     private bool _finished;
+    /// <summary>Host time the loopback last delivered a packet; <see cref="long.MinValue"/> before the first.</summary>
+    private long _lastSystemPacketAt = long.MinValue;
 
     /// <summary>Creates the session; nothing runs until <see cref="StartAsync"/>.</summary>
     /// <param name="meetingId">The meeting being recorded.</param>
@@ -166,9 +168,20 @@ public sealed class MeetingSession : IAsyncDisposable
     public void Heartbeat()
     {
         if (_systemPipeline is null || _finished) return;
+        // Packets still arriving keep the timeline themselves. Padding then would queue silence
+        // ahead of audio that is merely late (a stalled capture thread), and the aligner trims
+        // that audio as an overlap: remote speech lost.
+        if (!ShouldPad(_deps.Clock.Now, Volatile.Read(ref _lastSystemPacketAt))) return;
         var until = Elapsed - HeartbeatLag;
         if (until > 0) _systemQueue.Writer.TryWrite(new TimedSamples(until, []));
     }
+
+    /// <summary>
+    /// Whether a heartbeat may pad the system channel: only once the loopback has been quiet for
+    /// <see cref="HeartbeatLag"/> (host time, 100-ns units; <see cref="long.MinValue"/> = no packet yet).
+    /// </summary>
+    public static bool ShouldPad(long now, long lastPacketAt) =>
+        lastPacketAt == long.MinValue || (now - lastPacketAt) / 10_000_000.0 >= HeartbeatLag;
 
     /// <summary>Both channels, time-ordered, echoes included (the final pass decides).</summary>
     public IReadOnlyList<TranscriptSegment> AllSegments
@@ -268,6 +281,7 @@ public sealed class MeetingSession : IAsyncDisposable
         {
             await foreach (var samples in source.ReadAsync(_start, stop).ConfigureAwait(false))
             {
+                Volatile.Write(ref _lastSystemPacketAt, _deps.Clock.Now);
                 await _systemQueue.Writer.WriteAsync(samples, CancellationToken.None).ConfigureAwait(false);
             }
         }
