@@ -9,6 +9,8 @@ import SwiftUI
 /// same idea and you want to see everything you've taught it at once. The kind is carried by
 /// a tag on each row.
 struct DictionaryPanel: View {
+    /// What the « Lexique Tech » button just did, shown on it for a moment (FLU-17).
+    @State private var lexiconResult: String?
     @State private var store = DictionaryStore.shared
     @State private var query = ""
     @State private var editing: DictionaryEntry?
@@ -16,19 +18,36 @@ struct DictionaryPanel: View {
 
     private var entries: [DictionaryEntry] { store.filtered(by: query) }
 
+    /// Adds the tech lexicon's missing terms and says how many; reads « à jour » once there
+    /// is nothing left to add, instead of a button that silently does nothing (FLU-17).
+    private var lexiconButton: some View {
+        let missing = store.missingTechLexiconCount
+        let title = lexiconResult ?? (missing == 0 ? "Lexique Tech à jour" : "Lexique Tech")
+        return CapButton(
+            title: title,
+            systemImage: missing == 0 || lexiconResult != nil ? "checkmark" : "sparkles",
+            isEnabled: missing > 0
+        ) {
+            let added = store.importTechLexicon()
+            lexiconResult = added == 0 ? "Déjà à jour" : "+ " + FrenchFormat.count(added, "terme ajouté", "termes ajoutés")
+            Task {
+                try? await Task.sleep(for: .seconds(2.5))
+                lexiconResult = nil
+            }
+        }
+        .help(missing == 0
+            ? "Tous les termes techniques, Git et anglicismes du lexique sont déjà dans votre dictionnaire."
+            : "Ajouter \(FrenchFormat.count(missing, "terme")) techniques, Git et anglicismes à votre dictionnaire.")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: DS.Space.snug) {
-                ContentTitle(
-                    title: "Dictionnaire",
-                    subtitle: FrenchFormat.count(store.entries.count, "entrée")
-                        + " · les noms et les termes que Fluence doit écrire correctement"
-                )
-                Spacer(minLength: DS.Space.roomy)
-                CapButton(title: "Lexique Tech", systemImage: "sparkles", isEngaged: true) {
-                    store.importTechLexicon()
-                }
-                .help("Importer les termes techniques, Git et anglicismes français")
+            PageHeader(
+                title: "Dictionnaire",
+                subtitle: FrenchFormat.count(store.entries.count, "entrée")
+                    + " · les noms et les termes que Fluence doit écrire correctement"
+            ) {
+                lexiconButton
                 CapButton(title: "Scanner un projet…", systemImage: "folder.badge.plus") { scanFolder() }
                     .help("Scanner un dossier de code pour en extraire le vocabulaire")
                 CapButton(title: "Ajouter", systemImage: "plus") { isAdding = true }

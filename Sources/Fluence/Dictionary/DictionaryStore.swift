@@ -105,21 +105,21 @@ final class DictionaryStore {
 
     var biasPhrases: [String] { DictionaryCorrector.biasPhrases(from: entries) }
 
-    /// Clement's "Lexique Tech" button: adds the lexicon's entries the dictionary lacks.
-    func importTechLexicon() {
-        var existingKeys = Set(entries.map { "\($0.hear.lowercased())->\($0.write.lowercased())" })
-        var newEntries: [DictionaryEntry] = []
-        for entry in TechLexicon.defaultEntries {
-            let key = "\(entry.hear.lowercased())->\(entry.write.lowercased())"
-            if !existingKeys.contains(key) {
-                newEntries.append(entry)
-                existingKeys.insert(key)
-            }
-        }
+    /// How many of the tech lexicon's entries the dictionary lacks.
+    var missingTechLexiconCount: Int {
+        DictionaryEntry.missing(TechLexicon.defaultEntries, from: entries).count
+    }
+
+    /// Clement's "Lexique Tech" button: adds the lexicon's entries the dictionary lacks and
+    /// returns how many, so the button can say so (FLU-17).
+    @discardableResult
+    func importTechLexicon() -> Int {
+        let newEntries = DictionaryEntry.missing(TechLexicon.defaultEntries, from: entries)
         if !newEntries.isEmpty {
             entries.append(contentsOf: newEntries)
             save()
         }
+        return newEntries.count
     }
 
     // MARK: - Persistence
