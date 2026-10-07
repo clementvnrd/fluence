@@ -85,15 +85,38 @@ final class DictionaryStore {
 
     var biasPhrases: [String] { DictionaryCorrector.biasPhrases(from: entries) }
 
+    func importTechLexicon() {
+        var existingKeys = Set(entries.map { "\($0.hear.lowercased())->\($0.write.lowercased())" })
+        var newEntries: [DictionaryEntry] = []
+        for entry in TechLexicon.defaultEntries {
+            let key = "\(entry.hear.lowercased())->\(entry.write.lowercased())"
+            if !existingKeys.contains(key) {
+                newEntries.append(entry)
+                existingKeys.insert(key)
+            }
+        }
+        if !newEntries.isEmpty {
+            entries.append(contentsOf: newEntries)
+            save()
+        }
+    }
+
     // MARK: - Persistence
 
     private func load() {
-        guard let text = try? String(contentsOf: Self.fileURL, encoding: .utf8) else {
-            entries = []
+        guard FileManager.default.fileExists(atPath: Self.fileURL.path),
+              let text = try? String(contentsOf: Self.fileURL, encoding: .utf8) else {
+            // Seed with tech & franglais lexicon on first run
+            entries = TechLexicon.defaultEntries
             revision += 1
+            save()
             return
         }
         entries = Self.parse(text)
+        if entries.isEmpty {
+            entries = TechLexicon.defaultEntries
+            save()
+        }
         revision += 1
     }
 

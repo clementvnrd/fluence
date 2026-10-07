@@ -1,23 +1,27 @@
-import AVFoundation
+@preconcurrency import AVFoundation
+import CoreAudio
+import CoreMedia
 import Foundation
 
-/// Microphone capture with on-the-fly conversion to whatever format the speech engine wants.
-///
-/// The tap runs on a real-time audio thread, so everything it touches lives behind
-/// `nonisolated(unsafe)` and is only ever mutated from that one thread.
-final class AudioCapture: @unchecked Sendable {
-    private let engine = AVAudioEngine()
-    private nonisolated(unsafe) var converter: AVAudioConverter?
-    private nonisolated(unsafe) var outputFormat: AVAudioFormat?
-    private var isRunning = false
+/// Robust microphone capture using AVCaptureSession, supporting all input devices (USB webcams,
+/// built-in mics, Bluetooth headsets, virtual devices) with on-the-fly sample rate conversion.
+final class AudioCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
+    private let session = AVCaptureSession()
+    private let queue = DispatchQueue(label: "ai.pivotstudio.murmur-youtube.audiocapture", qos: .userInteractive)
 
-    /// Called on the audio thread with each converted buffer.
+    private nonisolated(unsafe) var converter: AVAudioConverter?
+    private nonisolated(unsafe) var inputFormat: AVAudioFormat?
+    private nonisolated(unsafe) var outputFormat: AVAudioFormat?
+    private nonisolated(unsafe) var isRunning = false
+
+    /// Called on the audio queue with each converted buffer.
     private nonisolated(unsafe) var onBuffer: (@Sendable (AudioChunk) -> Void)?
-    /// Called on the audio thread with a 0…1 RMS level, for the HUD waveform.
+    /// Called on the audio queue with a 0…1 RMS level, for the HUD waveform.
     private nonisolated(unsafe) var onLevel: (@Sendable (Float) -> Void)?
 
     func start(
         outputFormat: AVAudioFormat,
+        deviceUID: String? = nil,
         onBuffer: @escaping @Sendable (AudioChunk) -> Void,
         onLevel: @escaping @Sendable (Float) -> Void
     ) throws {
@@ -26,62 +30,136 @@ final class AudioCapture: @unchecked Sendable {
         self.onBuffer = onBuffer
         self.onLevel = onLevel
         self.outputFormat = outputFormat
+        self.converter = nil
+        self.inputFormat = nil
 
-        let input = engine.inputNode
-        let nativeFormat = input.outputFormat(forBus: 0)
+        session.beginConfiguration()
 
-        converter = nativeFormat == outputFormat
-            ? nil
-            : AVAudioConverter(from: nativeFormat, to: outputFormat)
+        // Clear previous inputs/outputs
+        for input in session.inputs { session.removeInput(input) }
+        for output in session.outputs { session.removeOutput(output) }
 
-        input.removeTap(onBus: 0)
-        input.installTap(onBus: 0, bufferSize: 2048, format: nativeFormat) { [weak self] buffer, _ in
-            self?.handle(buffer)
+        // Find requested capture device or fall back to system default
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.microphone, .external],
+            mediaType: .audio,
+            position: .unspecified
+        )
+
+        let device: AVCaptureDevice?
+        if let uid = deviceUID, !uid.isEmpty, uid != "default" {
+            device = discovery.devices.first(where: { $0.uniqueID == uid || $0.localizedName == uid })
+                ?? AVCaptureDevice.default(for: .audio)
+        } else {
+            device = AVCaptureDevice.default(for: .audio)
         }
 
-        engine.prepare()
-        try engine.start()
+        guard let targetDevice = device else {
+            session.commitConfiguration()
+            Log.audio.error("no audio capture device available")
+            throw TranscriptionError.noAudioFormat
+        }
+
+        Log.audio.info("configuring audio capture on: \(targetDevice.localizedName) (UID: \(targetDevice.uniqueID))")
+
+        let input = try AVCaptureDeviceInput(device: targetDevice)
+        if session.canAddInput(input) {
+            session.addInput(input)
+        } else {
+            session.commitConfiguration()
+            Log.audio.error("cannot add capture device input to session")
+            throw TranscriptionError.noAudioFormat
+        }
+
+        let output = AVCaptureAudioDataOutput()
+        output.setSampleBufferDelegate(self, queue: queue)
+        if session.canAddOutput(output) {
+            session.addOutput(output)
+        } else {
+            session.commitConfiguration()
+            Log.audio.error("cannot add capture data output to session")
+            throw TranscriptionError.noAudioFormat
+        }
+
+        session.commitConfiguration()
+        session.startRunning()
         isRunning = true
-        Log.audio.info("capture started — native \(nativeFormat.sampleRate)Hz → engine \(outputFormat.sampleRate)Hz")
+        Log.audio.info("audio capture started on \(targetDevice.localizedName)")
     }
 
     func stop() {
         guard isRunning else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        session.stopRunning()
+
+        session.beginConfiguration()
+        for input in session.inputs { session.removeInput(input) }
+        for output in session.outputs { session.removeOutput(output) }
+        session.commitConfiguration()
+
         isRunning = false
         converter = nil
+        inputFormat = nil
         onBuffer = nil
         onLevel = nil
-        Log.audio.info("capture stopped")
+        Log.audio.info("audio capture stopped")
     }
 
-    // MARK: - Audio thread
+    // MARK: - AVCaptureAudioDataOutputSampleBufferDelegate
 
-    private func handle(_ buffer: AVAudioPCMBuffer) {
-        onLevel?(Self.rms(of: buffer))
-
+    func captureOutput(
+        _ output: AVCaptureOutput,
+        didOutput sampleBuffer: CMSampleBuffer,
+        from connection: AVCaptureConnection
+    ) {
         guard let outputFormat else { return }
 
-        // AVAudioEngine reuses the tap's buffer as soon as this returns, so the engine
-        // must never see it directly — copy when no conversion would otherwise allocate.
-        guard let converter else {
-            if let copy = Self.copy(buffer) {
-                onBuffer?(AudioChunk(buffer: copy))
-            }
+        guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc),
+              let nativeFormat = AVAudioFormat(streamDescription: asbd)
+        else { return }
+
+        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        guard frameCount > 0,
+              let pcmBuffer = AVAudioPCMBuffer(pcmFormat: nativeFormat, frameCapacity: frameCount)
+        else { return }
+        pcmBuffer.frameLength = frameCount
+
+        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+            sampleBuffer,
+            at: 0,
+            frameCount: Int32(frameCount),
+            into: pcmBuffer.mutableAudioBufferList
+        )
+        guard status == noErr else {
+            Log.audio.error("CMSampleBufferCopyPCMDataIntoAudioBufferList failed: \(status)")
             return
         }
 
-        // Output frame count scales with the sample-rate ratio; round up so we never clip.
-        let ratio = outputFormat.sampleRate / buffer.format.sampleRate
-        let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 64
+        // Report RMS on native buffer
+        onLevel?(Self.rms(of: pcmBuffer))
+
+        // Check if format conversion is needed
+        if nativeFormat == outputFormat {
+            onBuffer?(AudioChunk(buffer: pcmBuffer))
+            return
+        }
+
+        // Setup converter if not cached or if input format changed
+        if converter == nil || inputFormat != nativeFormat {
+            inputFormat = nativeFormat
+            converter = AVAudioConverter(from: nativeFormat, to: outputFormat)
+        }
+
+        guard let converter else { return }
+
+        let ratio = outputFormat.sampleRate / nativeFormat.sampleRate
+        let capacity = AVAudioFrameCount((Double(pcmBuffer.frameLength) * ratio).rounded(.up)) + 64
         guard let converted = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else { return }
 
-        // The input block runs synchronously inside `convert`, on this thread.
-        nonisolated(unsafe) let input = buffer
+        nonisolated(unsafe) let input = pcmBuffer
         let consumed = Latch()
         var error: NSError?
-        let status = converter.convert(to: converted, error: &error) { _, outStatus in
+        let convStatus = converter.convert(to: converted, error: &error) { _, outStatus in
             guard !consumed.take() else {
                 outStatus.pointee = .noDataNow
                 return nil
@@ -91,46 +169,18 @@ final class AudioCapture: @unchecked Sendable {
         }
 
         if let error {
-            Log.audio.error("conversion failed: \(error.localizedDescription)")
+            Log.audio.error("audio conversion failed: \(error.localizedDescription)")
             return
         }
-        guard status != .error, converted.frameLength > 0 else { return }
+
+        guard convStatus != .error, converted.frameLength > 0 else { return }
         onBuffer?(AudioChunk(buffer: converted))
     }
 
-    /// Deep-copies a tap buffer into storage we own.
-    private static func copy(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        guard buffer.frameLength > 0,
-              let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength)
-        else { return nil }
+    // MARK: - Helpers
 
-        copy.frameLength = buffer.frameLength
-        let channels = Int(buffer.format.channelCount)
-        let frames = Int(buffer.frameLength)
-
-        if let source = buffer.floatChannelData, let destination = copy.floatChannelData {
-            for channel in 0..<channels {
-                destination[channel].update(from: source[channel], count: frames)
-            }
-        } else if let source = buffer.int16ChannelData, let destination = copy.int16ChannelData {
-            for channel in 0..<channels {
-                destination[channel].update(from: source[channel], count: frames)
-            }
-        } else if let source = buffer.int32ChannelData, let destination = copy.int32ChannelData {
-            for channel in 0..<channels {
-                destination[channel].update(from: source[channel], count: frames)
-            }
-        } else {
-            return nil
-        }
-
-        return copy
-    }
-
-    /// One-shot flag. Only touched from the audio thread inside a synchronous call.
     private final class Latch: @unchecked Sendable {
         private var fired = false
-        /// - Returns: the value *before* this call, then latches to `true`.
         func take() -> Bool {
             defer { fired = true }
             return fired
@@ -138,19 +188,28 @@ final class AudioCapture: @unchecked Sendable {
     }
 
     private static func rms(of buffer: AVAudioPCMBuffer) -> Float {
-        guard let channel = buffer.floatChannelData?[0] else { return 0 }
         let count = Int(buffer.frameLength)
         guard count > 0 else { return 0 }
 
-        var sum: Float = 0
-        for i in 0..<count {
-            let sample = channel[i]
-            sum += sample * sample
+        if let channel = buffer.floatChannelData?[0] {
+            var sum: Float = 0
+            for i in 0..<count {
+                let sample = channel[i]
+                sum += sample * sample
+            }
+            let rms = (sum / Float(count)).squareRoot()
+            let db = 20 * log10(max(rms, 1e-7))
+            return max(0, min(1, (db + 50) / 50))
+        } else if let channel = buffer.int16ChannelData?[0] {
+            var sum: Float = 0
+            for i in 0..<count {
+                let sample = Float(channel[i]) / 32768.0
+                sum += sample * sample
+            }
+            let rms = (sum / Float(count)).squareRoot()
+            let db = 20 * log10(max(rms, 1e-7))
+            return max(0, min(1, (db + 50) / 50))
         }
-        let rms = (sum / Float(count)).squareRoot()
-
-        // Map roughly -50…0 dBFS onto 0…1 so quiet speech still moves the meter.
-        let db = 20 * log10(max(rms, 1e-7))
-        return max(0, min(1, (db + 50) / 50))
+        return 0
     }
 }

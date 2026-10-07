@@ -28,9 +28,10 @@ actor ParakeetEngine: TranscriptionEngine {
         let (stream, continuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
         self.continuation = continuation
 
-        // Force the (possibly very slow) first load to happen here rather than on release,
-        // so the user waits before speaking instead of losing an utterance to a timeout.
-        _ = try await ParakeetModels.shared.manager()
+        // Ensure models are warming in background without blocking capture startup
+        Task {
+            _ = try? await ParakeetModels.shared.manager()
+        }
 
         return stream
     }

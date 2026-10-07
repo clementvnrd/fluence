@@ -13,6 +13,7 @@ actor AppleSpeechEngine: TranscriptionEngine {
     private var transcriber: SpeechTranscriber?
     private var analyzer: SpeechAnalyzer?
     private var inputContinuation: AsyncStream<AnalyzerInput>.Continuation?
+    private var chunkContinuation: AsyncThrowingStream<TranscriptionChunk, Error>.Continuation?
     private var resultsTask: Task<Void, Never>?
 
     /// Text the engine has committed. Volatile results are appended on top for display
@@ -34,7 +35,7 @@ actor AppleSpeechEngine: TranscriptionEngine {
         }
 
         let resolvedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: locale)
-            ?? Locale(identifier: "en-US")
+            ?? locale
 
         let transcriber = Self.makeTranscriber(locale: resolvedLocale)
         self.transcriber = transcriber
@@ -64,6 +65,7 @@ actor AppleSpeechEngine: TranscriptionEngine {
         finalizedText = ""
 
         let (chunks, chunkContinuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
+        self.chunkContinuation = chunkContinuation
 
         // Drain the transcriber's results into our simpler chunk stream.
         resultsTask = Task { [weak self] in
@@ -103,9 +105,16 @@ actor AppleSpeechEngine: TranscriptionEngine {
             await analyzer?.cancelAndFinishNow()
         }
 
+        resultsTask?.cancel()
+        resultsTask = nil
+
+        let final = finalizedText.trimmingCharacters(in: .whitespaces)
+        chunkContinuation?.yield(TranscriptionChunk(text: final, isFinal: true))
+        chunkContinuation?.finish()
+        chunkContinuation = nil
+
         analyzer = nil
         transcriber = nil
-        resultsTask = nil
     }
 
     // MARK: - Result accumulation
@@ -171,6 +180,19 @@ actor AppleSpeechEngine: TranscriptionEngine {
             }
         } catch {
             throw TranscriptionError.modelInstallFailed(error.localizedDescription)
+        }
+    }
+
+    /// Proactively checks and installs the speech model in the background so holding the key doesn't block.
+    static func prewarm(locale: Locale) async {
+        guard SpeechTranscriber.isAvailable else { return }
+        guard let resolved = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else { return }
+        let transcriber = makeTranscriber(locale: resolved)
+        do {
+            try await ensureModelInstalled(for: transcriber)
+            Log.speech.info("prewarm: speech model ready for \(resolved.identifier)")
+        } catch {
+            Log.speech.error("prewarm failed for \(resolved.identifier): \(error.localizedDescription)")
         }
     }
 }

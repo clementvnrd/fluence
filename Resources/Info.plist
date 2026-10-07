@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>Murmur YouTube</string>
+	<string>Fluence</string>
 	<key>CFBundleDisplayName</key>
-	<string>Murmur YouTube</string>
+	<string>Fluence</string>
 	<!-- Deliberately space-free and distinct from the existing app's `murmur`, so that
 	     `pkill`/`killall` on either app can never match the other. -->
 	<key>CFBundleExecutable</key>
@@ -17,7 +17,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>CFBundleIconFile</key>
@@ -31,6 +31,7 @@
 			<string>ai.pivotstudio.murmur-youtube</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>fluence</string>
 				<string>murmuryt</string>
 			</array>
 		</dict>
@@ -44,8 +45,8 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Murmur YouTube listens while you hold the push-to-talk key so it can turn your speech into text.</string>
+	<string>Fluence écoute lorsque vous maintenez le raccourci pour transformer votre voix en texte.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Murmur YouTube transcribes your speech on-device to insert text where you're typing.</string>
+	<string>Fluence transcrit votre voix directement sur votre Mac pour insérer le texte là où vous écrivez.</string>
 </dict>
 </plist>

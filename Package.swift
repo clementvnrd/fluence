@@ -7,7 +7,9 @@ let package = Package(
     dependencies: [
         // Parakeet TDT as CoreML on the Neural Engine. Optional at runtime — Apple's
         // SpeechTranscriber remains the default and needs no dependency at all.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.6")
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.6"),
+        // OpenAI Whisper as CoreML on Apple Silicon (WhisperKit).
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.1.0")
     ],
     targets: [
         // The dictionary is its own target so it can be tested directly, and because its
@@ -23,6 +25,7 @@ let package = Package(
             dependencies: [
                 "MurmurDictionary",
                 .product(name: "FluidAudio", package: "FluidAudio"),
+                .product(name: "WhisperKit", package: "argmax-oss-swift"),
             ],
             path: "Sources/MurmurYouTube",
             swiftSettings: [

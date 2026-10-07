@@ -65,7 +65,7 @@ struct ComparisonWindow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Engine comparison")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(Brand.gradient)
+                    .foregroundStyle(DS.Color.ink)
                 Text("\(store.runs.count) recording\(store.runs.count == 1 ? "" : "s")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -126,7 +126,7 @@ struct ComparisonWindow: View {
         VStack(spacing: 9) {
             Image(systemName: "waveform")
                 .font(.system(size: 30))
-                .foregroundStyle(Brand.gradient)
+                .foregroundStyle(DS.Color.silkscreen)
             Text("Hold \(settings.pushToTalkKey.displayName), say a sentence, let go.")
                 .font(.system(size: 15, weight: .semibold))
             Text(settings.compareMode

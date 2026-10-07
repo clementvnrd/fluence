@@ -1,16 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// The floating capsule that appears while you hold the key.
+/// The floating capsule that appears while dictating.
 ///
-/// The single most important property here is that this panel **never becomes key**.
-/// If it did, the user's text field would lose focus and `TextInjector` would have
-/// nothing to insert into. Hence `.nonactivatingPanel` plus `canBecomeKey == false`.
+/// Designed with a generous transparent canvas (520 x 100) so that the
+/// rounded capsule and its soft drop shadow are never clipped by the window edges.
 @MainActor
 final class HUDPanel: NSPanel {
     init(controller: DictationController) {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 340, height: 76),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 100),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -21,23 +20,22 @@ final class HUDPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         hidesOnDeactivate = false
         isMovableByWindowBackground = false
-        ignoresMouseEvents = true
+        ignoresMouseEvents = false
 
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
 
-        contentView = NSHostingView(rootView: HUDView(controller: controller))
+        let hosting = NSHostingView(rootView: HUDView(controller: controller))
+        hosting.wantsLayer = true
+        hosting.layer?.backgroundColor = NSColor.clear.cgColor
+        contentView = hosting
     }
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
     /// Parks the panel just above the Dock, horizontally centered on the active screen.
-    ///
-    /// `NSScreen.main` is the screen with the *key window* — and an accessory app with a
-    /// non-activating panel never has one, so it can be nil. Falling back to `screens.first`
-    /// keeps the HUD on-screen instead of stranding it at the origin.
     func reposition() {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else {
             Log.app.error("no screen available to position HUD")
@@ -54,27 +52,28 @@ final class HUDPanel: NSPanel {
     }
 
     func present() {
-        // Every active state change (starting → listening → finishing) calls this. Without
-        // the early exit the panel would reset to alpha 0 and re-fade on each one, which
-        // reads as a flicker mid-utterance.
         guard !isVisible || alphaValue < 1 else { return }
-
         reposition()
         alphaValue = 0
         orderFrontRegardless()
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             animator().alphaValue = 1
         }
     }
 
     func dismiss() {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
+        guard isVisible, alphaValue > 0 else { return }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.20
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
             animator().alphaValue = 0
-        } completionHandler: { [weak self] in
-            // AppKit always calls this on the main thread.
-            MainActor.assumeIsolated { self?.orderOut(nil) }
-        }
+        }, completionHandler: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.alphaValue == 0 else { return }
+                self.orderOut(nil)
+            }
+        })
     }
 }

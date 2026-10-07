@@ -18,8 +18,8 @@ struct DictionaryPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                SearchField(text: $query, placeholder: "Search dictionary")
-                addButton
+                SearchField(text: $query, placeholder: "Rechercher dans le dictionnaire…")
+                actionButtons
                     .padding(.trailing, DS.Space.base)
                     .background(DS.Color.deck)
             }
@@ -64,23 +64,82 @@ struct DictionaryPanel: View {
         }
     }
 
-    private var addButton: some View {
-        Button { isAdding = true } label: {
-            HStack(spacing: DS.Space.tight) {
-                Image(systemName: "plus")
-                    .font(.system(size: 9, weight: .bold))
-                Silkscreen(text: "Add", color: DS.Color.inkOnDeck)
+    private var actionButtons: some View {
+        HStack(spacing: 8) {
+            Button {
+                store.importTechLexicon()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10))
+                    Text("Lexique Tech")
+                        .font(DS.Font.caption)
+                }
+                .foregroundStyle(DS.Color.accent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(DS.Color.selection, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(DS.Color.selectionEdge, lineWidth: 1)
+                )
             }
-            .foregroundStyle(DS.Color.inkOnDeck)
-            .padding(.horizontal, DS.Space.base)
-            .padding(.vertical, DS.Space.snug)
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.Radius.chip)
-                    .strokeBorder(DS.Color.inkOnDeck.opacity(0.35), lineWidth: DS.Border.hairline)
-            )
+            .buttonStyle(.plain)
+            .help("Importer les termes techniques, Git et anglicismes français")
+
+            Button {
+                scanFolder()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 10))
+                    Text("Scanner projet…")
+                        .font(DS.Font.caption)
+                }
+                .foregroundStyle(DS.Color.ink)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(DS.Color.seam, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Scanner un projet pour extraire automatiquement son vocabulaire")
+
+            Button { isAdding = true } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("Ajouter")
+                        .font(DS.Font.label)
+                }
+                .foregroundStyle(DS.Color.ink)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(DS.Color.cap, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(DS.Color.seam, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("n", modifiers: .command)
         }
-        .buttonStyle(.plain)
-        .keyboardShortcut("n", modifiers: .command)
+    }
+
+    private func scanFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Scanner"
+        if panel.runModal() == .OK, let url = panel.url {
+            Task {
+                _ = await AutoLearningEngine.shared.scanWorkspaceForVocabulary(at: url)
+            }
+        }
     }
 
     /// The file path is shown because the spec asks for the dictionary to be editable outside

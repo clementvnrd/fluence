@@ -49,4 +49,21 @@ enum Permissions {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
         NSWorkspace.shared.open(url)
     }
+
+    /// Resets the TCC accessibility entry for this app when macOS permission gets wedged across rebuilds.
+    static func resetAccessibilityTCC() {
+        let task = Process()
+        task.launchPath = "/usr/bin/tccutil"
+        task.arguments = ["reset", "Accessibility", "ai.pivotstudio.murmur-youtube"]
+        try? task.run()
+        task.waitUntilExit()
+
+        let kill = Process()
+        kill.launchPath = "/usr/bin/killall"
+        kill.arguments = ["System Settings"]
+        try? kill.run()
+        kill.waitUntilExit()
+
+        openAccessibilitySettings()
+    }
 }

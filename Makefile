@@ -18,7 +18,7 @@ BUILD    := $(SCRATCH)/$(CONFIG)/$(EXEC)
 ## or similar detritus not allowed"). `xattr -cr` immediately before signing is not enough
 ## — the provider re-stamps in between. Staging in ~/Library/Caches sidesteps it entirely.
 STAGE    := $(HOME)/Library/Caches/MurmurYouTubeBuild
-APPNAME  := Murmur YouTube.app
+APPNAME  := Fluence.app
 BUNDLE   := $(STAGE)/$(APPNAME)
 CONTENTS := $(BUNDLE)/Contents
 
@@ -30,14 +30,20 @@ SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null \
              | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)".*/\1/')
 ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
+REQ_FLAG := -r='designated => identifier "ai.pivotstudio.murmur-youtube"'
+else
+REQ_FLAG :=
 endif
 
-.PHONY: all build app run install clean icon
+SDK      := $(shell if [ -d /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk ]; then echo "/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk"; fi)
+SDK_FLAG := $(if $(SDK),--sdk "$(SDK)",)
+
+.PHONY: all build app run install clean icon test
 
 all: app
 
 build:
-	swift build -c $(CONFIG) --scratch-path "$(SCRATCH)"
+	swift build -c $(CONFIG) --scratch-path "$(SCRATCH)" $(SDK_FLAG)
 
 ## Regenerates AppIcon.icns from Tools/makeicon.swift. Not a dependency of `app` — the
 ## icon rarely changes and rendering 10 PNGs on every build is wasted time.
@@ -52,13 +58,15 @@ app: build
 	@rm -rf "$(BUNDLE)"
 	@mkdir -p "$(CONTENTS)/MacOS" "$(CONTENTS)/Resources"
 	@cp $(BUILD) "$(CONTENTS)/MacOS/$(EXEC)"
+	@cp -R Resources/* "$(CONTENTS)/Resources/" 2>/dev/null || true
 	@cp Resources/Info.plist "$(CONTENTS)/Info.plist"
-	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(CONTENTS)/Resources/"; fi
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"
 	@# Belt and braces: the staging dir isn't synced, but the copied binary can still carry
 	@# xattrs inherited from the synced .build directory.
 	@xattr -cr "$(BUNDLE)"
 	@codesign --force --sign "$(SIGN_ID)" \
+		--identifier "ai.pivotstudio.murmur-youtube" \
+		$(REQ_FLAG) \
 		--entitlements Resources/$(EXEC).entitlements \
 		--options runtime \
 		--timestamp=none \
@@ -74,11 +82,24 @@ run: app
 ## Installing to /Applications keeps the path stable and makes re-granting a one-click fix.
 install: app
 	@pkill -x $(EXEC) 2>/dev/null || true
-	@# $(BUNDLE) is an absolute staging path — the destination must use $(APPNAME) alone.
+	@pkill -f "Murmur YouTube" 2>/dev/null || true
+	@pkill -f "Fluence" 2>/dev/null || true
+	@rm -rf "/Applications/Murmur YouTube.app"
 	@rm -rf "/Applications/$(APPNAME)"
 	@cp -R "$(BUNDLE)" "/Applications/$(APPNAME)"
+	@touch "/Applications/$(APPNAME)"
+	@killall Dock 2>/dev/null || true
 	@open "/Applications/$(APPNAME)"
-	@echo "installed to /Applications/$(APPNAME)"
+	@echo "installed and launched /Applications/$(APPNAME)"
+
+TEST_MACRO := $(shell if [ -f /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib ]; then echo "-Xswiftc -load-plugin-library -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib"; fi)
+
+test:
+	@mkdir -p "$(SCRATCH)/out/Products/Debug/PackageFrameworks"
+	@ln -sfn /Library/Developer/CommandLineTools/Library/Developer/Frameworks/Testing.framework "$(SCRATCH)/out/Products/Debug/PackageFrameworks/Testing.framework" 2>/dev/null || true
+	@ln -sfn /Library/Developer/CommandLineTools/Library/Developer/usr/lib/lib_TestingInterop.dylib "$(SCRATCH)/out/Products/Debug/PackageFrameworks/lib_TestingInterop.dylib" 2>/dev/null || true
+	@ln -sfn /Library/Developer/CommandLineTools/Library/Developer/usr/lib/lib_TestingInterop.dylib "$(SCRATCH)/out/Products/Debug/lib_TestingInterop.dylib" 2>/dev/null || true
+	swift test --filter VectorTests --scratch-path "$(SCRATCH)" $(SDK_FLAG) $(TEST_MACRO)
 
 clean:
 	@rm -rf .build "$(STAGE)" "$(SCRATCH)"

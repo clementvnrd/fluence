@@ -15,7 +15,8 @@ func engineForCurrentSetting() -> any TranscriptionEngine {
     // Always invoked from `beginDictation`, which runs on the main actor.
     MainActor.assumeIsolated {
         switch Settings.shared.engine {
-        case .apple: AppleSpeechEngine()
+        case .apple: AppleSpeechEngine(locale: Settings.shared.language.locale)
+        case .whisper: WhisperEngine(variant: Settings.shared.whisperModel, language: Settings.shared.language.whisperLanguageCode)
         case .parakeet: ParakeetEngine()
         }
     }
@@ -44,6 +45,12 @@ final class DictationController {
     private(set) var transcript = ""
     /// Smoothed 0…1 mic level for the waveform.
     private(set) var level: Float = 0
+    /// Whether the current recording is Command Mode (transforming selected text).
+    private(set) var isCommandMode = false
+    private var selectedTextForCommand: String?
+
+    /// Whether the keyboard hook / event tap is currently running.
+    var isHotkeyActive: Bool { hotkey.isActive }
 
     private let hotkey = HotkeyMonitor()
     private let capture = AudioCapture()
@@ -55,6 +62,15 @@ final class DictationController {
     /// Chosen per-utterance so the menu toggle applies to the very next hold.
     private var activeFormatter: any TextFormatter {
         if let formatter { return formatter }
+        // Whisper is already a deep neural network that directly emits punctuated,
+        // capitalized, and grammatically formatted text. Running FoundationModelFormatter
+        // (Apple Intelligence LLM) on top adds ~3.5s of redundant latency.
+        // RuleBasedFormatter handles filler stripping, backtracking, and developer symbols in 0.001s.
+        if Settings.shared.engine == .whisper {
+            return Settings.shared.smartCleanupOnWhisper
+                ? FoundationModelFormatter()
+                : RuleBasedFormatter()
+        }
         return Settings.shared.smartCleanup
             ? FoundationModelFormatter()
             : RuleBasedFormatter()
@@ -75,12 +91,33 @@ final class DictationController {
     private var recorded: [AudioChunk] = []
     private var isComparing = false
 
+    private var lastExternalApp: NSRunningApplication?
+    private var workspaceObserver: (any NSObjectProtocol)?
+
     init(
         formatter: (any TextFormatter)? = nil,
         makeEngine: @escaping @Sendable () -> any TranscriptionEngine = engineForCurrentSetting
     ) {
         self.formatter = formatter
         self.makeEngine = makeEngine
+
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.bundleIdentifier != Bundle.main.bundleIdentifier {
+            self.lastExternalApp = front
+        }
+
+        self.workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            if app.bundleIdentifier != Bundle.main.bundleIdentifier {
+                Task { @MainActor [weak self] in
+                    self?.lastExternalApp = app
+                }
+            }
+        }
     }
 
     // MARK: - Lifecycle
@@ -89,14 +126,83 @@ final class DictationController {
     @discardableResult
     func activate() -> Bool {
         hotkey.key = Settings.shared.pushToTalkKey
-        hotkey.onPress = { [weak self] in self?.beginDictation() }
-        hotkey.onRelease = { [weak self] in self?.endDictation() }
+        hotkey.commandKey = Settings.shared.commandModeEnabled ? Settings.shared.commandModeKey : nil
+        hotkey.onPress = { [weak self] in self?.handleHotkeyPress() }
+        hotkey.onRelease = { [weak self] in self?.handleHotkeyRelease() }
+        hotkey.onCommandPress = { [weak self] in self?.handleCommandPress() }
+        hotkey.onCommandRelease = { [weak self] in self?.handleCommandRelease() }
+        hotkey.onLanguageToggle = { [weak self] in self?.handleLanguageToggle() }
         return hotkey.start()
+    }
+
+    private func handleLanguageToggle() {
+        Settings.shared.toggleLanguage()
+        if Settings.shared.soundEnabled { NSSound(named: "Tink")?.play() }
+    }
+
+    private var isToggledRecording = false
+
+    private func handleHotkeyPress() {
+        if state.isActive {
+            isToggledRecording = false
+            endDictation()
+        } else {
+            isToggledRecording = false
+            beginDictation()
+        }
+    }
+
+    private func handleHotkeyRelease() {
+        guard let started = holdStarted else { return }
+        let duration = Date().timeIntervalSince(started)
+        if duration < 0.35 {
+            isToggledRecording = true
+        } else {
+            isToggledRecording = false
+            endDictation()
+        }
+    }
+
+    private func handleCommandPress() {
+        if state.isActive {
+            isToggledRecording = false
+            endDictation()
+        } else {
+            isToggledRecording = false
+            beginCommandMode()
+        }
+    }
+
+    private func handleCommandRelease() {
+        guard let started = holdStarted else { return }
+        let duration = Date().timeIntervalSince(started)
+        if duration < 0.35 {
+            isToggledRecording = true
+        } else {
+            isToggledRecording = false
+            endDictation()
+        }
+    }
+
+    private func beginCommandMode() {
+        guard case .idle = state else { return }
+        isCommandMode = true
+        selectedTextForCommand = TextInjector.getSelectedText()
+        if let sel = selectedTextForCommand {
+            Log.inject.info("Command Mode: selected text captured (\(sel.count) chars)")
+        } else {
+            Log.inject.info("Command Mode: no selection detected")
+        }
+        startDictationInternal()
     }
 
     func deactivate() {
         hotkey.stop()
         cancelDictation()
+        if let workspaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver)
+            self.workspaceObserver = nil
+        }
     }
 
     /// Re-arms the tap after the user picks a different push-to-talk key.
@@ -123,21 +229,38 @@ final class DictationController {
     /// finishing — otherwise every run would wait the full round trip end to end.
     func stopButtonRecording() {
         WisprTrigger.release()
+        if case .finishing = state {
+            cancelDictation()
+            return
+        }
         endDictation()
     }
 
     // MARK: - Dictation
 
     private func beginDictation() {
+        isCommandMode = false
+        selectedTextForCommand = nil
+        startDictationInternal()
+    }
+
+    private func startDictationInternal() {
+        if case .error = state {
+            state = .idle
+        }
         guard case .idle = state else { return }
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.bundleIdentifier != Bundle.main.bundleIdentifier {
+            lastExternalApp = front
+        }
         state = .starting
         transcript = ""
         holdStarted = Date()
         isComparing = Settings.shared.compareMode
         recorded.removeAll(keepingCapacity: true)
-        engineName = isComparing ? "Comparing…" : Settings.shared.engine.displayName
+        engineName = isComparing ? "Comparing…" : (isCommandMode ? "Command Mode" : Settings.shared.engine.displayName)
 
-        Task { @MainActor in
+        Task { @MainActor [self] in
             do {
                 guard await Permissions.requestMicrophone() else {
                     fail("Microphone access is off. Enable it in System Settings ▸ Privacy & Security ▸ Microphone.")
@@ -146,8 +269,6 @@ final class DictationController {
 
                 let engine = makeEngine()
                 self.engine = engine
-
-                let chunks = try await engine.start()
 
                 // Compare mode captures in *Apple's* format, not a format of our choosing.
                 //
@@ -182,8 +303,11 @@ final class DictationController {
                     return recording
                 }
 
+                // Start microphone capture immediately so audio buffer accumulation and HUD visualizer
+                // react without waiting for speech model initialization.
                 try capture.start(
                     outputFormat: format,
+                    deviceUID: Settings.shared.selectedMicrophoneUID,
                     onBuffer: { chunk in
                         audioContinuation.yield(chunk)
                     },
@@ -192,9 +316,23 @@ final class DictationController {
                     }
                 )
 
-                // Bail out if the user already let go while we were spinning up.
+                let chunks = try await engine.start()
+
+                // If the user already released or stopped during spin-up:
                 guard case .starting = self.state else {
-                    await self.teardown()
+                    if self.state == .finishing {
+                        self.consumeTask = Task { @MainActor in
+                            do {
+                                for try await chunk in chunks {
+                                    self.transcript = chunk.text
+                                }
+                            } catch {
+                                self.fail(error.localizedDescription)
+                            }
+                        }
+                    } else {
+                        await self.teardown()
+                    }
                     return
                 }
 
@@ -223,20 +361,38 @@ final class DictationController {
         // inside `finish()`, and smart cleanup adds up to 4s on top.
         guard state.isActive, state != .finishing else { return }
         state = .finishing
-        capture.stop()
         level = 0
         releasedAt = Date()
 
         Task { @MainActor in
+            // Hardware and USB audio buffering (e.g. Logitech C920) introduces ~100-150ms transit delay.
+            // Brief flush wait ensures the last spoken syllable makes it into CoreAudio before stopping.
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard self.state == .finishing else { return }
+            self.capture.stop()
+
             // Drain every captured buffer into the engine before asking it to finalize,
             // or the tail of the utterance gets dropped.
-            audioContinuation?.finish()
-            audioContinuation = nil
-            recorded = await feedTask?.value ?? []
-            feedTask = nil
+            self.audioContinuation?.finish()
+            self.audioContinuation = nil
+            self.recorded = await self.feedTask?.value ?? []
+            self.feedTask = nil
 
-            await engine?.finish()
-            await consumeTask?.value
+            let currentEngine = self.engine
+            let currentConsume = self.consumeTask
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    await currentEngine?.finish()
+                    await currentConsume?.value
+                }
+                group.addTask {
+                    // Generous 30s timeout for batch neural inference (WhisperKit / Parakeet)
+                    try? await Task.sleep(nanoseconds: 30_000_000_000)
+                }
+                _ = await group.next()
+                group.cancelAll()
+            }
+
             consumeTask = nil
             engine = nil
 
@@ -249,12 +405,45 @@ final class DictationController {
             guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 state = .idle
                 transcript = ""
+                isCommandMode = false
+                selectedTextForCommand = nil
                 return
             }
 
-            let cleaned = Settings.shared.cleanupEnabled
-                ? await activeFormatter.format(raw)
+            if isCommandMode {
+                guard let selectedText = selectedTextForCommand, !selectedText.isEmpty else {
+                    fail("Command Mode: No text selected")
+                    isCommandMode = false
+                    selectedTextForCommand = nil
+                    return
+                }
+
+                let transformed = await CommandModeTransformer.transform(selectedText: selectedText, instruction: raw)
+                let (output, corrections) = DictionaryStore.shared.corrector.apply(to: transformed)
+                recordRun(text: "[CMD: \(raw)] \(output)", corrections: corrections)
+                await restoreFocusIfNeeded()
+                await TextInjector.insert(output)
+                if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
+                state = .idle
+                transcript = ""
+                isCommandMode = false
+                selectedTextForCommand = nil
+                return
+            }
+
+            isCommandMode = false
+            selectedTextForCommand = nil
+
+            let appCtx = Settings.shared.appAwareStylesEnabled ? AppContextDetector.currentContext() : .standard
+
+            var cleaned = Settings.shared.cleanupEnabled
+                ? await activeFormatter.format(raw, context: appCtx)
                 : raw
+
+            if Settings.shared.snippetsEnabled, let expansion = SnippetStore.shared.expandSnippet(in: cleaned) {
+                Log.speech.info("snippet expanded")
+                cleaned = expansion
+            }
 
             // The dictionary runs last, and runs regardless of the cleanup setting. Biasing
             // only raises the odds of the right word; this is the pass that guarantees it,
@@ -265,11 +454,27 @@ final class DictationController {
             }
 
             recordRun(text: output, corrections: corrections)
-            TextInjector.insert(output)
+            AutoLearningEngine.shared.recordInjectedText(output, targetApp: lastExternalApp?.localizedName)
+            await restoreFocusIfNeeded()
+            await TextInjector.insert(output)
             if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
 
             state = .idle
             transcript = ""
+        }
+    }
+
+    private func restoreFocusIfNeeded() async {
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier,
+           let targetApp = lastExternalApp,
+           !targetApp.isTerminated {
+            Log.inject.info("Murmur is frontmost — restoring focus to \(targetApp.localizedName ?? "target app") before pasting")
+            if let bundleId = targetApp.bundleIdentifier {
+                let script = NSAppleScript(source: "tell application id \"\(bundleId)\" to activate")
+                script?.executeAndReturnError(nil)
+            }
+            targetApp.activate()
+            try? await Task.sleep(for: .milliseconds(250))
         }
     }
 
@@ -289,19 +494,23 @@ final class DictationController {
         state = .idle
         transcript = ""
         level = 0
+        isCommandMode = false
+        selectedTextForCommand = nil
     }
 
     private func teardown() async {
         capture.stop()
         audioContinuation?.finish()
         audioContinuation = nil
-        await feedTask?.value
+        _ = await feedTask?.value
         feedTask = nil
         await engine?.finish()
         engine = nil
         consumeTask?.cancel()
         consumeTask = nil
         state = .idle
+        isCommandMode = false
+        selectedTextForCommand = nil
     }
 
     // MARK: - Helpers
@@ -428,7 +637,7 @@ final class DictationController {
         level = 0
 
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: .milliseconds(1200))
             if case .error = state { state = .idle }
         }
     }
