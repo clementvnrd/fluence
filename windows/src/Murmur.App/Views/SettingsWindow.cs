@@ -155,8 +155,11 @@ public sealed class SettingsWindow : Window
                 {
                     _keyRow,
                     _keyWarning,
-                    Note("Hold this key anywhere to dictate. The key is passed through to the "
-                       + "focused app rather than swallowed, so it never gets stuck down."),
+                    Note("Hold this key anywhere to dictate; a tap shorter than a quarter second, "
+                       + "or holding it with another key (a shortcut such as Ctrl+C), is ignored. "
+                       + "The key is passed through to the focused app rather than swallowed, so "
+                       + "it never gets stuck down — except Caps Lock, which is swallowed so "
+                       + "dictating does not toggle it. Changes apply after restarting Fluence."),
                 },
             }),
 
@@ -169,6 +172,7 @@ public sealed class SettingsWindow : Window
                 {
                     Toggle("Type transcripts into the focused app", _settings.Data.InjectText,
                         v => Save(_settings.Data with { InjectText = v })),
+                    Note("Off: dictations go to the history only, nothing is typed."),
                 },
             }),
 

@@ -15,15 +15,48 @@ public sealed class FakeAudioCapture : IAudioCapture
 {
     private readonly float[] _samples;
     private readonly int _chunkSize;
+    private readonly bool _loop;
 
     /// <summary>Replays a fixed buffer as a series of chunks.</summary>
     /// <param name="samples">16 kHz mono float.</param>
     /// <param name="chunkSize">Samples per chunk; defaults to 20 ms.</param>
-    public FakeAudioCapture(float[] samples, int chunkSize = AudioChunk.SampleRate / 50)
+    /// <param name="loop">
+    /// Keep replaying until stopped, like a real microphone, rather than ending when the
+    /// buffer runs out.
+    /// </param>
+    public FakeAudioCapture(float[] samples, int chunkSize = AudioChunk.SampleRate / 50, bool loop = false)
     {
         _samples = samples;
         _chunkSize = Math.Max(1, chunkSize);
+        _loop = loop;
     }
+
+    /// <summary>A microphone that hears a steady tone until stopped.</summary>
+    public static FakeAudioCapture Live(float amplitude = 0.5f)
+    {
+        var tone = Tone(0.2, amplitude);
+        return new FakeAudioCapture(tone._samples, loop: true);
+    }
+
+    /// <summary>When set, opening the device throws this.</summary>
+    public Exception? OpenError { get; set; }
+
+    /// <summary>How many times the device was opened.</summary>
+    public int Opens { get; private set; }
+
+    /// <summary>Chunks delivered after stop was requested — the drained tail.</summary>
+    public int ChunksAfterStop { get; private set; }
+
+    /// <summary>Chunks still "in the driver" when stop is requested, delivered before the sequence ends.</summary>
+    public int TailChunks { get; set; } = 2;
+
+    /// <summary>Blocks the opening thread this long, like COM activation and IAudioClient.Initialize.</summary>
+    public TimeSpan OpenDelay { get; set; }
+
+    /// <summary>Every chunk handed out, in samples.</summary>
+    public int SamplesDelivered => Volatile.Read(ref _samplesDelivered);
+
+    private int _samplesDelivered;
 
     /// <summary>Generates <paramref name="seconds"/> of a steady tone at <paramref name="amplitude"/>.</summary>
     public static FakeAudioCapture Tone(double seconds, float amplitude = 0.5f)
@@ -45,24 +78,57 @@ public sealed class FakeAudioCapture : IAudioCapture
     public bool IsCapturing { get; private set; }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Honours the drain contract: once <paramref name="stopRequested"/> is cancelled it delivers
+    /// <see cref="TailChunks"/> more chunks, then ends normally.
+    /// </remarks>
     public async IAsyncEnumerable<AudioChunk> CaptureAsync(
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken stopRequested)
     {
+        Opens++;
+        if (OpenDelay > TimeSpan.Zero) Thread.Sleep(OpenDelay);
+        if (OpenError is not null) throw OpenError;
+
         IsCapturing = true;
         try
         {
-            for (var offset = 0; offset < _samples.Length; offset += _chunkSize)
+            var tail = -1;
+            var offset = 0;
+            while (true)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                if (offset >= _samples.Length)
+                {
+                    if (!_loop)
+                    {
+                        // Like a real microphone, the stream does not end by itself: it ends
+                        // when stop is requested.
+                        try { await Task.Delay(Timeout.Infinite, stopRequested); }
+                        catch (OperationCanceledException) { /* stop requested */ }
+                        yield break;
+                    }
+
+                    offset = 0;
+                }
+
+                if (stopRequested.IsCancellationRequested)
+                {
+                    if (tail < 0) tail = TailChunks;
+                    if (tail-- == 0) yield break;
+                    ChunksAfterStop++;
+                }
+
                 var length = Math.Min(_chunkSize, _samples.Length - offset);
 
                 // A fresh array per chunk, deliberately: a fake that reuses one buffer would
                 // hide the very aliasing bug real capture implementations are prone to.
                 var chunk = new float[length];
                 Array.Copy(_samples, offset, chunk, 0, length);
+                offset += length;
+                Interlocked.Add(ref _samplesDelivered, length);
                 yield return new AudioChunk(chunk);
 
-                await Task.Yield();
+                if (_loop) await Task.Delay(1, CancellationToken.None);
+                else await Task.Yield();
             }
         }
         finally
@@ -83,6 +149,18 @@ public sealed class FakeHotkeySource : IHotkeySource
 
     /// <inheritdoc />
     public event EventHandler? Released;
+
+    /// <inheritdoc />
+    public event EventHandler? ChordPressed;
+
+    /// <summary>What <see cref="IsKeyDown"/> reports. Null (unknown) by default.</summary>
+    public bool? PhysicallyDown { get; set; }
+
+    /// <inheritdoc />
+    public bool? IsKeyDown() => PhysicallyDown;
+
+    /// <summary>Raises <see cref="ChordPressed"/>.</summary>
+    public void PressOtherKey() => ChordPressed?.Invoke(this, EventArgs.Empty);
 
     /// <summary>Whether <see cref="Start"/> has been called.</summary>
     public bool IsRunning { get; private set; }
@@ -194,22 +272,71 @@ public sealed class RecordingTextInjector : ITextInjector
     /// <summary>Everything injected, in order.</summary>
     public List<string> Injected { get; } = [];
 
+    /// <summary>What <see cref="GetFocusTarget"/> returns. Change it to simulate a focus switch.</summary>
+    public FocusTarget Focus { get; set; } = FocusTarget.Unknown;
+
+    /// <summary>What <see cref="InjectAsync"/> returns.</summary>
+    public bool Succeeds { get; set; } = true;
+
+    /// <summary>Called on every focus query, before it answers — lets a test move focus "during" a dictation.</summary>
+    public Action<RecordingTextInjector>? OnFocusQuery { get; set; }
+
+    /// <inheritdoc />
+    public FocusTarget GetFocusTarget()
+    {
+        OnFocusQuery?.Invoke(this);
+        return Focus;
+    }
+
     /// <inheritdoc />
     public ValueTask<bool> InjectAsync(string text, CancellationToken cancellationToken)
     {
-        Injected.Add(text);
-        return ValueTask.FromResult(true);
+        lock (Injected) Injected.Add(text);
+        return ValueTask.FromResult(Succeeds);
     }
 }
 
-/// <summary>A clock you advance by hand.</summary>
+/// <summary>A clock you advance by hand. Thread-safe: the engine reads it from several tasks.</summary>
 public sealed class FakeClock : IClock
 {
+    private readonly Lock _sync = new();
+    private DateTimeOffset _now = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
+
     /// <inheritdoc />
-    public DateTimeOffset Now { get; private set; } = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
+    public DateTimeOffset Now
+    {
+        get { lock (_sync) return _now; }
+    }
 
     /// <summary>Moves time forward.</summary>
-    public void Advance(TimeSpan by) => Now += by;
+    public void Advance(TimeSpan by)
+    {
+        lock (_sync) _now += by;
+    }
+}
+
+/// <summary>A session you lock from a test.</summary>
+public sealed class FakeSessionMonitor : ISessionMonitor
+{
+    /// <inheritdoc />
+    public event EventHandler? Interrupted;
+
+    /// <inheritdoc />
+    public bool IsInputDesktopActive { get; set; } = true;
+
+    /// <summary>Whether <see cref="Start"/> was called.</summary>
+    public bool Started { get; private set; }
+
+    /// <inheritdoc />
+    public void Start() => Started = true;
+
+    /// <summary>Raises <see cref="Interrupted"/>, as a Win+L would.</summary>
+    public void Lock() => Interrupted?.Invoke(this, EventArgs.Empty);
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+    }
 }
 
 /// <summary>

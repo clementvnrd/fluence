@@ -28,7 +28,7 @@ public enum PushToTalkKey
     /// </remarks>
     RightAlt = 0xA5,
 
-    /// <summary>Caps Lock.</summary>
+    /// <summary>Caps Lock. Swallowed while bound, so dictating does not toggle it.</summary>
     CapsLock = 0x14,
 
     /// <summary>F13 — present on many full-size and gaming keyboards, bound to nothing.</summary>
@@ -54,11 +54,17 @@ public enum PushToTalkKey
 /// UI thread dies the first time the app does a slow layout pass.
 /// </para>
 /// <para>
-/// <b>Why the key is never swallowed:</b> the macOS build consumes Right Option because on
+/// <b>Why the key is not swallowed:</b> the macOS build consumes Right Option because on
 /// macOS that key types characters. Here, suppression buys nothing and risks something much
 /// worse — if the key-down is swallowed but the key-up escapes (the hook timed out
 /// mid-gesture, or focus crossed into an elevated window), the target application believes
-/// the modifier is held down forever.
+/// the modifier is held down forever. The one exception is Caps Lock, a toggle that would
+/// otherwise flip on every dictation; the policy lives in <see cref="PushToTalkKeys"/>.
+/// </para>
+/// <para>
+/// <b>This class decides nothing.</b> The callback filters, raises an event, and returns; the
+/// engine's handlers only enqueue. Minimum hold, chord cancellation and the watchdog are all
+/// in <c>Murmur.Core</c>, where CI can test them.
 /// </para>
 /// </remarks>
 public sealed class PushToTalkHook : IHotkeySource
@@ -139,6 +145,9 @@ public sealed class PushToTalkHook : IHotkeySource
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
 
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
+
     /// <summary>
     /// Roots the delegate for the lifetime of the hook.
     /// </summary>
@@ -155,6 +164,7 @@ public sealed class PushToTalkHook : IHotkeySource
     private Thread? _thread;
     private uint _threadId;
     private volatile bool _isDown;
+    private volatile bool _chordRaised;
 
     /// <summary>Which key triggers dictation.</summary>
     public PushToTalkKey Key { get; set; } = PushToTalkKey.RightControl;
@@ -164,6 +174,21 @@ public sealed class PushToTalkHook : IHotkeySource
 
     /// <inheritdoc />
     public event EventHandler? Released;
+
+    /// <inheritdoc />
+    public event EventHandler? ChordPressed;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <c>GetAsyncKeyState</c> reads the system's own key-state table, which a lost key-up
+    /// (hook removed, secure desktop) does not corrupt — on the secure desktop it reads "up".
+    /// </remarks>
+    public bool? IsKeyDown()
+    {
+        var key = (int)Key;
+        if (!PushToTalkKeys.CanPollPhysicalState(key)) return null;
+        return (GetAsyncKeyState(key) & 0x8000) != 0;
+    }
 
     /// <inheritdoc />
     public bool Start()
@@ -227,6 +252,7 @@ public sealed class PushToTalkHook : IHotkeySource
         _thread = null;
         _threadId = 0;
         _isDown = false;
+        _chordRaised = false;
 
         if (ReferenceEquals(s_instance, this))
         {
@@ -241,9 +267,10 @@ public sealed class PushToTalkHook : IHotkeySource
         var self = s_instance;
         if (code != HC_ACTION || self is null) return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
 
+        var swallow = false;
         try
         {
-            self.Handle(wParam, lParam);
+            swallow = self.Handle(wParam, lParam);
         }
         catch (Exception)
         {
@@ -251,18 +278,22 @@ public sealed class PushToTalkHook : IHotkeySource
             // thread with no useful context. Swallow and keep the chain intact.
         }
 
+        // A non-zero return stops the key reaching anything else — only ever for Caps Lock.
+        if (swallow) return 1;
+
         // Always chain. Microsoft: otherwise "other applications that have installed
         // WH_KEYBOARD_LL hooks will not receive hook notifications and may behave
         // incorrectly as a result."
         return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
     }
 
-    private void Handle(IntPtr wParam, IntPtr lParam)
+    /// <returns>True if the event must be swallowed.</returns>
+    private bool Handle(IntPtr wParam, IntPtr lParam)
     {
         var e = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
 
         // Ignore anything this app injected itself.
-        if (e.ExtraInfo == InjectedTag) return;
+        if (e.ExtraInfo == InjectedTag) return false;
 
         // ToInt32 rather than a cast: since .NET 7 an explicit (int)IntPtr conversion
         // silently truncates instead of throwing, which CA2020 flags. Window messages are
@@ -270,23 +301,41 @@ public sealed class PushToTalkHook : IHotkeySource
         var message = wParam.ToInt32();
         var isDown = message is WM_KEYDOWN or WM_SYSKEYDOWN;
         var isUp = message is WM_KEYUP or WM_SYSKEYUP;
-        if (!isDown && !isUp) return;
+        if (!isDown && !isUp) return false;
 
-        if (Normalize(e) != (int)Key) return;
+        var key = (int)Key;
+        var pressed = Normalize(e);
+
+        if (pressed != key)
+        {
+            // Any other key going down mid-hold makes this a shortcut. Reported once per hold.
+            if (isDown && _isDown && !_chordRaised
+                && PushToTalkKeys.IsChord(key, pressed, (int)e.ScanCode))
+            {
+                _chordRaised = true;
+                ChordPressed?.Invoke(this, EventArgs.Empty);
+            }
+
+            return false;
+        }
 
         if (isDown)
         {
             // The OS re-fires key-down while a key is held; only the first is a press.
-            if (_isDown) return;
-            _isDown = true;
-            Pressed?.Invoke(this, EventArgs.Empty);
+            if (!_isDown)
+            {
+                _isDown = true;
+                _chordRaised = false;
+                Pressed?.Invoke(this, EventArgs.Empty);
+            }
         }
-        else
+        else if (_isDown)
         {
-            if (!_isDown) return;
             _isDown = false;
             Released?.Invoke(this, EventArgs.Empty);
         }
+
+        return PushToTalkKeys.ShouldSwallow(key);
     }
 
     /// <summary>

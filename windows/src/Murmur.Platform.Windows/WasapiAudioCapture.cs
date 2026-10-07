@@ -22,7 +22,22 @@ namespace Murmur.Platform.Windows;
 /// The flag is named AUTOCONVERT<b>PCM</b> and the docs do not say whether IEEE float is
 /// accepted as a client format. Since this cannot be tested here, the code tries three
 /// formats in order and falls back to converting in managed code. All three paths produce the
-/// same thing, so callers never see the difference.
+/// same thing, so callers never see the difference. The format that worked is remembered and
+/// tried first next time, so a device that rejects float costs one failed
+/// <c>Initialize</c> per launch rather than per key press.
+/// </para>
+/// <para>
+/// <b>Stopping drains.</b> When the stop token fires, the device is told to stop; NAudio
+/// delivers the packets it already read, raises <c>RecordingStopped</c>, the resampler's tail
+/// is flushed, and only then does the sequence end. Nothing captured is discarded.
+/// </para>
+/// <para>
+/// <b>The residual gap (R1).</b> Audio starts when the device is open: COM activation and
+/// <c>IAudioClient.Initialize</c>, typically 20–100 ms after the key goes down, and far more
+/// on a Bluetooth headset that must switch from A2DP to the hands-free profile. Keeping the
+/// enumerator alive and remembering the format trims the avoidable part. Closing the rest
+/// would mean keeping the microphone open all the time behind a ring buffer, which lights the
+/// Windows microphone indicator permanently and records the room while idle — rejected.
 /// </para>
 /// </remarks>
 public sealed class WasapiAudioCapture : IAudioCapture
@@ -30,6 +45,9 @@ public sealed class WasapiAudioCapture : IAudioCapture
     private const int BufferMilliseconds = 50;
 
     private readonly string? _deviceId;
+    private readonly Lock _sync = new();
+    private MMDeviceEnumerator? _enumerator;
+    private int _preferredFormat;
     private WasapiCapture? _capture;
 
     private Channel<float[]>? _channel;
@@ -58,17 +76,33 @@ public sealed class WasapiAudioCapture : IAudioCapture
 
     private int _consecutiveSilentChunks;
 
+    /// <summary>
+    /// Proves NAudio's WASAPI types load and the audio endpoint service answers. Used by
+    /// <c>--selftest</c> on the published build, where a missing NAudio DLL used to surface
+    /// only at the first key press.
+    /// </summary>
+    /// <returns>A short description, such as "2 active capture device(s)".</returns>
+    public static string Probe()
+    {
+        using var enumerator = new MMDeviceEnumerator();
+        var devices = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active);
+        return $"{devices.Count} active capture device(s)";
+    }
+
     /// <inheritdoc />
     public async IAsyncEnumerable<AudioChunk> CaptureAsync(
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken stopRequested)
     {
         StartCapture();
+        var channel = _channel!;
+
+        // Stop is a request, not an abort: the device stops, the channel completes once the
+        // last packet is in, and the loop below drains everything that was captured.
+        using var registration = stopRequested.Register(RequestStop);
 
         try
         {
-            await foreach (var buffer in _channel!.Reader
-                .ReadAllAsync(cancellationToken)
-                .ConfigureAwait(false))
+            await foreach (var buffer in channel.Reader.ReadAllAsync(CancellationToken.None).ConfigureAwait(false))
             {
                 yield return new AudioChunk(buffer);
             }
@@ -79,14 +113,35 @@ public sealed class WasapiAudioCapture : IAudioCapture
         }
     }
 
+    private void RequestStop()
+    {
+        WasapiCapture? capture;
+        lock (_sync) capture = _capture;
+
+        try
+        {
+            // Asynchronous in NAudio: the capture thread finishes its current packet and then
+            // raises RecordingStopped, which completes the channel.
+            if (capture is not null) capture.StopRecording();
+            else _channel?.Writer.TryComplete();
+        }
+        catch (Exception e) when (e is COMException or InvalidOperationException)
+        {
+            _channel?.Writer.TryComplete();
+        }
+    }
+
     private void StartCapture()
     {
-        using var enumerator = new MMDeviceEnumerator();
+        // Kept for the app's lifetime: creating the enumerator is a COM activation on every
+        // press otherwise. The default endpoint is still looked up each time, so switching
+        // headsets between dictations just works.
+        _enumerator ??= new MMDeviceEnumerator();
         var device = _deviceId is null
             // Communications, not Console: this follows the device the user chose as their
             // default *communication* device, which is what headset users expect.
-            ? enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications)
-            : enumerator.GetDevice(_deviceId);
+            ? _enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications)
+            : _enumerator.GetDevice(_deviceId);
 
         // Bounded and drop-oldest so a slow consumer can never block the capture thread.
         // Losing the oldest audio is bad; stalling the audio engine is worse.
@@ -100,8 +155,13 @@ public sealed class WasapiAudioCapture : IAudioCapture
         _consecutiveSilentChunks = 0;
         LooksLikeBlockedMicrophone = false;
 
-        foreach (var attempt in Formats(device))
+        var formats = Formats(device).ToList();
+        var order = Enumerable.Range(0, formats.Count)
+            .OrderBy(i => i == _preferredFormat ? -1 : i);
+
+        foreach (var index in order)
         {
+            var attempt = formats[index];
             var capture = new WasapiCapture(device, useEventSync: true, BufferMilliseconds)
             {
                 ShareMode = AudioClientShareMode.Shared,
@@ -110,23 +170,27 @@ public sealed class WasapiAudioCapture : IAudioCapture
             try
             {
                 capture.WaveFormat = attempt;
+
+                // Decided before StartRecording, so the first callback already knows which
+                // path it is on.
+                _nativeTargetFormat =
+                    attempt.SampleRate == AudioChunk.SampleRate &&
+                    attempt.Channels == 1 &&
+                    attempt.Encoding == WaveFormatEncoding.IeeeFloat;
+                if (!_nativeTargetFormat) BuildManagedConverter(attempt);
+
                 capture.DataAvailable += OnDataAvailable;
                 capture.RecordingStopped += OnRecordingStopped;
+                lock (_sync) _capture = capture;
                 capture.StartRecording();
 
-                _nativeTargetFormat =
-                    capture.WaveFormat.SampleRate == AudioChunk.SampleRate &&
-                    capture.WaveFormat.Channels == 1 &&
-                    capture.WaveFormat.Encoding == WaveFormatEncoding.IeeeFloat;
-
-                if (!_nativeTargetFormat) BuildManagedConverter(capture.WaveFormat);
-
-                _capture = capture;
+                _preferredFormat = index;
                 IsCapturing = true;
                 return;
             }
             catch (Exception ex) when (ex is COMException or ArgumentException or NotSupportedException)
             {
+                lock (_sync) _capture = null;
                 capture.DataAvailable -= OnDataAvailable;
                 capture.RecordingStopped -= OnRecordingStopped;
                 capture.Dispose();
@@ -196,9 +260,13 @@ public sealed class WasapiAudioCapture : IAudioCapture
         }
 
         _rawSink!.AddSamples(e.Buffer, 0, e.BytesRecorded);   // AddSamples copies internally
+        DrainConverter();
+    }
 
-        // Drain until the resampler starves. A zero read means "no more buffered input right
-        // now" — it is not end-of-stream and not an error.
+    // Drain until the resampler starves. A zero read means "no more buffered input right
+    // now" — it is not end-of-stream and not an error.
+    private void DrainConverter()
+    {
         while (true)
         {
             var read = _pipeline!.Read(_pullBuffer, 0, _pullBuffer.Length);
@@ -232,21 +300,43 @@ public sealed class WasapiAudioCapture : IAudioCapture
 
     private void OnRecordingStopped(object? sender, StoppedEventArgs e)
     {
+        // The resampler holds back a few milliseconds of filter history. Push 20 ms of
+        // silence through so the end of the last word comes out instead of staying inside.
+        if (!_nativeTargetFormat && _rawSink is not null && _pipeline is not null)
+        {
+            try
+            {
+                var silence = new byte[_rawSink.WaveFormat.AverageBytesPerSecond / 50];
+                _rawSink.AddSamples(silence, 0, silence.Length - (silence.Length % _rawSink.WaveFormat.BlockAlign));
+                DrainConverter();
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                // The tail is a nicety; completing the channel is not.
+            }
+        }
+
         // A non-null exception here is usually AUDCLNT_E_DEVICE_INVALIDATED — the device was
-        // unplugged or reconfigured mid-capture.
+        // unplugged or reconfigured mid-capture. The engine keeps what was captured so far.
         _channel?.Writer.TryComplete(e.Exception);
         IsCapturing = false;
     }
 
     private void StopCapture()
     {
-        if (_capture is null) return;
+        WasapiCapture? capture;
+        lock (_sync)
+        {
+            capture = _capture;
+            _capture = null;
+        }
 
-        _capture.DataAvailable -= OnDataAvailable;
-        _capture.RecordingStopped -= OnRecordingStopped;
-        try { _capture.StopRecording(); } catch (COMException) { /* already gone */ }
-        _capture.Dispose();
-        _capture = null;
+        if (capture is null) return;
+
+        capture.DataAvailable -= OnDataAvailable;
+        capture.RecordingStopped -= OnRecordingStopped;
+        try { capture.StopRecording(); } catch (COMException) { /* already gone */ }
+        capture.Dispose();
 
         _channel?.Writer.TryComplete();
         IsCapturing = false;
@@ -256,6 +346,8 @@ public sealed class WasapiAudioCapture : IAudioCapture
     public ValueTask DisposeAsync()
     {
         StopCapture();
+        _enumerator?.Dispose();
+        _enumerator = null;
         return ValueTask.CompletedTask;
     }
 }

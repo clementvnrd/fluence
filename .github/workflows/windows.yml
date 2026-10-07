@@ -93,8 +93,14 @@ jobs:
           # publishing cannot bundle what it cannot see. An artifact without them starts
           # fine and then does nothing when the key is pressed.
           foreach ($dll in 'Murmur.Platform.Windows.dll', 'NAudio.Wasapi.dll',
-                           'System.Security.Cryptography.ProtectedData.dll') {
+                           'System.Security.Cryptography.ProtectedData.dll',
+                           'Microsoft.Win32.SystemEvents.dll') {
             if (-not (Test-Path "artifacts/publish/$dll")) { throw "publish folder is missing $dll" }
+          }
+          # Microsoft.Win32.SystemEvents ships a ~27 KB PlatformNotSupported stub in lib/;
+          # the real implementation (~80 KB) is under runtimes/win. Catch the wrong one here.
+          if ((Get-Item artifacts/publish/Microsoft.Win32.SystemEvents.dll).Length -lt 50KB) {
+            throw 'publish folder has the SystemEvents stub, not the Windows implementation'
           }
           Get-ChildItem artifacts/publish | Select-Object Name, @{n='KB';e={[math]::Round($_.Length/1KB)}}
 

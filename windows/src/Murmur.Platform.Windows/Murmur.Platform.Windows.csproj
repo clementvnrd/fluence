@@ -17,6 +17,7 @@
   <ItemGroup>
     <PackageReference Include="NAudio" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <PackageReference Include="Microsoft.Win32.SystemEvents" />
   </ItemGroup>
 
   <ItemGroup>

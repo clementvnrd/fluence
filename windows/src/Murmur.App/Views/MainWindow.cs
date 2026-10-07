@@ -214,6 +214,9 @@ public sealed class MainWindow : Window
     {
         if (composition is null) return null;
 
+        // The last dictation's failure comes first: it is what the user just experienced.
+        if (composition.Engine?.LastError is { } error) return error;
+
         var model = composition.Model;
         var status = ModelStatus.Describe(model.State, model.Detail, model.Location, []);
         if (!status.NeedsAttention) return null;
@@ -290,7 +293,7 @@ public sealed class MainWindow : Window
             return;
         }
 
-        var recording = engine.State != DictationState.Idle;
+        var recording = engine.State is DictationState.Recording or DictationState.Transcribing;
 
         _meter.Level = engine.Level;
         _meter.IsActive = recording;

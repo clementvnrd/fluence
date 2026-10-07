@@ -19,8 +19,17 @@ public sealed record SettingsData
     /// <summary>Where the speech model lives, or null to search the default locations.</summary>
     public string? ModelDirectory { get; init; }
 
-    /// <summary>Whether to type the transcript into the focused app.</summary>
+    /// <summary>
+    /// Whether to type the transcript into the focused app. When false, dictations go to the
+    /// history only.
+    /// </summary>
     public bool InjectText { get; init; } = true;
+
+    /// <summary>
+    /// Recording stops on its own after this many minutes (1–60), in case the key's release
+    /// is lost. Not shown in the UI; edit settings.json to change it.
+    /// </summary>
+    public int MaxRecordingMinutes { get; init; } = 10;
 
     /// <summary>How long dictations stay in the (sealed) history. Defaults to 30 days.</summary>
     public HistoryRetention HistoryRetention { get; init; } = HistoryRetention.ThirtyDays;

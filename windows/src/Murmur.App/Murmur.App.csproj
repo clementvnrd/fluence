@@ -60,6 +60,9 @@
       <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\Murmur.Platform.Windows.dll" />
       <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\NAudio*.dll" />
       <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\System.Security.Cryptography.ProtectedData.dll" />
+      <!-- The runtimes\win copy, NOT the one in the bin root: that is a stub that throws
+           PlatformNotSupportedException. Flattened beside the exe like the rest. -->
+      <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\runtimes\win\lib\net10.0\Microsoft.Win32.SystemEvents.dll" />
       <!-- Loose beside the exe rather than inside the bundle: PublishSingleFile only bundles
            assemblies the compiler knows about, and this one is deliberately invisible to it.
            The default load context probes AppContext.BaseDirectory, and Program.cs installs
@@ -78,6 +81,9 @@
       <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\Murmur.Platform.Windows.dll" />
       <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\NAudio*.dll" />
       <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\System.Security.Cryptography.ProtectedData.dll" />
+      <!-- The runtimes\win copy, NOT the one in the bin root: that is a stub that throws
+           PlatformNotSupportedException. Flattened beside the exe like the rest. -->
+      <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\runtimes\win\lib\net10.0\Microsoft.Win32.SystemEvents.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(PlatformLayer)"
           DestinationFolder="$(OutDir)"

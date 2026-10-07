@@ -104,7 +104,15 @@ public sealed class Composition : IAsyncDisposable
 
             engine = new DictationEngine(
                 capture!, hotkey!, model, injector!,
-                () => dictionary.Entries);
+                () => dictionary.Entries,
+                options: new DictationOptions
+                {
+                    // Read per dictation, so the Settings checkbox applies immediately.
+                    InjectText = () => settings.Data.InjectText,
+                    MaxRecording = TimeSpan.FromMinutes(Math.Clamp(settings.Data.MaxRecordingMinutes, 1, 60)),
+                    Session = PlatformFactory.CreateSessionMonitor(),
+                    Log = log,
+                });
 
             engine.Completed += (_, result) =>
             {
