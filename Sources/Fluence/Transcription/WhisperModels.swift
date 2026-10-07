@@ -111,19 +111,23 @@ actor WhisperModels {
             )
         }
 
-        func run(_ options: DecodingOptions) async -> String {
-            let results = await kit.transcribe(audioArrays: [samples], decodeOptions: options)
-            return results.first??
+        // Two passes at most: a looping result with a prompt is retried once without it, the
+        // prompt being the usual cause. (A loop, not a nested function: the pipeline is not
+        // Sendable and must not be captured — Swift 6.2 rejects that.)
+        var text = ""
+        for attempt in 0..<2 {
+            if attempt == 1 {
+                guard promptTokens != nil, TranscriptHealth.isDegenerate(text) else { break }
+                Log.speech.error("WhisperKit: output repeated itself with a prompt — retrying without it")
+            }
+            let results = await kit.transcribe(
+                audioArrays: [samples],
+                decodeOptions: options(prompt: attempt == 0 ? promptTokens : nil)
+            )
+            text = results.first??
                 .compactMap { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        }
-
-        var text = await run(options(prompt: promptTokens))
-        // Still looping: the prompt is the usual cause. Once more without it.
-        if promptTokens != nil, TranscriptHealth.isDegenerate(text) {
-            Log.speech.error("WhisperKit: output repeated itself with a prompt — retrying without it")
-            text = await run(options(prompt: nil))
         }
         let elapsed = Date().timeIntervalSince(started)
         let audioSeconds = Double(samples.count) / 16_000
