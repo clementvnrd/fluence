@@ -370,7 +370,8 @@ final class MeetingController {
             meeting: meeting,
             systemSpool: spool,
             key: key,
-            corrector: DictionaryStore.shared.corrector
+            corrector: DictionaryStore.shared.corrector,
+            windowParticipantCount: windowParticipants.count
         )
         let output = await Task.detached(priority: .utility) { await MeetingFinalizer.attribute(input) }.value
         return (MeetingFinalizer.name(output, windowParticipants: windowParticipants), output.voices)

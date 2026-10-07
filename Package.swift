@@ -77,7 +77,7 @@ let package = Package(
             name: "FluenceMeetingCoreTests",
             dependencies: ["FluenceMeetingCore"],
             path: "Tests/FluenceMeetingCoreTests",
-            resources: [.copy("meeting-test-vectors.json"), .copy("transcript-import-vectors.json")],
+            resources: [.copy("meeting-test-vectors.json"), .copy("transcript-import-vectors.json"), .copy("speaker-consolidation-vectors.json")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

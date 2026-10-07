@@ -58,7 +58,8 @@ jobs:
           for pair in \
             "shared/dictionary-test-vectors.json Tests/MurmurDictionaryTests/dictionary-test-vectors.json" \
             "shared/meeting-test-vectors.json Tests/FluenceMeetingCoreTests/meeting-test-vectors.json" \
-            "shared/transcript-import-vectors.json Tests/FluenceMeetingCoreTests/transcript-import-vectors.json"; do
+            "shared/transcript-import-vectors.json Tests/FluenceMeetingCoreTests/transcript-import-vectors.json" \
+            "shared/speaker-consolidation-vectors.json Tests/FluenceMeetingCoreTests/speaker-consolidation-vectors.json"; do
             set -- $pair
             [ -f "$1" ] || continue
             if ! diff -q "$1" "$2"; then
