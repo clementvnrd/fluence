@@ -140,7 +140,9 @@ struct TextSettingsSection: View {
             SettingsNote("Désactivé par défaut. Activé, un nom propre, un sigle ou un terme technique dicté "
                 + "deux fois est ajouté au dictionnaire sans vous le demander.")
 
-            Toggle(isOn: Binding(get: { settings.parakeetVocabularyBoost }, set: setBoost)) {
+            // A closure, not `set: setBoost`: Swift 6.2 (Xcode 26.x, used by CI) crashes in IRGen
+            // converting a method reference to Binding's @isolated(any) setter.
+            Toggle(isOn: Binding(get: { settings.parakeetVocabularyBoost }, set: { setBoost($0) })) {
                 Silkscreen(text: "Renforcer les mots du dictionnaire dans Parakeet")
             }
             .toggleStyle(.switch)
