@@ -116,6 +116,40 @@
       ]
     },
     {
+      "name": "section labels are not speakers (FLU-22)",
+      "input": "Workflow:\nOn commence par la collecte des prix.\nAlice: D'accord.\nAgenda : budget et planning.\nBob: Oui.\n",
+      "format": "text",
+      "title": null,
+      "turns": [
+        { "speaker": null, "start": null, "end": null, "text": "Workflow: On commence par la collecte des prix." },
+        { "speaker": "Alice", "start": null, "end": null, "text": "D'accord. Agenda : budget et planning." },
+        { "speaker": "Bob", "start": null, "end": null, "text": "Oui." }
+      ]
+    },
+    {
+      "name": "one person however the file spells them (FLU-22)",
+      "input": "Clément: Bonjour.\nAlice: Salut.\nClement: Ça va ?\nAlice: Oui.\nCLÉMENT : Parfait.\n",
+      "format": "text",
+      "title": null,
+      "turns": [
+        { "speaker": "Clément", "start": null, "end": null, "text": "Bonjour." },
+        { "speaker": "Alice", "start": null, "end": null, "text": "Salut." },
+        { "speaker": "Clément", "start": null, "end": null, "text": "Ça va ?" },
+        { "speaker": "Alice", "start": null, "end": null, "text": "Oui." },
+        { "speaker": "Clément", "start": null, "end": null, "text": "Parfait." }
+      ]
+    },
+    {
+      "name": "subtitle names: the capitalised spelling wins; a section label stays text (FLU-22)",
+      "input": "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nalice martin: Salut.\n\n00:00:02.500 --> 00:00:04.000\nAlice Martin: On commence ?\n\n00:00:05.000 --> 00:00:06.000\nWorkflow: étape suivante.\n",
+      "format": "vtt",
+      "title": null,
+      "turns": [
+        { "speaker": "Alice Martin", "start": 1.0, "end": 4.0, "text": "Salut. On commence ?" },
+        { "speaker": null, "start": 5.0, "end": 6.0, "text": "Workflow: étape suivante." }
+      ]
+    },
+    {
       "name": "empty input",
       "input": "\n\n",
       "format": "text",

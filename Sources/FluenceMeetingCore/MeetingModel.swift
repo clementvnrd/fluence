@@ -329,3 +329,34 @@ public enum SpeakerLabel {
         }
     }
 }
+
+// MARK: - Merging voices (FLU-22)
+
+extension Meeting {
+    /// Another speaker of this meeting with this name, ignoring case and accents: renaming a
+    /// voice to it means "these two are the same person".
+    public func speaker(named name: String, other id: String) -> Speaker? {
+        let key = Self.nameKey(name)
+        guard !key.isEmpty else { return nil }
+        return speakers.first { $0.id != id && $0.name.map(Self.nameKey) == key }
+    }
+
+    /// Folds `source` into `target`: every line it spoke becomes the target's, and it leaves
+    /// the speaker list. The user's own voice is never folded away into someone else.
+    public mutating func mergeSpeaker(_ source: String, into target: String) {
+        guard source != target, source != Speaker.meID else { return }
+        if !speakers.contains(where: { $0.id == target }) {
+            speakers.append(Speaker(id: target))
+        }
+        for index in segments.indices where segments[index].speakerID == source {
+            segments[index].speakerID = target
+        }
+        speakers.removeAll { $0.id == source }
+    }
+
+    static func nameKey(_ name: String) -> String {
+        name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+}

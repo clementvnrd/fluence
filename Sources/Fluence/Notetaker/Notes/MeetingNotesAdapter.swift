@@ -85,6 +85,12 @@ extension Meeting {
     /// display name follow too. The name is marked as the user's, which nothing inferred
     /// may overwrite.
     mutating func renameSpeaker(_ id: String, to newName: String) {
+        // FLU-22: the name of another speaker means "same person" — the two voices merge,
+        // which is how over-split meetings get fixed by hand.
+        if id != Speaker.meID, let existing = speaker(named: newName, other: id) {
+            mergeSpeakerKeepingNotes(id, into: existing.id)
+            return
+        }
         if !speakers.contains(where: { $0.id == id }) {
             // A segment can name a speaker the list never got (an early live pass).
             speakers.append(Speaker(id: id))
@@ -98,6 +104,19 @@ extension Meeting {
         guard var notes, newDisplayName != oldName else { return }
         for step in notes.nextSteps.indices where notes.nextSteps[step].owner == oldName {
             notes.nextSteps[step].owner = newDisplayName
+        }
+        self.notes = notes
+    }
+
+    /// `mergeSpeaker`, plus the notes' owners that named the merged voice (FLU-22).
+    mutating func mergeSpeakerKeepingNotes(_ id: String, into target: String) {
+        guard id != Speaker.meID, id != target else { return }
+        let oldName = speakers.first { $0.id == id }?.displayName ?? Speaker(id: id).displayName
+        mergeSpeaker(id, into: target)
+        let newName = speakers.first { $0.id == target }?.displayName ?? Speaker(id: target).displayName
+        guard var notes else { return }
+        for step in notes.nextSteps.indices where notes.nextSteps[step].owner == oldName {
+            notes.nextSteps[step].owner = newName
         }
         self.notes = notes
     }

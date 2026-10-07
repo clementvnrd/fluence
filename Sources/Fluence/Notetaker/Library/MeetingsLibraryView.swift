@@ -526,9 +526,34 @@ private struct RenamePopover: View {
                 }
             }
 
+            let others = model.mergeTargets
+            if !others.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Même personne que").font(DS.Font.silkscreen).foregroundStyle(DS.Color.silkscreen)
+                    FlowRow(spacing: 6) {
+                        ForEach(others) { other in
+                            Button { model.commitMerge(into: other) } label: {
+                                HStack(spacing: 5) {
+                                    Avatar(name: other.frenchDisplayName, size: 16, dashed: other.name == nil)
+                                    Text(other.frenchDisplayName).font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(DS.Color.ink)
+                                }
+                                .padding(.leading, 2).padding(.trailing, 8)
+                                .frame(height: 22)
+                                .background(DS.Color.well, in: Capsule())
+                                .contentShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Fusionner \(FrenchFormat.quoted(speaker.frenchDisplayName)) avec \(FrenchFormat.quoted(other.frenchDisplayName)) : une seule voix dans toute la réunion")
+                        }
+                    }
+                }
+            }
+
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "info.circle").font(.system(size: 10)).foregroundStyle(DS.Color.inkSecondary).padding(.top, 1)
-                Text("Le nouveau nom remplace \(FrenchFormat.quoted(speaker.frenchDisplayName)) partout dans cette réunion : notes, transcription et export (\(FrenchFormat.count(model.interventions(of: speaker.id), "intervention"))). Laissez vide pour revenir à un intervenant numéroté.")
+                Text(model.renameMergeTarget.map { "\(FrenchFormat.quoted($0.frenchDisplayName)) existe déjà : les deux voix seront fusionnées." }
+                    ?? "Le nouveau nom remplace \(FrenchFormat.quoted(speaker.frenchDisplayName)) partout dans cette réunion : notes, transcription et export (\(FrenchFormat.count(model.interventions(of: speaker.id), "intervention"))). Laissez vide pour revenir à un intervenant numéroté.")
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Color.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
