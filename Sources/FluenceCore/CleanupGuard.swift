@@ -30,11 +30,29 @@ public enum CleanupGuard {
     public static let minimumRatio = 0.6
     public static let maximumRatio = 1.5
 
-    public static func evaluate(original: String, cleaned: String) -> Verdict {
+    /// - Parameters:
+    ///   - language: the transcript's language. French brings its own articles, elisions,
+    ///     fillers and number words; any other language is judged with the English lists.
+    ///   - restyled: the output was also rewritten in a writing style (cleanup level High).
+    ///     A style legitimately swaps grammatical words — "do not" for "don't", "vous" for
+    ///     "tu" — so those stop counting as inventions. Content words still do, which is what
+    ///     catches an answered question.
+    public static func evaluate(
+        original: String,
+        cleaned: String,
+        language: DictationLanguage = .english,
+        restyled: Bool = false
+    ) -> Verdict {
         guard !cleaned.isEmpty else { return .empty }
 
-        let originalTokens = tokens(original)
-        let cleanedTokens = tokens(cleaned)
+        let french = language == .french
+        var stopWords = Self.stopWords
+        if french { stopWords.formUnion(frenchStopWords) }
+        if restyled { stopWords.formUnion(french ? frenchRestyleWords : englishRestyleWords) }
+        let fillerWords = french ? Self.fillerWords.union(frenchFillerWords) : Self.fillerWords
+
+        let originalTokens = tokens(original, french: french)
+        let cleanedTokens = tokens(cleaned, french: french)
         let originalWords = originalTokens.filter { !stopWords.contains($0) }
         let cleanedWords = cleanedTokens.filter { !stopWords.contains($0) }
         guard !originalWords.isEmpty else { return .empty }
@@ -43,7 +61,7 @@ public enum CleanupGuard {
         //    rather than transformed. Numbers are compared as values, so "three" → "3" and
         //    "twenty twenty six" → "2026" are the same word, not an invention.
         let vocabulary = Set(originalWords).union(numberRuns(in: originalTokens))
-        let invented = inventedCount(cleanedTokens, vocabulary: vocabulary)
+        let invented = inventedCount(cleanedTokens, vocabulary: vocabulary, stopWords: stopWords)
         guard invented == 0 else { return .inventedWords(invented) }
 
         // 2. Length sanity, as a backstop for the case where the model obeys an injected
@@ -65,6 +83,7 @@ public enum CleanupGuard {
         //    unless the speaker started that way too ("Sure, I can do Tuesday").
         let lowered = cleaned.lowercased()
         let spokenStart = original.lowercased().trimmingCharacters(in: .whitespaces)
+        let tells = french ? Self.tells + frenchTells : Self.tells
         let explains = tells.contains { lowered.hasPrefix($0) && !spokenStart.hasPrefix(String($0.prefix { $0.isLetter || $0 == " " || $0 == "'" })) }
         return explains ? .commentary : .accepted
     }
@@ -74,14 +93,14 @@ public enum CleanupGuard {
     /// Lowercased alphanumeric words with spoken numbers turned into digits. Contractions are
     /// split so "isn't" matches "isn t"; thousands separators are dropped so "1,000" is one
     /// number.
-    static func tokens(_ text: String) -> [String] {
+    static func tokens(_ text: String, french: Bool = false) -> [String] {
         let joined = text.lowercased().replacingOccurrences(
             of: #"(?<=\d),(?=\d{3}(?!\d))"#,
             with: "",
             options: .regularExpression
         )
         let words = joined.split { !$0.isLetter && !$0.isNumber }.map(String.init)
-        return NumberWords.canonical(words)
+        return french ? FrenchNumberWords.canonical(words) : NumberWords.canonical(words)
     }
 
     /// Concatenations of adjacent numbers as spoken: "nineteen eighty four" is [19, 84], and
@@ -112,7 +131,7 @@ public enum CleanupGuard {
     /// Counts cleaned words that were never spoken. A run of numbers in the output is also
     /// accepted when it spells, concatenated, a number that *was* spoken ("2026" said, "20 26"
     /// written).
-    private static func inventedCount(_ tokens: [String], vocabulary: Set<String>) -> Int {
+    private static func inventedCount(_ tokens: [String], vocabulary: Set<String>, stopWords: Set<String>) -> Int {
         var invented = 0
         var index = 0
         while index < tokens.count {
@@ -155,6 +174,46 @@ public enum CleanupGuard {
         "here's the cleaned", "here is the cleaned", "cleaned transcript",
         "sure,", "certainly,", "i cannot", "i can't", "as an ai",
     ]
+
+    // MARK: - French
+
+    /// Articles, elided pronouns and conjunctions a French cleanup re-punctuating "j ai" into
+    /// "j'ai", or "c est" into "c'est", may insert or drop.
+    static let frenchStopWords: Set<String> = [
+        "le", "la", "les", "l", "de", "d", "du", "des", "un", "une", "et", "ou", "mais", "donc",
+        "que", "qu", "à", "au", "aux", "en", "y", "j", "n", "s", "c", "m", "t", "ne",
+    ]
+
+    /// Hesitations and discourse markers a French cleanup legitimately deletes, including
+    /// the ones that announce a self-correction ("trois, non, enfin quatre").
+    static let frenchFillerWords: Set<String> = [
+        "euh", "heu", "hum", "hmm", "bah", "ben", "genre", "bon", "alors", "voilà", "voila",
+        "enfin", "pardon", "non", "plutôt", "fait", "coup", "du", "quoi", "hein", "tu", "vois",
+        "sais", "disons", "attends", "attendez", "ouais", "oups", "en",
+    ]
+
+    private static let frenchTells = [
+        "voici le texte", "voici la transcription", "texte nettoyé", "transcription nettoyée",
+        "bien sûr,", "certainement,", "je ne peux pas", "en tant qu'ia", "en tant qu’ia",
+    ]
+
+    // MARK: - Restyling (level High)
+
+    /// Grammatical words a change of register swaps in or out. No nouns, verbs of substance
+    /// or numbers: those still have to have been said.
+    static let englishRestyleWords: Set<String> = [
+        "is", "are", "am", "was", "were", "be", "been", "will", "would", "shall", "should",
+        "not", "do", "does", "did", "have", "has", "had", "can", "cannot", "could", "may",
+        "might", "i", "you", "we", "it", "they", "he", "she", "me", "us", "them", "my", "your",
+        "our", "to", "of", "for", "with", "that", "this", "these", "those", "there", "in", "on",
+        "at", "as",
+    ]
+
+    static let frenchRestyleWords: Set<String> = frenchStopWords.union([
+        "vous", "tu", "te", "toi", "votre", "vos", "ton", "ta", "tes", "pas", "est", "sont",
+        "suis", "es", "ai", "as", "avez", "avons", "a", "je", "nous", "il", "elle", "on", "ce",
+        "ça", "cela", "pour", "se", "me", "moi", "lui", "leur", "leurs",
+    ])
 }
 
 /// Spoken numbers to digits, just well enough to compare a transcript with its cleanup.

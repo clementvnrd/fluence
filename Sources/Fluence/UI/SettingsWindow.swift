@@ -37,6 +37,9 @@ struct SettingsWindow: View {
                             + "regardless of what's focused.")
                     }
 
+                    // MARK: FLU-5 input
+                    ShortcutsSettingsSection(controller: controller)
+
                     panel(label: "Model") {
                         HStack(spacing: DS.Space.snug) {
                             ForEach(SpeechEngineChoice.allCases, id: \.self) { choice in
@@ -60,14 +63,8 @@ struct SettingsWindow: View {
                             : "Parakeet on the Neural Engine. Resolves on release; ~470 MB model.")
                     }
 
-                    panel(label: "Cleanup") {
-                        Toggle(isOn: $settings.cleanupEnabled) {
-                            Silkscreen(text: "Clean up transcripts")
-                        }
-                        .toggleStyle(.switch)
-                        note("Strips fillers, fixes spacing and punctuation. The dictionary's "
-                            + "corrections run either way.")
-                    }
+                    // MARK: FLU-5 text — cleanup level, language, styles, dictionary helpers.
+                    TextSettingsSection()
 
                     panel(label: "Recording limit") {
                         HStack(spacing: DS.Space.snug) {

@@ -1,4 +1,5 @@
 import AppKit
+import FluenceCore
 import SwiftUI
 
 @main
@@ -69,15 +70,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hud = HUDPanel(controller: controller)
 
         if !controller.activate() {
-            Permissions.promptForAccessibility()
+            // MARK: FLU-5 input — no bare system prompt here: the onboarding window below
+            // explains Accessibility and raises the prompt from its button. Both at once
+            // would be two dialogs about one thing.
             // The tap can only be created once the user grants Accessibility, and there's
             // no notification for that — poll until it takes.
             retryActivation()
         }
+        // MARK: FLU-5 input
+        if OnboardingWindow.isNeeded { OnboardingWindow.shared.show() }
 
         // Reads (and on first run after the update, seals and replaces) the history off the
         // main thread, then applies the retention setting.
         RunLog.start()
+        // MARK: FLU-5 text — snippets are sealed like history; open them now, not on the
+        // first dictation, which would otherwise run without them.
+        _ = SnippetStore.shared
 
         // Parakeet's models take ~20s to load from disk, and that cost lands on whichever
         // dictation touches them first — so the first hold after every launch would stall
@@ -223,15 +231,16 @@ private struct MenuContent: View {
             }
         }
 
-        Toggle("Clean up text", isOn: $settings.cleanupEnabled)
-
-        if settings.cleanupEnabled {
-            Toggle("Smart cleanup (on-device AI)", isOn: $settings.smartCleanup)
-                .disabled(!FoundationModelFormatter.isAvailable)
-            if let reason = FoundationModelFormatter.unavailableReason {
-                Text(reason).font(.caption)
+        // MARK: FLU-5 text
+        Picker("Cleanup", selection: $settings.cleanupLevel) {
+            ForEach(CleanupLevel.allCases, id: \.self) { level in
+                Text(level.title).tag(level)
             }
         }
+        if settings.cleanupLevel.usesModel, let reason = FoundationModelFormatter.unavailableReason {
+            Text(reason).font(.caption)
+        }
+        // MARK: end FLU-5 text
 
         Toggle("Sound", isOn: $settings.soundEnabled)
 
@@ -261,6 +270,9 @@ private struct MenuContent: View {
         if let problem = RunStore.shared.problem {
             Text(problem).font(.caption)
         }
+
+        // MARK: FLU-5 input
+        Button("Set up Fluence…") { OnboardingWindow.shared.show() }
 
         if !Permissions.hasAccessibility {
             Button("Grant Accessibility…") { Permissions.openAccessibilitySettings() }

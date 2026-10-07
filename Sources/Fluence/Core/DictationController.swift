@@ -28,19 +28,25 @@ final class DictationController {
         case listening
         case finishing
         case error(String)
+        // MARK: FLU-5 input
+        /// A short message that is not a fault — "Last transcript copied", "Select some text
+        /// first". Shown on the HUD for a moment, then back to idle.
+        case notice(String)
 
         var isActive: Bool {
             switch self {
             case .starting, .listening, .finishing: true
-            case .idle, .error: false
+            case .idle, .error, .notice: false
             }
         }
 
         /// The HUD shows errors as well as activity: an error that only reaches the log is
         /// indistinguishable, to the user, from the key doing nothing.
         var showsHUD: Bool {
-            if case .error = self { return true }
-            return isActive
+            switch self {
+            case .error, .notice: true
+            default: isActive
+            }
         }
     }
 
@@ -50,24 +56,38 @@ final class DictationController {
     /// Smoothed 0…1 mic level for the waveform.
     private(set) var level: Float = 0
 
+    // MARK: FLU-5 input
+    /// The dictation in progress keeps recording after the key comes up (double-tap, or
+    /// push-to-talk + Space). A tap of the key, or the HUD's Stop key, ends it.
+    private(set) var isHandsFree = false
+    /// The dictation in progress is a Command Mode instruction: the words are applied to the
+    /// selected text instead of being typed.
+    private(set) var isCommand = false
+    /// What the last dictation typed, for ⌃⌘V / ⌃⌘C. In memory only, never written anywhere,
+    /// so it works for the session even when history is set to "Don't keep".
+    private(set) var lastTranscript: String?
+    // MARK: end FLU-5 input
+
     private let hotkey = HotkeyMonitor()
     private let capture = AudioCapture()
     private let makeEngine: @MainActor () -> any TranscriptionEngine
 
-    /// Injected only by tests; production reads the setting per-utterance below.
+    /// Injected only by tests; production picks the cleanup level's formatter per utterance
+    /// (`DictationPipeline`), so a change in the menu applies to the very next hold.
     private let formatter: (any TextFormatter)?
-
-    /// Chosen per-utterance so the menu toggle applies to the very next hold.
-    private var activeFormatter: any TextFormatter {
-        if let formatter { return formatter }
-        return Settings.shared.smartCleanup
-            ? FoundationModelFormatter()
-            : RuleBasedFormatter()
-    }
 
     /// The dictation in progress, if any. Its identity is the session token: see
     /// `DictationSession`.
-    private var session: DictationSession?
+    private var session: DictationSession? {
+        // MARK: FLU-5 input — every way a dictation ends passes through here, so the
+        // gesture machine and the hands-free / command flags can never outlive it.
+        didSet {
+            guard session == nil else { return }
+            isHandsFree = false
+            isCommand = false
+            hotkey.sessionEnded()
+        }
+    }
 
     /// How long the mic stays open after the key comes up. People release on the last
     /// syllable, not after it.
@@ -89,14 +109,20 @@ final class DictationController {
     @discardableResult
     func activate() -> Bool {
         hotkey.key = Settings.shared.pushToTalkKey
-        hotkey.onPress = { [weak self] in self?.beginDictation(from: .hotkey) }
-        hotkey.onRelease = { [weak self] in self?.endDictation(from: .hotkey) }
+        // MARK: FLU-5 input
+        hotkey.commandModifier = Settings.shared.commandModifier
+        hotkey.onGesture = { [weak self] action in self?.handleGesture(action) }
+        hotkey.onEscape = { [weak self] in self?.cancelFromEscape() ?? false }
+        hotkey.onLastTranscript = Settings.shared.lastTranscriptShortcuts
+            ? { [weak self] action in self?.handleLastTranscript(action) }
+            : nil
         // The system switched the tap off, so the key-up for the hold in progress may never
         // arrive. Cancel rather than finish: whatever has focus by the time anyone notices
-        // is not necessarily where the user meant the text to go.
+        // is not necessarily where the user meant the text to go. A hands-free dictation
+        // waits for no key-up, so it carries on.
         hotkey.onTapDisabled = { [weak self] in
-            guard self?.session?.source == .hotkey else { return }
-            self?.cancelDictation(reason: "the key monitor was interrupted")
+            guard let self, self.session?.source == .hotkey, !self.isHandsFree else { return }
+            self.cancelDictation(reason: "the key monitor was interrupted")
         }
         observeSystemEvents()
         return hotkey.start()
@@ -107,7 +133,8 @@ final class DictationController {
         cancelDictation(reason: "deactivated")
     }
 
-    /// Re-arms the tap after the user picks a different push-to-talk key.
+    /// Re-arms the tap after the user picks a different push-to-talk key, Command Mode
+    /// modifier or shortcut setting.
     @discardableResult
     func reloadHotkey() -> Bool {
         // A hold in progress belongs to the old key, whose release the new tap won't report.
@@ -165,16 +192,18 @@ final class DictationController {
 
     /// Key down. The mic opens *now*, before the engine is ready: whatever is said while the
     /// engine loads waits in the session's stream and reaches the engine first, in order.
-    private func beginDictation(from source: DictationSession.Source) {
+    private func beginDictation(from source: DictationSession.Source, command: Bool = false) {
         guard session == nil else { return }
 
-        let isComparing = Settings.shared.compareMode
+        // A Command Mode instruction is never a comparison: it is applied, not compared.
+        let isComparing = Settings.shared.compareMode && !command
         let session = DictationSession(
             source: source,
             isComparing: isComparing,
             engineName: isComparing ? "Comparing…" : Settings.shared.engine.displayName
         )
         self.session = session
+        isCommand = command
         state = .starting
         transcript = ""
         level = 0
@@ -303,6 +332,8 @@ final class DictationController {
 
         WisprTrigger.release()
         session.releasedAt = Date()
+        // MARK: FLU-5 text — where the text will go, read now while that app is in front.
+        session.target = FrontmostApp.capture(readURL: Settings.shared.cleanupLevel.appliesStyle)
         session.limitTask?.cancel()
         state = .finishing
         level = 0
@@ -366,23 +397,38 @@ final class DictationController {
             return
         }
 
-        let cleaned = Settings.shared.cleanupEnabled
-            ? await activeFormatter.format(raw)
-            : raw
+        // MARK: FLU-5 input — Command Mode: the words were an instruction, not text to type.
+        if isCommand {
+            await runCommand(session, instruction: raw)
+            return
+        }
+
+        // MARK: FLU-5 text — snippets, cleanup level, language, style, then the dictionary.
+        // The dictionary still runs last and regardless of the level: biasing only raises
+        // the odds of the right word; that pass guarantees it.
+        let processed = await DictationPipeline.process(
+            raw,
+            category: session.target?.category ?? .other,
+            formatter: formatter
+        )
         // Cancelled during cleanup (screen locked, say): don't type into whatever has focus now.
         guard self.session === session else { return }
-
-        // The dictionary runs last, and runs regardless of the cleanup setting. Biasing
-        // only raises the odds of the right word; this is the pass that guarantees it,
-        // so it must not be something the user can accidentally switch off.
-        let (output, corrections) = DictionaryStore.shared.corrector.apply(to: cleaned)
+        let output = processed.text
+        let corrections = processed.corrections
+        if processed.snippetCount > 0 {
+            Log.speech.info("snippets · \(processed.snippetCount, privacy: .public) expanded")
+        }
         if !corrections.isEmpty {
             Log.speech.info("dictionary · \(corrections.count, privacy: .public) correction(s) applied")
         }
 
         // Typed first, filed second: the user is waiting on the text, not on the history.
         let processSeconds = session.releasedAt.map { Date().timeIntervalSince($0) } ?? 0
+        // MARK: FLU-5 text — snapshot the field first, so a later correction can be found.
+        if Settings.shared.learnFromEdits { EditWatcher.shared.willInsert(output) }
         TextInjector.insert(output)
+        lastTranscript = output  // MARK: FLU-5 input
+        if Settings.shared.learnFromEdits { EditWatcher.shared.didInsert() }
         if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
 
         // Text arrived, but the engine also failed partway: type what there is, and say so.
@@ -632,6 +678,156 @@ final class DictationController {
     }
 }
 
+// MARK: FLU-5 input
+
+extension DictationController {
+    /// The HUD's Stop key: ends a hands-free dictation and types it.
+    func stopHandsFree() {
+        guard isHandsFree else { return }
+        endDictation(from: nil)
+    }
+}
+
+extension DictationController {
+    /// What the push-to-talk key's gestures ask for. See `PushToTalkGesture`.
+    fileprivate func handleGesture(_ action: PushToTalkGesture.Action) {
+        switch action {
+        case .start(let command):
+            // A press while the last dictation is still finishing does nothing, as before;
+            // the gesture machine must then ignore that press's release too.
+            guard session == nil else {
+                hotkey.sessionEnded()
+                return
+            }
+            if command, !FoundationModelFormatter.isAvailable {
+                hotkey.sessionEnded()
+                showNotice(CommandRewriter.Failure.unavailable.message)
+                return
+            }
+            beginDictation(from: .hotkey, command: command)
+
+        case .enterHandsFree:
+            guard let session, session.source == .hotkey, !session.isReleased else { return }
+            isHandsFree = true
+            Log.app.info("dictation is hands-free")
+
+        case .markCommand:
+            guard let session, session.source == .hotkey, !session.isReleased, !session.isComparing,
+                  !isCommand
+            else { return }
+            if !FoundationModelFormatter.isAvailable {
+                cancelDictation(reason: "Command Mode unavailable")
+                showNotice(CommandRewriter.Failure.unavailable.message)
+                return
+            }
+            isCommand = true
+
+        case .finish:
+            endDictation(from: .hotkey)
+        }
+    }
+
+    /// Esc cancels whatever is recording or finishing — nothing typed, nothing filed. Only
+    /// then is the key swallowed; an idle Fluence leaves Esc to the app.
+    fileprivate func cancelFromEscape() -> Bool {
+        guard session != nil, state.isActive else { return false }
+        cancelDictation(reason: "Esc")
+        return true
+    }
+
+    /// ⌃⌘V types the last transcript again; ⌃⌘C puts it on the pasteboard.
+    fileprivate func handleLastTranscript(_ action: LastTranscriptAction) {
+        // Mid-dictation the chord is swallowed and ignored: pasting now would land in the
+        // middle of what is being said.
+        guard session == nil else { return }
+        guard let text = lastTranscript else {
+            showNotice("Nothing dictated yet.")
+            return
+        }
+        switch action {
+        case .paste:
+            Task {
+                // ⌃ and ⌘ are still down on the chord. The paste fallback posts its own ⌘V,
+                // which must not reach the app as ⌃⌘V.
+                await Self.waitForChordRelease()
+                guard self.session == nil else { return }
+                TextInjector.insert(text)
+            }
+        case .copy:
+            // Asked for, so an ordinary copy — but this Mac only: Universal Clipboard would
+            // hand the dictation to every device on the account.
+            let pasteboard = NSPasteboard.general
+            pasteboard.prepareForNewContents(with: .currentHostOnly)
+            pasteboard.setString(text, forType: .string)
+            showNotice("Last transcript copied.")
+        }
+    }
+
+    private static func waitForChordRelease() async {
+        let deadline = ContinuousClock.now + .seconds(1)
+        while ContinuousClock.now < deadline {
+            let flags = CGEventSource.flagsState(.combinedSessionState)
+            if !flags.contains(.maskControl), !flags.contains(.maskCommand) { return }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// Command Mode, once the instruction is transcribed: read the selection (or the whole
+    /// field), rewrite it on-device, put it back. The text is never logged.
+    fileprivate func runCommand(_ session: DictationSession, instruction: String) async {
+        let target: CommandTarget
+        switch CommandTarget.read() {
+        case .success(let found):
+            target = found
+        case .failure(let failure):
+            Log.app.info("command · no target (\(String(describing: failure), privacy: .public))")
+            end(session, notice: failure.message)
+            return
+        }
+
+        transcript = "Rewriting…"
+        let result = await CommandRewriter.rewrite(target.text, instruction: instruction)
+        // Esc, a lock screen or a new session while the model worked: write nothing.
+        guard self.session === session else { return }
+
+        switch result {
+        case .success(let rewritten):
+            guard target.replace(with: rewritten) else {
+                Log.app.info("command · focus or selection moved during the rewrite — nothing replaced")
+                end(session, notice: "The text changed meanwhile. Nothing replaced.")
+                return
+            }
+            if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
+            end(session, as: .idle)
+        case .failure(let failure):
+            Log.app.info("command · \(failure.reason, privacy: .public)")
+            end(session, notice: failure.message)
+        }
+    }
+
+    private func end(_ session: DictationSession, notice message: String) {
+        end(session, as: .notice(message))
+        dismissNoticeLater(message)
+    }
+
+    /// A notice outside any dictation. Never over one: the HUD is showing the recording.
+    fileprivate func showNotice(_ message: String) {
+        guard session == nil else { return }
+        state = .notice(message)
+        transcript = ""
+        dismissNoticeLater(message)
+    }
+
+    private func dismissNoticeLater(_ message: String) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            if state == .notice(message), session == nil { state = .idle }
+        }
+    }
+}
+
+// MARK: end FLU-5 input
+
 /// One dictation, from key-down to text typed.
 ///
 /// The controller holds at most one, and the object's identity is the session token: after
@@ -667,6 +863,9 @@ private final class DictationSession {
     var engineError: Error?
     /// Capture ended on its own; the reason, for the user.
     var interruption: String?
+    // MARK: FLU-5 text
+    /// The frontmost app at release, and its category — the style at level High.
+    var target: FrontmostApp.Target?
 
     init(source: Source, isComparing: Bool, engineName: String) {
         self.source = source
