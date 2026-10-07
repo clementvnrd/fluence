@@ -35,3 +35,27 @@ public interface IVoiceActivityDetector : IDisposable
     /// <summary>Feeds the next hop of 16 kHz mono audio; returns a speech probability in [0, 1].</summary>
     float Push(ReadOnlySpan<float> hop);
 }
+
+/// <summary>One stretch of one voice, from the diarizer.</summary>
+/// <param name="Speaker">The diarizer's cluster index.</param>
+/// <param name="Start">Seconds from the start of the audio passed in.</param>
+/// <param name="End">Seconds from the start of the audio passed in.</param>
+public readonly record struct DiarizedTurn(int Speaker, double Start, double End);
+
+/// <summary>Separates the voices in one channel of audio, after the meeting.</summary>
+public interface ISpeakerDiarizer : IDisposable
+{
+    /// <summary>Who spoke when, in <paramref name="samples"/> (16 kHz mono).</summary>
+    IReadOnlyList<DiarizedTurn> Diarize(float[] samples, CancellationToken cancellationToken);
+}
+
+/// <summary>Turns a stretch of one voice into a fixed-length embedding (a "voice print").</summary>
+/// <remarks>Biometric data (GDPR art. 9): only computed when the user has opted in to voice prints.</remarks>
+public interface ISpeakerEmbedder : IDisposable
+{
+    /// <summary>The embedding's length.</summary>
+    int Dimension { get; }
+
+    /// <summary>The embedding of <paramref name="samples"/> (16 kHz mono), or null when too short to say.</summary>
+    float[]? Embed(float[] samples);
+}

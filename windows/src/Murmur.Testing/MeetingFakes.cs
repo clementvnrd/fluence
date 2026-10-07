@@ -158,3 +158,52 @@ public sealed class ThrowingVoiceActivity : IVoiceActivityDetector
     /// <inheritdoc />
     public void Dispose() => Disposed = true;
 }
+
+/// <summary>A diarizer that returns scripted turns.</summary>
+public sealed class FakeDiarizer(IReadOnlyList<DiarizedTurn> turns) : ISpeakerDiarizer
+{
+    /// <summary>Lengths of the audio it was given.</summary>
+    public List<int> Calls { get; } = [];
+
+    /// <summary>Thrown instead of answering, when set.</summary>
+    public Exception? Failure { get; set; }
+
+    /// <inheritdoc />
+    public IReadOnlyList<DiarizedTurn> Diarize(float[] samples, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(samples);
+        if (Failure is not null) throw Failure;
+        Calls.Add(samples.Length);
+        return turns;
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+    }
+}
+
+/// <summary>An embedder whose embedding is the audio's mean level, repeated.</summary>
+public sealed class FakeEmbedder : ISpeakerEmbedder
+{
+    /// <inheritdoc />
+    public int Dimension => 4;
+
+    /// <summary>How many embeddings were computed.</summary>
+    public int Calls { get; private set; }
+
+    /// <inheritdoc />
+    public float[]? Embed(float[] samples)
+    {
+        ArgumentNullException.ThrowIfNull(samples);
+        Calls++;
+        if (samples.Length == 0) return null;
+        var mean = samples.Average(Math.Abs);
+        return [mean, 1, mean, 1];
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+    }
+}
