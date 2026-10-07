@@ -37,6 +37,9 @@ struct SettingsWindow: View {
                             + "regardless of what's focused.")
                     }
 
+                    // MARK: FLU-5 input
+                    ShortcutsSettingsSection(controller: controller)
+
                     panel(label: "Model") {
                         HStack(spacing: DS.Space.snug) {
                             ForEach(SpeechEngineChoice.allCases, id: \.self) { choice in

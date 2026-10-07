@@ -348,6 +348,19 @@ extension DS {
     }
 }
 
+// MARK: - FLU-5 input
+
+extension DS {
+    /// The first-run window that walks through the permissions.
+    enum Onboarding {
+        static let size = CGSize(width: 680, height: 460)
+        /// The list of steps down the left side.
+        static let stepColumnWidth: CGFloat = 210
+        /// How often the grants are re-read. There is no notification for any of them.
+        static let poll: Duration = .seconds(1)
+    }
+}
+
 // MARK: - Hex helpers
 
 private extension SwiftUI.Color {

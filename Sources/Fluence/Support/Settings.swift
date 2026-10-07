@@ -67,6 +67,21 @@ final class Settings {
 
     static let recordingLimitChoices = [2, 5, 10, 30]
 
+    // MARK: FLU-5 input
+
+    /// Held with the push-to-talk key, turns the hold into a Command Mode instruction.
+    var commandModifier: CommandModifier {
+        didSet { defaults.set(commandModifier.rawValue, forKey: Keys.commandModifier) }
+    }
+
+    /// ⌃⌘V pastes and ⌃⌘C copies the last transcript. Switchable because the chords are
+    /// global: someone whose editor already uses them needs a way to give them back.
+    var lastTranscriptShortcuts: Bool {
+        didSet { defaults.set(lastTranscriptShortcuts, forKey: Keys.lastTranscriptShortcuts) }
+    }
+
+    // MARK: end FLU-5 input
+
     private let defaults = UserDefaults.standard
 
     private enum Keys {
@@ -78,6 +93,9 @@ final class Settings {
         static let compareMode = "compareMode"
         static let historyRetention = "historyRetention"
         static let maxRecordingMinutes = "maxRecordingMinutes"
+        // MARK: FLU-5 input
+        static let commandModifier = "commandModifier"
+        static let lastTranscriptShortcuts = "lastTranscriptShortcuts"
     }
 
     private init() {
@@ -95,6 +113,9 @@ final class Settings {
             ?? .default
         let limit = defaults.integer(forKey: Keys.maxRecordingMinutes)
         maxRecordingMinutes = limit > 0 ? limit : 10
+        // MARK: FLU-5 input
+        commandModifier = CommandModifier(rawValue: defaults.string(forKey: Keys.commandModifier) ?? "") ?? .control
+        lastTranscriptShortcuts = defaults.object(forKey: Keys.lastTranscriptShortcuts) as? Bool ?? true
     }
 }
 
