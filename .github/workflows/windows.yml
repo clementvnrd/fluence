@@ -4,12 +4,14 @@ name: Windows
 # ever compiled against a real Windows SDK, so this workflow is the primary correctness
 # signal, not a formality — hence warnings-as-errors and the strictest analyzers available.
 
+# The consent notice is checked word for word against the Swift source, so a wording change
+# there runs this workflow too.
 on:
   push:
     branches: [main]
-    paths: ['windows/**', 'shared/**', '.github/workflows/windows.yml']
+    paths: ['windows/**', 'shared/**', '.github/workflows/windows.yml', 'Sources/FluenceNotesCore/ConsentNotice.swift']
   pull_request:
-    paths: ['windows/**', 'shared/**', '.github/workflows/windows.yml']
+    paths: ['windows/**', 'shared/**', '.github/workflows/windows.yml', 'Sources/FluenceNotesCore/ConsentNotice.swift']
   workflow_dispatch:
 
 permissions:
