@@ -69,9 +69,12 @@ jobs:
           --results-directory artifacts/test-results
 
       # The published exe is the only artifact CI can actually run, and a runner cannot
-      # show a window — so --selftest exercises startup, native library resolution out of
-      # the self-extracted bundle, and model discovery, then exits. That is the class of
-      # failure that appears only after publishing.
+      # show a window — so --selftest exercises startup, the reflection-loaded platform
+      # layer and every dependency it pulls in (a WASAPI enumeration through NAudio, a DPAPI
+      # round trip, a SystemEvents subscription), a real P/Invoke into the sherpa-onnx native
+      # library extracted from the bundle, sealed-history round trips and model discovery,
+      # then exits non-zero on any failure. That is the class of failure that appears only
+      # after publishing.
       - name: Publish and smoke-test the real exe
         shell: pwsh
         run: |

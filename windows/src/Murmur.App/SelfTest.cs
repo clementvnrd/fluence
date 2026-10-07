@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Murmur.Abstractions;
 using Murmur.Core;
 using Murmur.Dictionary;
 using Murmur.Speech;
@@ -9,10 +10,20 @@ namespace Murmur.App;
 /// A headless check that the published binary actually works.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Run in CI against the real single-file executable. It cannot show a window on a runner, so
 /// it verifies the things that only break <i>after</i> publishing: assemblies resolving out
 /// of the bundle, native libraries extracting, and paths resolving against
 /// <c>AppContext.BaseDirectory</c> rather than the current directory.
+/// </para>
+/// <para>
+/// <b>Every check touches the real thing</b>, not just a constructor: a WASAPI enumeration
+/// through NAudio, a P/Invoke into sherpa-onnx's native library (and a real decode when a
+/// model is installed), a DPAPI round trip, a session-event subscription. Constructing types
+/// was not enough — the app once passed this test and then threw FileNotFoundException for
+/// NAudio on the first key press.
+/// </para>
+/// <para>Exit code 0 only if every check passed.</para>
 /// </remarks>
 public static class SelfTest
 {
@@ -24,6 +35,7 @@ public static class SelfTest
 
         failures += CheckDictionary();
         failures += CheckStorage();
+        failures += CheckNativeSpeech();
         failures += CheckModelDiscovery();
         failures += CheckPlatformLayer();
 
@@ -91,15 +103,56 @@ public static class SelfTest
         }
     }
 
+    /// <summary>A real call into sherpa-onnx's native library, extracted from the bundle.</summary>
+    private static int CheckNativeSpeech()
+    {
+        try
+        {
+            var version = ParakeetTranscriber.NativeVersion();
+            Console.WriteLine($"  sherpa-onnx native: {version}");
+            return Check("sherpa-onnx native library loads", !string.IsNullOrWhiteSpace(version));
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException
+                                      or TypeLoadException or FileNotFoundException)
+        {
+            Console.WriteLine($"  {e.GetType().Name}: {e.Message}");
+            return Check("sherpa-onnx native library loads", false);
+        }
+    }
+
     private static int CheckModelDiscovery()
     {
+        var failures = Check("model search paths are absolute",
+            ParakeetTranscriber.SearchPaths(null, AppPaths.ModelsDirectory).All(Path.IsPathRooted));
+
         // A fresh machine has no model, and that must be a friendly message rather than a
         // crash on launch.
         var located = ParakeetTranscriber.Locate(null, AppPaths.ModelsDirectory);
         Console.WriteLine($"  model: {located ?? "(not installed — expected on a clean runner)"}");
+        if (located is null) return failures;
 
-        return Check("model search paths are absolute",
-            ParakeetTranscriber.SearchPaths(null, AppPaths.ModelsDirectory).All(Path.IsPathRooted));
+        // Installed: verify it, load it, and decode a second of silence — the whole path the
+        // first dictation would take, minus the microphone.
+        var host = new TranscriberHost(new ParakeetTranscriber(located), located);
+        try
+        {
+            var loaded = host.LoadAsync(CancellationToken.None).AsTask().GetAwaiter().GetResult();
+            if (!loaded) Console.WriteLine($"  model failed: {host.Detail}");
+            failures += Check("installed model verifies and loads", loaded);
+
+            if (loaded)
+            {
+                var text = host.TranscribeAsync(new float[AudioChunk.SampleRate], [], CancellationToken.None)
+                    .AsTask().GetAwaiter().GetResult();
+                failures += Check("installed model decodes a second of silence", text is not null);
+            }
+        }
+        finally
+        {
+            host.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+
+        return failures;
     }
 
     /// <summary>
@@ -125,19 +178,95 @@ public static class SelfTest
         if (!PlatformFactory.IsAvailable) return failures;
 
         failures += Check("audio capture constructs", PlatformFactory.CreateAudioCapture() is not null);
-        failures += Check("text injector constructs", PlatformFactory.CreateTextInjector() is not null);
+        failures += CheckAudioStack();
+
+        var injector = PlatformFactory.CreateTextInjector();
+        failures += Check("text injector constructs", injector is not null);
+        if (injector is not null)
+        {
+            // GetForegroundWindow plus the elevation query; a runner may have no foreground
+            // window at all, which is fine — it must simply not throw.
+            var target = injector.GetFocusTarget();
+            Console.WriteLine($"  focus target: window={target.Window}, blocked={target.IsBlocked}");
+        }
 
         // Constructed, not started: installing a real low-level keyboard hook on a CI runner
-        // is neither useful nor polite.
+        // is neither useful nor polite. The physical-state query is harmless and real.
         var hotkey = PlatformFactory.CreateHotkeySource(0xA3);
         failures += Check("hotkey source constructs with Right Ctrl", hotkey is not null);
+        if (hotkey is not null) Console.WriteLine($"  right ctrl down: {hotkey.IsKeyDown()}");
         hotkey?.Dispose();
+
+        failures += CheckDpapi();
+        failures += CheckSessionMonitor();
 
         return failures;
     }
 
+    /// <summary>NAudio's WASAPI types, loaded and used through the reflection-loaded layer.</summary>
+    private static int CheckAudioStack()
+    {
+        try
+        {
+            Console.WriteLine($"  audio: {PlatformFactory.ProbeAudio()}");
+            return Check("NAudio WASAPI enumeration runs", true);
+        }
+        catch (COMException e)
+        {
+            // NAudio loaded and called into Windows; the audio service itself refused. That
+            // is the runner's environment (no audio service), not a packaging failure.
+            Console.WriteLine($"  [warn] audio endpoint service unavailable: 0x{e.HResult:X8}");
+            return 0;
+        }
+        catch (Exception e)
+        {
+            // FileNotFoundException / TypeLoadException: NAudio did not ship or did not resolve.
+            Console.WriteLine($"  {e.GetType().Name}: {e.Message}");
+            return Check("NAudio WASAPI enumeration runs", false);
+        }
+    }
+
+    private static int CheckDpapi()
+    {
+        try
+        {
+            var protector = PlatformFactory.CreateSecretProtector();
+            if (protector is null) return Check("DPAPI protector constructs", false);
+
+            byte[] secret = [1, 2, 3, 4, 5, 6, 7, 8];
+            var wrapped = protector.Protect(secret);
+            var ok = !wrapped.AsSpan().SequenceEqual(secret) && protector.Unprotect(wrapped).AsSpan().SequenceEqual(secret);
+            return Check("DPAPI round-trips the history key", ok);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"  {e.GetType().Name}: {e.Message}");
+            return Check("DPAPI round-trips the history key", false);
+        }
+    }
+
+    private static int CheckSessionMonitor()
+    {
+        try
+        {
+            using var monitor = PlatformFactory.CreateSessionMonitor();
+            if (monitor is null) return Check("session monitor constructs", false);
+
+            // Subscribing is what fails if the SystemEvents stub shipped instead of the
+            // Windows implementation.
+            monitor.Start();
+            Console.WriteLine($"  input desktop active: {monitor.IsInputDesktopActive}");
+            return Check("session lock notifications subscribe", true);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"  {e.GetType().Name}: {e.Message}");
+            return Check("session lock notifications subscribe", false);
+        }
+    }
+
     /// <summary>Stands in for DPAPI off Windows. Not protection — only exercises the code path.</summary>
-    private sealed class SelfTestProtector : Murmur.Abstractions.ISecretProtector
+    private sealed class SelfTestProtector : ISecretProtector
     {
         public byte[] Protect(byte[] secret) => [.. secret];
 
