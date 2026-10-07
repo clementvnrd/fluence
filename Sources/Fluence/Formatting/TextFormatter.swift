@@ -1,3 +1,4 @@
+import FluenceCore
 import Foundation
 
 /// The cleanup pass between raw transcription and injection.
@@ -10,86 +11,17 @@ protocol TextFormatter: Sendable {
     func format(_ raw: String) async -> String
 }
 
-/// Deterministic, zero-latency cleanup. Good enough to be useful on its own and always
-/// the fallback when a model-backed formatter is unavailable or times out.
+/// Deterministic, zero-latency cleanup (level Light). Good enough to be useful on its own and
+/// always the fallback when a model-backed formatter is unavailable, times out or is rejected.
+///
+/// The rules themselves live in `FluenceCore.RuleCleanup`, where they are unit tested; this
+/// only carries the language they run for.
 struct RuleBasedFormatter: TextFormatter {
-    /// Standalone filler words, stripped only when surrounded by word boundaries.
-    private static let fillers = ["um", "uh", "erm", "uhm", "hmm", "mhm"]
-
-    /// Spoken punctuation people actually use mid-dictation.
-    private static let spokenPunctuation: [(String, String)] = [
-        ("new paragraph", "\n\n"),
-        ("new line", "\n"),
-        ("open paren", " ("),
-        ("close paren", ") "),
-    ]
+    /// The transcript's language: fillers and spoken punctuation are language-specific.
+    var language: DictationLanguage = .english
 
     func format(_ raw: String) async -> String {
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return text }
-
-        text = stripFillers(from: text)
-        text = applySpokenPunctuation(to: text)
-        text = collapseWhitespace(in: text)
-        text = capitalizeSentences(in: text)
-        text = ensureTerminalPunctuation(in: text)
-
-        return text
-    }
-
-    private func stripFillers(from text: String) -> String {
-        var result = text
-        for filler in Self.fillers {
-            // Match the filler as a whole word, plus a trailing comma if the ASR added one.
-            let pattern = "(?i)(?<![\\w'])\(filler)\\b,?"
-            result = result.replacingOccurrences(
-                of: pattern,
-                with: "",
-                options: .regularExpression
-            )
-        }
-        return result
-    }
-
-    private func applySpokenPunctuation(to text: String) -> String {
-        var result = text
-        for (phrase, replacement) in Self.spokenPunctuation {
-            result = result.replacingOccurrences(
-                of: "(?i)\\b\(phrase)\\b",
-                with: replacement,
-                options: .regularExpression
-            )
-        }
-        return result
-    }
-
-    private func collapseWhitespace(in text: String) -> String {
-        text
-            .replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: " +([,.!?;:])", with: "$1", options: .regularExpression)
-            .replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func capitalizeSentences(in text: String) -> String {
-        var result = ""
-        var capitalizeNext = true
-
-        for character in text {
-            if capitalizeNext, character.isLetter {
-                result.append(Character(character.uppercased()))
-                capitalizeNext = false
-            } else {
-                result.append(character)
-                if ".!?\n".contains(character) { capitalizeNext = true }
-            }
-        }
-        return result
-    }
-
-    private func ensureTerminalPunctuation(in text: String) -> String {
-        guard let last = text.last, last.isLetter || last.isNumber else { return text }
-        return text + "."
+        RuleCleanup.apply(raw, language: language)
     }
 }
 

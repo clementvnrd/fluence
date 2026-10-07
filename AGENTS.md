@@ -222,12 +222,10 @@ lookahead, `\p{L}`, and `$1`–`$9` in replacements. Nothing else.
 
 ## What isn't built
 
-1. **Wispr Flow parity** (Linear FLU-5) — hands-free mode, styles per app, snippets,
-   **Command Mode** (select text, hold a second key, "make this more formal"), French cleanup.
-2. **Onboarding** — a first-run window walking through the macOS permissions.
-3. **Notarization** (macOS) and **code signing** (Windows). Both apps are unsigned for
+1. **Context awareness** — reading the text around the caret (opt-in) to spell names right.
+2. **Notarization** (macOS) and **code signing** (Windows). Both apps are unsigned for
    distribution, so Windows users will meet SmartScreen.
-4. **An installer** for Windows, and model download from inside the app rather than by
+3. **An installer** for Windows, and model download from inside the app rather than by
    following `docs/PARAKEET-WINDOWS.md` by hand.
 
 ## What no amount of CI can verify
