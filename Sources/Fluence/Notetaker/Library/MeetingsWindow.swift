@@ -78,6 +78,8 @@ private struct LibraryHeader: View {
 
             Spacer()
 
+            LibraryHeaderAccessories(model: model)
+
             Vents(count: 6)
             VStack(spacing: DS.Space.snug) {
                 Screw()

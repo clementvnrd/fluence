@@ -235,6 +235,16 @@ final class MeetingLibraryModel {
         selectedID = visible.first?.id
     }
 
+    /// After meetings were deleted elsewhere (retention, "Delete all"): drops a selection
+    /// or search hits that no longer exist.
+    func reconcile() {
+        let ids = Set(store.summaries.map(\.id))
+        if let hits = searchHits { searchHits = hits.intersection(ids) }
+        if let selectedID, !ids.contains(selectedID) {
+            self.selectedID = visible.first?.id
+        }
+    }
+
     // MARK: - Feedback
 
     func showFlash(_ text: String) {
