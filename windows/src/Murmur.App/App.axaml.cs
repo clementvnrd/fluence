@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using Murmur.Abstractions;
 using Murmur.App.Views;
 
 namespace Murmur.App;
@@ -44,7 +45,15 @@ public partial class App : Application
             // machine feel broken until it is rebooted.
             desktop.ShutdownRequested += (_, _) =>
             {
-                _composition?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                try
+                {
+                    _composition?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                }
+                catch (Exception e)
+                {
+                    Program.Log.Error("app.shutdown_failed", e);
+                }
+
                 _composition = null;
             };
         }
@@ -130,9 +139,10 @@ public partial class App : Application
                 return true;
             });
         }
-        catch (Exception)
+        catch (Exception e)
         {
             // The injector falls back to typing when paste reports failure.
+            Program.Log.Warning("inject.clipboard_paste_failed", e);
             return false;
         }
     }

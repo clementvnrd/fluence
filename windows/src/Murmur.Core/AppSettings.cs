@@ -52,8 +52,8 @@ public sealed class AppSettings
     {
         Data = data;
 
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        File.WriteAllText(_path, JsonSerializer.Serialize(data, SettingsJsonContext.Default.SettingsData));
+        // Atomic: a crash mid-write must leave the previous settings, not an empty file.
+        AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(data, SettingsJsonContext.Default.SettingsData));
 
         Changed?.Invoke(this, EventArgs.Empty);
     }
