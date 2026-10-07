@@ -65,6 +65,7 @@ struct MainWindow: View {
         .frame(minWidth: DS.Window.mainMinimum.width, minHeight: DS.Window.mainMinimum.height)
         .task {
             DevPreview.openMeetingIfRequested(.shared)
+            DevPreview.openImportIfRequested(.shared)
             // Dev only: the settings window on a given section, for screenshots.
             if DevPreview.settingsSection != nil { openSettings() }
             while !Task.isCancelled {

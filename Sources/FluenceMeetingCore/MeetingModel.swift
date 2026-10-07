@@ -161,6 +161,8 @@ public enum MeetingTrigger: String, Codable, Sendable {
     case detected
     case manual
     case calendar
+    /// Read from a transcript file or pasted text (FLU-16): no audio, no meeting app.
+    case imported
 }
 
 public struct Meeting: Codable, Sendable, Identifiable {
@@ -184,6 +186,8 @@ public struct Meeting: Codable, Sendable, Identifiable {
     public var keepAudio: Bool = false
     /// BCP-47 code of the dominant language, when known.
     public var language: String?
+    /// The file an imported meeting was read from (FLU-16); `nil` for a recorded one.
+    public var importedFrom: String?
 
     public init(
         id: UUID = UUID(),
@@ -198,7 +202,8 @@ public struct Meeting: Codable, Sendable, Identifiable {
         userNotes: String = "",
         notes: MeetingNotes? = nil,
         keepAudio: Bool = false,
-        language: String? = nil
+        language: String? = nil,
+        importedFrom: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -213,6 +218,7 @@ public struct Meeting: Codable, Sendable, Identifiable {
         self.notes = notes
         self.keepAudio = keepAudio
         self.language = language
+        self.importedFrom = importedFrom
     }
 
     public var duration: TimeInterval {
@@ -259,6 +265,8 @@ public struct MeetingSummary: Codable, Sendable, Identifiable, Hashable {
     public var keepAudio: Bool?
     /// The speakers themselves, so the row can tell named from numbered voices.
     public var speakers: [Speaker]?
+    /// Whether the meeting was imported rather than recorded (FLU-16).
+    public var isImported: Bool?
 
     public init(_ meeting: Meeting) {
         id = meeting.id
@@ -271,6 +279,7 @@ public struct MeetingSummary: Codable, Sendable, Identifiable, Hashable {
         recapLine = meeting.notes.map { Self.recapLine(from: $0.recap) }
         keepAudio = meeting.keepAudio
         speakers = meeting.speakers
+        isImported = meeting.trigger == .imported
     }
 
     /// The first sentence of a recap, at most `limit` characters (cut on a word, with "…").

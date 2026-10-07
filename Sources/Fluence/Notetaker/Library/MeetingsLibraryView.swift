@@ -54,6 +54,8 @@ private struct MeetingsList: View {
             HStack(alignment: .center) {
                 ContentTitle(title: "Réunions", subtitle: subtitle)
                 Spacer()
+                CapButton(title: "Importer", systemImage: "square.and.arrow.down") { model.importer.begin() }
+                    .help("Ajouter une réunion passée depuis un fichier de transcription ou du texte collé")
                 if !controller.isBusy {
                     CapButton(title: "Prendre des notes", systemImage: "plus") { controller.takeNotes() }
                         .help("Enregistrer la réunion en cours, ou tout ce que le Mac joue")
@@ -93,7 +95,7 @@ private struct MeetingsList: View {
                     systemImage: model.store.summaries.isEmpty ? "person.2" : "magnifyingglass",
                     title: model.store.summaries.isEmpty ? "Aucune réunion pour l'instant" : "Aucun résultat",
                     detail: model.store.summaries.isEmpty
-                        ? "Quand un appel commence (Zoom, Teams, Meet…), Fluence propose de prendre des notes. Rien n'est enregistré sans vous."
+                        ? "Quand un appel commence (Zoom, Teams, Meet…), Fluence propose de prendre des notes. Rien n'est enregistré sans vous. Vous pouvez aussi importer une ancienne transcription."
                         : "La recherche porte sur les titres, les noms, les notes et les transcriptions."
                 )
             } else {
@@ -128,6 +130,13 @@ private struct MeetingsList: View {
                 .buttonStyle(.plain)
                 .disabled(model.store.summaries.isEmpty)
             }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            model.importer.open(urls)
+            return !urls.isEmpty
+        }
+        .sheet(isPresented: Bindable(model.importer).isPresented) {
+            MeetingImportSheet(importer: model.importer) { id in model.openPage(id) }
         }
         .confirmationDialog(
             "Supprimer toutes les réunions (\(model.store.summaries.count)) ?",
@@ -175,7 +184,7 @@ private struct MeetingRow: View {
     var body: some View {
         Button(action: onOpen) {
             HStack(alignment: .center, spacing: DS.Space.base) {
-                Image(systemName: "video")
+                Image(systemName: info.isImported ? "doc.text" : "video")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(DS.Color.accent)
                     .frame(width: 36, height: 36)
@@ -200,10 +209,14 @@ private struct MeetingRow: View {
                     AvatarStack(people: people)
                     HStack(spacing: 6) {
                         MetaChip(text: "Chiffré", systemImage: "lock.fill")
-                        MetaChip(
-                            text: info.keepAudio ? "Audio conservé" : "Audio non conservé",
-                            systemImage: info.keepAudio ? "waveform" : "speaker.slash"
-                        )
+                        if info.isImported {
+                            MetaChip(text: "Importée", systemImage: "square.and.arrow.down")
+                        } else {
+                            MetaChip(
+                                text: info.keepAudio ? "Audio conservé" : "Audio non conservé",
+                                systemImage: info.keepAudio ? "waveform" : "speaker.slash"
+                            )
+                        }
                     }
                 }
             }
@@ -333,7 +346,12 @@ private struct MeetingHeader: View {
                 MetaItem(systemImage: "calendar", text: FrenchDates.fullDateTime(meeting.startedAt, calendar: FrenchDates.calendar))
                 MetaItem(systemImage: "clock", text: FrenchFormat.duration(meeting.duration))
                 if let appName { MetaItem(systemImage: "video", text: appName) }
-                MetaItem(systemImage: "lock.fill", text: meeting.keepAudio ? "Chiffré sur ce Mac · audio conservé" : "Chiffré sur ce Mac · audio non conservé")
+                if meeting.trigger == .imported {
+                    MetaItem(systemImage: "square.and.arrow.down", text: meeting.importedFrom.map { "Importée de \($0)" } ?? "Importée")
+                    MetaItem(systemImage: "lock.fill", text: "Chiffré sur ce Mac")
+                } else {
+                    MetaItem(systemImage: "lock.fill", text: meeting.keepAudio ? "Chiffré sur ce Mac · audio conservé" : "Chiffré sur ce Mac · audio non conservé")
+                }
             }
             .padding(.bottom, DS.Space.roomy)
 
@@ -536,7 +554,7 @@ private struct RenamePopover: View {
 }
 
 /// Lays children out left to right, wrapping onto new lines.
-private struct FlowRow: Layout {
+struct FlowRow: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

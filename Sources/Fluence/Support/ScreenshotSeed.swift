@@ -49,7 +49,8 @@ enum ScreenshotSeed {
 /// snippets, styles, meetings, upcoming), `FLUENCE_PREVIEW_MEETING` (index in the list) with
 /// `FLUENCE_PREVIEW_MEETING_TAB` (notes, transcript, myNotes) and `FLUENCE_PREVIEW_RENAME`
 /// (a speaker ID), `FLUENCE_PREVIEW_SETTINGS` (a `SettingsSection` raw value), `FLUENCE_PREVIEW_ONBOARDING`
-/// (a step number), `FLUENCE_PREVIEW_SNAPSHOT` (see `snapshotIfRequested`).
+/// (a step number), `FLUENCE_PREVIEW_IMPORT` (see `openImportIfRequested`),
+/// `FLUENCE_PREVIEW_SNAPSHOT` (see `snapshotIfRequested`).
 @MainActor
 enum DevPreview {
     private static var env: [String: String]? {
@@ -87,6 +88,17 @@ enum DevPreview {
         }
         if let id = env["FLUENCE_PREVIEW_RENAME"], let speaker = model.meeting?.speaker(id) {
             model.beginRenaming(speaker)
+        }
+    }
+
+    /// `FLUENCE_PREVIEW_IMPORT`: opens the import sheet on these files (paths separated by
+    /// `:`), or on its first step when the value is `sheet`.
+    static func openImportIfRequested(_ model: MeetingLibraryModel) {
+        guard let env, let value = env["FLUENCE_PREVIEW_IMPORT"] else { return }
+        if value == "sheet" {
+            model.importer.begin()
+        } else {
+            model.importer.open(value.split(separator: ":").map { URL(fileURLWithPath: String($0)) })
         }
     }
 

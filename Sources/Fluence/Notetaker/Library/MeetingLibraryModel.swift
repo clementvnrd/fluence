@@ -40,11 +40,14 @@ final class MeetingLibraryModel {
         var recapLine: String?
         var keepAudio: Bool
         var speakers: [Speaker]
+        var isImported = false
 
         var appName: String? { appBundleID.flatMap { MeetingApps.identify($0)?.name } }
     }
 
     let store: MeetingStore
+    /// "Importer" (FLU-16): past meetings from transcript files or pasted text.
+    let importer = MeetingImportModel()
     let generator: MeetingNotesGenerator
 
     // MARK: List
@@ -85,14 +88,15 @@ final class MeetingLibraryModel {
                 appBundleID: summary.appBundleID,
                 recapLine: summary.recapLine,
                 keepAudio: summary.keepAudio ?? false,
-                speakers: speakers
+                speakers: speakers,
+                isImported: summary.isImported ?? false
             )
         }
         if let cached = rowInfoCache[summary.id] { return cached }
         let info: RowInfo
         if let meeting = try? store.load(summary.id) {
             let fresh = MeetingSummary(meeting)
-            info = RowInfo(appBundleID: fresh.appBundleID, recapLine: fresh.recapLine, keepAudio: meeting.keepAudio, speakers: meeting.speakers)
+            info = RowInfo(appBundleID: fresh.appBundleID, recapLine: fresh.recapLine, keepAudio: meeting.keepAudio, speakers: meeting.speakers, isImported: meeting.trigger == .imported)
         } else {
             info = RowInfo(appBundleID: nil, recapLine: nil, keepAudio: false, speakers: [])
         }

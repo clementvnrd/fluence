@@ -166,6 +166,21 @@ On speakers, the mic hears the remote side → duplicated text attributed to "Me
   transient pasteboard types.
 - Fallback when Foundation Models is unavailable: transcript only, no invented summary.
 
+### 2.6.1 Importing past meetings (FLU-16)
+- "Importer" in the meetings list, or files dropped on it, or pasted text. Formats (Clement,
+  2026-10-07: "A + B"): text and Markdown (`Name: text`, `[mm:ss] Name: text`, Otter's
+  `Name  0:15` header, Google Meet's time lines, `# Title`), WebVTT (Zoom `Name:` prefixes,
+  Teams `<v Name>` spans) and SubRip. Audio files are not imported.
+- Reading rules: `FluenceMeetingCore/TranscriptImport.swift`, contract
+  `shared/transcript-import-vectors.json` (the Windows port runs it once it gains the import).
+- One confirmation per file: title (Markdown heading or file name), date (the file's), and
+  which speaker is the user (guessed from the Mac account's name). Names from the file are
+  kept as typed by the user (`nameSource = user`); turns without a name share one numbered
+  speaker; untimed text is laid out at 150 words a minute.
+- Saved like any meeting (`trigger = imported`, `importedFrom` = the file name), encrypted,
+  then notes are written by the same queue as for a recorded meeting. Logs carry the format
+  and counts only.
+
 ### 2.7 Data protection
 - Per-meeting AES-256-GCM key, wrapped by a master key in the Keychain
   (`WhenUnlockedThisDeviceOnly`); deleting a meeting destroys its key.
