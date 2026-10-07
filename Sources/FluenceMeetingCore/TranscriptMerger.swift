@@ -90,7 +90,19 @@ public enum TranscriptMerger {
         // Only tokens that any shift could reach.
         let low = mic.start - maxShift - edgeTolerance
         let high = mic.end + maxShift + edgeTolerance
-        let nearby = systemTokens.filter { $0.time >= low && $0.time <= high }
+        // Tokens are sorted by time: binary-search the window instead of scanning a
+        // three-hour meeting for every mic segment.
+        var first = 0, last = systemTokens.count
+        while first < last {
+            let middle = (first + last) / 2
+            if systemTokens[middle].time < low { first = middle + 1 } else { last = middle }
+        }
+        var nearby: [TimedToken] = []
+        var index = first
+        while index < systemTokens.count, systemTokens[index].time <= high {
+            nearby.append(systemTokens[index])
+            index += 1
+        }
         guard !nearby.isEmpty else { return false }
 
         let steps = Int((2 * maxShift / shiftStep).rounded())
