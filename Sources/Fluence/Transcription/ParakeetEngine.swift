@@ -18,6 +18,9 @@ actor ParakeetEngine: TranscriptionEngine {
     // MARK: FLU-5 text
     /// The chosen language as a script hint for v3's decoder; nil in Auto (v3 detects).
     private var languageHint: Language?
+    /// Dictionary phrases to rescore against, when vocabulary boosting is on and its model
+    /// is on disk. Empty otherwise.
+    private var boostPhrases: [String] = []
 
     /// Defaults to 16 kHz mono float32 — exactly what Parakeet is trained on.
     private let converter = AudioConverter()
@@ -37,9 +40,21 @@ actor ParakeetEngine: TranscriptionEngine {
         // so the user waits before speaking instead of losing an utterance to a timeout.
         _ = try await ParakeetModels.shared.manager()
 
-        // MARK: FLU-5 text — read once per dictation, on the main actor where it lives.
-        let language = await MainActor.run { Settings.shared.dictationLanguage }
+        // MARK: FLU-5 text — read once per dictation, on the main actor where they live.
+        let (language, boost, phrases) = await MainActor.run {
+            (Settings.shared.dictationLanguage, Settings.shared.parakeetVocabularyBoost, DictionaryStore.shared.biasPhrases)
+        }
         languageHint = language.code.flatMap(Language.init(rawValue:))
+        // Never downloaded here: a 100 MB fetch on a dictation would look like a hang. The
+        // Settings toggle downloads it; until then boosting simply doesn't run.
+        boostPhrases = boost && ParakeetModels.isVocabularyModelDownloaded ? phrases : []
+        if !boostPhrases.isEmpty {
+            // Warm while the user speaks, so release only pays for the rescoring itself.
+            let phrases = boostPhrases
+            Task.detached(priority: .utility) {
+                _ = try? await ParakeetModels.shared.vocabularySession(for: phrases)
+            }
+        }
 
         return stream
     }
@@ -85,7 +100,7 @@ actor ParakeetEngine: TranscriptionEngine {
             var decoderState = try TdtDecoderState()
             let started = Date()
             let result = try await manager.transcribe(samples, decoderState: &decoderState, language: languageHint)
-            let text = result.text
+            let text = await boosted(result)
             let elapsed = Date().timeIntervalSince(started)
             let audioSeconds = Double(samples.count) / 16_000
 
@@ -113,6 +128,31 @@ actor ParakeetEngine: TranscriptionEngine {
         continuation = nil
     }
 
+    // MARK: FLU-5 text
+
+    /// The transcript rescored against the dictionary, or as transcribed.
+    ///
+    /// FluidAudio's vocabulary boosting (CTC keyword spotting + constrained rescoring):
+    /// a second, small CTC model listens to the same audio for the dictionary's words and
+    /// replaces a transcribed word only when the acoustic evidence for the dictionary word
+    /// is stronger. Every failure is absorbed — boosting must never cost a transcript.
+    private func boosted(_ result: ASRResult) async -> String {
+        guard !boostPhrases.isEmpty, let timings = result.tokenTimings, !timings.isEmpty else {
+            return result.text
+        }
+        do {
+            let session = try await ParakeetModels.shared.vocabularySession(for: boostPhrases)
+            guard let rescored = await session.rescore(text: result.text, tokenTimings: timings, audioSamples: samples) else {
+                return result.text
+            }
+            let applied = rescored.replacements.count { $0.shouldReplace }
+            Log.speech.info("Parakeet: vocabulary boost — \(applied, privacy: .public) replacement(s)")
+            return rescored.text
+        } catch {
+            Log.speech.error("Parakeet: vocabulary boost unavailable — \(error.localizedDescription, privacy: .public)")
+            return result.text
+        }
+    }
 }
 
 /// Process-wide model cache.
@@ -138,6 +178,49 @@ actor ParakeetModels {
 
     private var loaded: AsrManager?
     private var loadTask: Task<AsrManager, Error>?
+
+    // MARK: FLU-5 text — vocabulary boosting
+
+    /// The CTC model behind vocabulary boosting (Parakeet CTC 110M, ~100 MB), separate from
+    /// the transcription model and only fetched when the user turns boosting on.
+    nonisolated static var isVocabularyModelDownloaded: Bool {
+        CtcModels.modelsExist(at: CtcModels.defaultCacheDirectory(for: .ctc110m))
+    }
+
+    private var ctcLoad: Task<CtcModels, Error>?
+    /// One session per phrase list: building it tokenizes every term, so it is reused until
+    /// the dictionary changes.
+    private var vocabulary: (phrases: [String], session: Task<VocabularyBoostingSession, Error>)?
+
+    /// Downloads (once) and loads the CTC model. Called from Settings when boosting is
+    /// turned on, so the download is something the user asked for and can watch.
+    func loadVocabularyModel() async throws -> CtcModels {
+        if let ctcLoad { return try await ctcLoad.value }
+        let task = Task { try await CtcModels.downloadAndLoad(variant: .ctc110m) }
+        ctcLoad = task
+        do {
+            return try await task.value
+        } catch {
+            ctcLoad = nil
+            throw error
+        }
+    }
+
+    func vocabularySession(for phrases: [String]) async throws -> VocabularyBoostingSession {
+        if let vocabulary, vocabulary.phrases == phrases { return try await vocabulary.session.value }
+        let task = Task<VocabularyBoostingSession, Error> {
+            let models = try await self.loadVocabularyModel()
+            let context = CustomVocabularyContext(terms: phrases.map { CustomVocabularyTerm(text: $0) })
+            return try await VocabularyBoostingSession(vocabulary: context, ctcModels: models)
+        }
+        vocabulary = (phrases, task)
+        do {
+            return try await task.value
+        } catch {
+            if vocabulary?.phrases == phrases { vocabulary = nil }
+            throw error
+        }
+    }
 
     var isLoaded: Bool { loaded != nil }
 

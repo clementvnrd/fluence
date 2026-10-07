@@ -1,16 +1,23 @@
 import FluenceCore
 import SwiftUI
 
-/// Settings for what happens to the words (FLU-5 text): cleanup level, language, and styles
-/// per kind of app.
+/// Settings for what happens to the words (FLU-5 text): cleanup level, language, styles per
+/// kind of app, and Parakeet's dictionary boosting.
 struct TextSettingsSection: View {
     @State private var settings = Settings.shared
+    @State private var boostStatus: BoostStatus = ParakeetModels.isVocabularyModelDownloaded ? .ready : .idle
+
+    private enum BoostStatus: Equatable {
+        case idle, downloading, ready
+        case failed(String)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.wide) {
             cleanupPanel
             languagePanel
             stylesPanel
+            dictionaryPanel
         }
     }
 
@@ -106,6 +113,43 @@ struct TextSettingsSection: View {
                 ? "Chosen from the app you dictate into — Messages, Slack, Mail… — and, in a browser, "
                     + "from the page (Gmail, Slack, WhatsApp Web). The page address is read once and never kept."
                 : "Styles apply at cleanup level High only.")
+        }
+    }
+
+    // MARK: Dictionary helpers
+
+    private var dictionaryPanel: some View {
+        SettingsPanel(label: "Dictionary") {
+            Toggle(isOn: Binding(get: { settings.parakeetVocabularyBoost }, set: setBoost)) {
+                Silkscreen(text: "Boost dictionary words in Parakeet")
+            }
+            .toggleStyle(.switch)
+            SettingsNote(boostNote)
+        }
+    }
+
+    private var boostNote: String {
+        let what = "A second, small model listens for your dictionary's words and fixes Parakeet's "
+            + "transcript when it hears one. Needs a one-time ~100 MB download, and is tuned for English."
+        switch boostStatus {
+        case .idle: return what
+        case .downloading: return "Downloading the model (~100 MB)…"
+        case .ready: return what + " Model installed."
+        case .failed(let message): return "Download failed: \(message). Turn it off and on to retry."
+        }
+    }
+
+    private func setBoost(_ enabled: Bool) {
+        settings.parakeetVocabularyBoost = enabled
+        guard enabled, boostStatus != .downloading else { return }
+        boostStatus = .downloading
+        Task {
+            do {
+                _ = try await ParakeetModels.shared.loadVocabularyModel()
+                boostStatus = .ready
+            } catch {
+                boostStatus = .failed(error.localizedDescription)
+            }
         }
     }
 }

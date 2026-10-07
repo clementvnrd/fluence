@@ -64,6 +64,13 @@ final class Settings {
         styles[category] ?? category.defaultStyle
     }
 
+    /// Parakeet only: rescore its transcript against the dictionary with FluidAudio's CTC
+    /// keyword spotter. Opt-in because it downloads a second model (~100 MB) and costs a
+    /// second encoder pass per dictation.
+    var parakeetVocabularyBoost: Bool {
+        didSet { defaults.set(parakeetVocabularyBoost, forKey: Keys.parakeetVocabularyBoost) }
+    }
+
     // MARK: end FLU-5 text
 
     /// Play a short tick when capture starts and stops.
@@ -102,6 +109,7 @@ final class Settings {
         // MARK: FLU-5 text
         static let cleanupLevel = "cleanupLevel"
         static let dictationLanguage = "dictationLanguage"
+        static let parakeetVocabularyBoost = "parakeetVocabularyBoost"
         static func style(_ category: AppCategory) -> String { "style.\(category.rawValue)" }
     }
 
@@ -132,6 +140,7 @@ final class Settings {
                 ?? category.defaultStyle
         }
         self.styles = styles
+        parakeetVocabularyBoost = defaults.object(forKey: Keys.parakeetVocabularyBoost) as? Bool ?? false
         // MARK: end FLU-5 text
         compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
