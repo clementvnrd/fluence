@@ -79,8 +79,14 @@ public sealed class TranscriptionsView : UserControl
         var copy = Panels.DeckButton("COPY");
         copy.Click += async (_, _) =>
         {
+            // An explicit copy may show up in Win+V history — the user asked for it — but a
+            // dictation is never uploaded to Cloud Clipboard.
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-            if (clipboard is not null) await clipboard.SetTextAsync(record.Text).ConfigureAwait(true);
+            if (clipboard is not null)
+            {
+                await clipboard.SetDataAsync(App.PrivateText(record.Text, ClipboardPrivacy.ForUserCopy()))
+                    .ConfigureAwait(true);
+            }
 
             copy.Content = "COPIED";
             await Task.Delay(TimeSpan.FromSeconds(1.4)).ConfigureAwait(true);

@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Headless.XUnit;
 using Avalonia.Themes.Fluent;
 using Murmur.App.Controls;
@@ -265,6 +266,24 @@ public sealed class ModelStatusTests
         finally
         {
             File.Delete(path);
+        }
+    }
+}
+
+/// <summary>The clipboard item the app writes.</summary>
+public sealed class ClipboardTests
+{
+    [AvaloniaFact]
+    public void Private_text_carries_the_text_and_every_privacy_format()
+    {
+        var transfer = Murmur.App.App.PrivateText("dictated", Murmur.Core.ClipboardPrivacy.ForTransientPaste());
+
+        var item = transfer.Items.ShouldHaveSingleItem();
+        item.TryGetText().ShouldBe("dictated");
+
+        foreach (var (format, data) in Murmur.Core.ClipboardPrivacy.ForTransientPaste())
+        {
+            item.TryGetValue(Avalonia.Input.DataFormat.CreateBytesPlatformFormat(format)).ShouldBe(data);
         }
     }
 }

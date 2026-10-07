@@ -248,3 +248,46 @@ public sealed class TranscriberHostTests
         inner.Disposal.ShouldBe((true, false));
     }
 }
+
+/// <summary>Keeping dictations out of clipboard history and the cloud.</summary>
+public sealed class ClipboardPrivacyTests
+{
+    [Fact]
+    public void A_paste_on_the_users_behalf_opts_out_of_monitors_history_and_cloud()
+    {
+        var formats = ClipboardPrivacy.ForTransientPaste();
+
+        formats.Select(f => f.Format).ShouldBe(
+        [
+            "ExcludeClipboardContentFromMonitorProcessing",
+            "CanIncludeInClipboardHistory",
+            "CanUploadToCloudClipboard",
+        ], ignoreOrder: true);
+        formats.Single(f => f.Format == "CanIncludeInClipboardHistory").Data.ShouldBe(new byte[] { 0, 0, 0, 0 });
+        formats.Single(f => f.Format == "CanUploadToCloudClipboard").Data.ShouldBe(new byte[] { 0, 0, 0, 0 });
+    }
+
+    [Fact]
+    public void An_explicit_copy_only_opts_out_of_the_cloud()
+    {
+        ClipboardPrivacy.ForUserCopy().Select(f => f.Format).ShouldBe(["CanUploadToCloudClipboard"]);
+    }
+
+    [Fact]
+    public void After_a_paste_the_previous_text_comes_back()
+    {
+        ClipboardPrivacy.AfterPaste("my old text", "dictated", "dictated").ShouldBe(ClipboardRestore.RestorePrevious);
+    }
+
+    [Fact]
+    public void After_a_paste_onto_an_empty_clipboard_it_is_cleared_not_left_holding_the_dictation()
+    {
+        ClipboardPrivacy.AfterPaste(null, "dictated", "dictated").ShouldBe(ClipboardRestore.Clear);
+    }
+
+    [Fact]
+    public void Something_copied_during_the_paste_is_left_alone()
+    {
+        ClipboardPrivacy.AfterPaste("old", "copied meanwhile", "dictated").ShouldBe(ClipboardRestore.LeaveAlone);
+    }
+}
