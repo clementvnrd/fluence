@@ -87,8 +87,9 @@ final class SystemAudioTap: @unchecked Sendable {
 
     func start(onAudio: @escaping @Sendable (CapturedAudio) -> Void) throws {
         try createTap()
+        let format: AVAudioFormat
         do {
-            let format = try tapFormat()
+            format = try tapFormat()
             try createAggregate()
             try startIO(format: format, onAudio: onAudio)
         } catch {
@@ -100,7 +101,10 @@ final class SystemAudioTap: @unchecked Sendable {
         lastSignal = 0
         hasEverHadSignal = false
         lock.unlock()
-        Log.audio.info("system tap started (\(self.scope.rawValue, privacy: .public))")
+        // The buffers are read at the tap's rate while the aggregate runs on its own clock;
+        // log both so a mismatch (garbled remote audio) shows on the first real meeting.
+        let deviceRate = CoreAudioObjects.value(aggregateID, kAudioDevicePropertyNominalSampleRate, initial: Float64(0)) ?? 0
+        Log.audio.info("system tap started (\(self.scope.rawValue, privacy: .public)) — tap \(format.sampleRate)Hz × \(format.channelCount), device \(deviceRate)Hz")
     }
 
     func stop() {
