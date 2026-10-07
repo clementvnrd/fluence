@@ -2,13 +2,13 @@ import AppKit
 import SwiftUI
 
 @main
-struct MurmurYouTubeApp: App {
+struct FluenceApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
         // The main window. A `Window` rather than a `WindowGroup`: this app has one front
         // panel, and letting ⌘N spawn a second copy of a tape deck makes no sense.
-        Window("Murmur YouTube", id: "main") {
+        Window("Fluence", id: "main") {
             MainWindow(controller: delegate.controller)
         }
         .defaultSize(width: 860, height: 620)
@@ -89,22 +89,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         observeState()
-        Log.app.info("Murmur YouTube ready — hold \(Settings.shared.pushToTalkKey.displayName) to dictate")
+        Log.app.info("Fluence ready — hold \(Settings.shared.pushToTalkKey.displayName) to dictate")
     }
 
-    /// `murmuryt://clear` and `murmuryt://show`, used by the legacy HTML dashboard and
-    /// as a scriptable way to raise the window.
+    /// `fluence://show` raises the comparison window.
+    ///
+    /// Nothing destructive is reachable from here on purpose: any app, and any web page
+    /// after one browser prompt, can open a custom-scheme URL. The old `clear` action wiped
+    /// the whole history that way, with no confirmation.
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where url.scheme == "murmuryt" {
-            switch url.host {
-            case "clear":
-                RunLog.clear()
-                RunStore.shared.reload()
-            case "show":
-                Self.showComparisonWindow()
-            default:
-                break
-            }
+        for url in urls where url.scheme == "fluence" && url.host == "show" {
+            Self.showComparisonWindow()
         }
     }
 
@@ -241,7 +236,7 @@ private struct MenuContent: View {
             Button("Grant Microphone…") { Permissions.openMicrophoneSettings() }
         }
 
-        Button("Quit Murmur YouTube") { NSApp.terminate(nil) }
+        Button("Quit Fluence") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 }

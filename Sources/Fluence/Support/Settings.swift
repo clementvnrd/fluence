@@ -63,6 +63,8 @@ final class Settings {
     }
 
     private init() {
+        // Before the first read: settings chosen under the app's previous name carry over.
+        LegacyMigration.migrateDefaults(into: defaults)
         let raw = defaults.string(forKey: Keys.pushToTalkKey) ?? PushToTalkKey.rightOption.rawValue
         pushToTalkKey = PushToTalkKey(rawValue: raw) ?? .rightOption
         // Apple by default: no download, no dependency, live text while speaking.

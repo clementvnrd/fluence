@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>Murmur YouTube</string>
+	<string>Fluence</string>
 	<key>CFBundleDisplayName</key>
-	<string>Murmur YouTube</string>
-	<!-- Deliberately space-free and distinct from the existing app's `murmur`, so that
-	     `pkill`/`killall` on either app can never match the other. -->
+	<string>Fluence</string>
+	<!-- Space-free and distinct from any other dictation app's executable, so that
+	     `pkill -x`/`killall` on this one can never match another. -->
 	<key>CFBundleExecutable</key>
-	<string>MurmurYouTube</string>
-	<!-- Separate from the existing Murmur's com.murmur.client: distinct TCC identity,
-	     distinct preferences domain, no shared state of any kind. -->
+	<string>Fluence</string>
+	<!-- TCC keys every grant (Microphone, Accessibility, System Audio Recording) to this
+	     identifier. Changing it means granting everything again — FLU-9 decision 6/10. -->
 	<key>CFBundleIdentifier</key>
-	<string>ai.pivotstudio.murmur-youtube</string>
+	<string>uk.co.delff.fluence</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -22,16 +22,16 @@
 	<string>1</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
-	<!-- Lets the dashboard's Clear button call back into the app. A file:// page can't
-	     write files or talk to a process, but it can follow a custom-scheme link. -->
+	<!-- `fluence://show` raises the comparison window. Deliberately nothing destructive:
+	     any app or web page can open a custom-scheme URL. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>ai.pivotstudio.murmur-youtube</string>
+			<string>uk.co.delff.fluence</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>murmuryt</string>
+				<string>fluence</string>
 			</array>
 		</dict>
 	</array>
@@ -44,8 +44,8 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Murmur YouTube listens while you hold the push-to-talk key so it can turn your speech into text.</string>
+	<string>Fluence listens while you hold the push-to-talk key so it can turn your speech into text.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Murmur YouTube transcribes your speech on-device to insert text where you're typing.</string>
+	<string>Fluence transcribes your speech on-device to insert text where you're typing.</string>
 </dict>
 </plist>

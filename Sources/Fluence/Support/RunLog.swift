@@ -72,10 +72,7 @@ struct DictationRun: Codable, Sendable, Identifiable {
 @MainActor
 enum RunLog {
     static var directory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MurmurYouTube", isDirectory: true)
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        return base
+        AppPaths.support
     }
 
     static var dashboardURL: URL { directory.appendingPathComponent("dashboard.html") }
