@@ -158,3 +158,9 @@ struct MeetingSummary: Codable, Sendable, Identifiable, Hashable {
         hasNotes = meeting.notes != nil
     }
 }
+
+extension Notification.Name {
+    /// Posted on the main actor once a meeting's final pass (diarization, naming) is saved.
+    /// `object` is the meeting's `UUID`. The notes generator listens for it.
+    static let meetingFinalized = Notification.Name("FluenceMeetingFinalized")
+}
