@@ -145,6 +145,9 @@ struct MeetingRecordingView: View {
                 }
                 .toggleStyle(.checkbox)
                 Spacer(minLength: DS.Space.tight)
+                // French then English, ready to paste into the meeting chat: recording others
+                // without telling them is an offence in France (Code pénal art. 226-1).
+                TransportKey(title: "Consent") { NotetakerConsent.copyNotice(nil) }
                 TransportKey(title: "Transcript") { controller.showLiveTranscript() }
                 TransportKey(title: "Stop", systemImage: "stop.fill") { controller.stop(reason: .user) }
             }

@@ -43,6 +43,14 @@ struct FluenceApp: App {
         }
         .defaultSize(width: 640, height: 560)
         .windowResizability(.contentMinSize)
+
+        // MARK: Notetaker (library)
+        Window("Meetings", id: MeetingsWindowID.library) {
+            MeetingsWindow(model: .shared)
+        }
+        .defaultSize(width: 1_040, height: 720)
+        .windowResizability(.contentMinSize)
+        .commands { MeetingsCommands() }
     }
 }
 
@@ -97,6 +105,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Watches for calls and offers to take notes; nothing records without the user.
         MeetingController.shared.start()
         // MARK: end Notetaker (capture)
+
+        // MARK: Notetaker (library) — notes on `.meetingFinalized`, retention purge.
+        NotetakerNotes.launch()
 
         Log.app.info("Fluence ready — hold \(Settings.shared.pushToTalkKey.displayName) to dictate")
     }
@@ -235,6 +246,9 @@ private struct MenuContent: View {
             NSApp.activate(ignoringOtherApps: true)
         }
         .keyboardShortcut("d")
+
+        // MARK: Notetaker (library)
+        MeetingsMenuButton()
 
         // Downloading ~470 MB on the first hold would look like a hang, so offer to do it
         // deliberately instead.
