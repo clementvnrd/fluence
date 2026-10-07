@@ -265,18 +265,39 @@ struct DictationHeaderControls: View {
 
     private var isRecording: Bool { controller.state.isActive }
 
-    var body: some View {
-        HStack(spacing: DS.Space.snug) {
-            VUMeter(level: controller.level, isActive: isRecording)
-                .frame(width: 150, height: 32)
-            CounterChip(text: FrenchFormat.clock(elapsed))
-            RecordPill(kind: isRecording ? .stopDictation : .start, title: isRecording ? "Arrêter" : "Dicter") {
-                if isRecording {
-                    controller.stopButtonRecording()
-                } else {
-                    controller.startButtonRecording()
-                }
+    private var meter: some View {
+        VUMeter(level: controller.level, isActive: isRecording)
+            .frame(width: 150, height: 32)
+    }
+
+    private var clock: some View {
+        CounterChip(text: FrenchFormat.clock(elapsed))
+    }
+
+    private var button: some View {
+        RecordPill(kind: isRecording ? .stopDictation : .start, title: isRecording ? "Arrêter" : "Dicter") {
+            if isRecording {
+                controller.stopButtonRecording()
+            } else {
+                controller.startButtonRecording()
             }
+        }
+    }
+
+    var body: some View {
+        // In a narrow window the meter gives way first, then the clock; the button stays
+        // (FLU-18).
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: DS.Space.snug) {
+                meter
+                clock
+                button
+            }
+            HStack(spacing: DS.Space.snug) {
+                clock
+                button
+            }
+            button
         }
         .onChange(of: controller.state.isActive) { _, active in
             startedAt = active ? Date() : nil

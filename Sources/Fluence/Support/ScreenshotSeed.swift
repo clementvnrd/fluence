@@ -111,6 +111,18 @@ enum DevPreview {
         let delay = env["FLUENCE_PREVIEW_SNAPSHOT_DELAY"].flatMap(Double.init) ?? 4
         if env["FLUENCE_PREVIEW_APPEARANCE"] == "dark" { NSApp.appearance = NSAppearance(named: .darkAqua) }
         Task { @MainActor in
+            // `FLUENCE_PREVIEW_WINDOW_SIZE` ("880x580"): every titled window takes this content
+            // size first, to check layouts at the sizes people actually use (FLU-18).
+            if let size = env["FLUENCE_PREVIEW_WINDOW_SIZE"].flatMap(Self.size(from:)) {
+                try? await Task.sleep(for: .seconds(delay / 2))
+                for window in NSApp.windows where window.isVisible && window.styleMask.contains(.titled) {
+                    // `setFrame` on purpose: it bypasses the content size limits, the way a
+                    // restored window frame does.
+                    var frame = window.frame
+                    frame.size = window.frameRect(forContentRect: NSRect(origin: .zero, size: size)).size
+                    window.setFrame(frame, display: true)
+                }
+            }
             try? await Task.sleep(for: .seconds(delay))
             let directory = URL(fileURLWithPath: folder, isDirectory: true)
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -127,5 +139,11 @@ enum DevPreview {
             }
             Log.app.info("preview snapshots written")
         }
+    }
+
+    private static func size(from text: String) -> CGSize? {
+        let parts = text.split(separator: "x").compactMap { Double($0) }
+        guard parts.count == 2, parts[0] > 0, parts[1] > 0 else { return nil }
+        return CGSize(width: parts[0], height: parts[1])
     }
 }

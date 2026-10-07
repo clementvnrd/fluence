@@ -64,12 +64,27 @@ struct StylesView: View {
 struct StyleTiles: View {
     @State private var settings = Settings.shared
 
+    /// Four across when each card gets this much width, two by two otherwise, so nothing is
+    /// cut short in a narrow window (FLU-18).
+    static let tileWidth: CGFloat = 150
+
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            row(AppCategory.allCases)
+            VStack(spacing: 6) {
+                row(Array(AppCategory.allCases.prefix(2)))
+                row(Array(AppCategory.allCases.dropFirst(2)))
+            }
+        }
+    }
+
+    private func row(_ categories: [AppCategory]) -> some View {
         HStack(alignment: .top, spacing: 6) {
-            ForEach(AppCategory.allCases, id: \.self) { category in
+            ForEach(categories, id: \.self) { category in
                 tile(category)
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func tile(_ category: AppCategory) -> some View {
@@ -81,7 +96,9 @@ struct StyleTiles: View {
                     .foregroundStyle(DS.Color.accent)
                 Text(category.tileTitle).font(DS.Font.bodyEmphasis).foregroundStyle(DS.Color.ink)
             }
-            Text(category.apps).font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary).lineLimit(1)
+            Text(category.apps).font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             MenuChip(title: style.displayName, fill: true) {
                 ForEach(WritingStyle.allCases, id: \.self) { option in
                     Button {
@@ -99,12 +116,12 @@ struct StyleTiles: View {
                 .font(.system(size: 11))
                 .italic()
                 .foregroundStyle(DS.Color.inkSecondary)
-                .lineLimit(2, reservesSpace: true)
+                .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, DS.Space.base)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minWidth: Self.tileWidth, idealWidth: Self.tileWidth, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(DS.Color.well.opacity(0.6), in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous).strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline))
     }
