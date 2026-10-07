@@ -402,6 +402,22 @@ final class MeetingController {
         }
     }
 
+    // MARK: - Development preview
+
+    /// Screenshots of a fresh install (FLU-11): only with `FLUENCE_SUPPORT_DIRECTORY` set (a
+    /// scratch folder, see `AppPaths`) and `FLUENCE_PREVIEW_RECORDING_PANEL=1`, shows the
+    /// recording panel with no session — no microphone opened, no meeting created, and its
+    /// Arrêter key does nothing.
+    func previewRecordingPanelIfRequested() {
+        guard AppPaths.override != nil,
+              ProcessInfo.processInfo.environment["FLUENCE_PREVIEW_RECORDING_PANEL"] == "1",
+              state == .idle
+        else { return }
+        state = .recording
+        elapsed = 754
+        showRecordingPanel()
+    }
+
     // MARK: - Panels
 
     private func showDetectionPanel() {

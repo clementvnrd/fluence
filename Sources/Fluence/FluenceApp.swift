@@ -124,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // MARK: Notetaker (capture)
         // Watches for calls and offers to take notes; nothing records without the user.
         MeetingController.shared.start()
+        MeetingController.shared.previewRecordingPanelIfRequested()
         // MARK: end Notetaker (capture)
 
         // MARK: Notetaker (library) — notes on `.meetingFinalized`, retention purge.

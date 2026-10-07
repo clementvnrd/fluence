@@ -367,7 +367,8 @@ private struct OnboardingView: View {
                 paragraphs: [
                     "L'Accessibilité permet à Fluence de voir quand vous maintenez \(key) dans "
                         + "n'importe quelle app, et de taper vos mots là où se trouve le curseur. "
-                        + "Sans elle, la touche ne fait rien.",
+                        + "Sans elle, seuls les raccourcis avec une touche (⌥ Espace) marchent, "
+                        + "et le texte passe par un collage plus lent.",
                     "Fluence ne guette que ses propres raccourcis et ignore toutes les autres touches. "
                         + "Activez Fluence dans la liste qui s'ouvre ; cette fenêtre passe à la suite "
                         + "toute seule.",
