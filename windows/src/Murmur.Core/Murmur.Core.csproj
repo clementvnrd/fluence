@@ -9,5 +9,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Murmur.Abstractions\Murmur.Abstractions.csproj" />
     <ProjectReference Include="..\Murmur.Dictionary\Murmur.Dictionary.csproj" />
+    <ProjectReference Include="..\Murmur.Meeting\Murmur.Meeting.csproj" />
   </ItemGroup>
 </Project>

@@ -271,6 +271,57 @@ runs under emulation and transcription will be much slower. (The project referen
 
 ---
 
+## <a id="meeting-models"></a>Meeting models (optional, for the Notetaker)
+
+The meeting Notetaker uses Parakeet above plus three small models. **All three are optional**
+and the Notetaker says what it is doing without them:
+
+| Model | Without it |
+|---|---|
+| Silero VAD | Utterances are cut on loudness instead (cruder pauses, same 14.5 s cap) |
+| pyannote segmentation 3.0 + WeSpeaker embedding | No speaker separation: remote speech stays **"Others"**, your own stays **"You"** |
+
+```
+%LOCALAPPDATA%\Fluence\models\silero-vad\silero_vad.onnx        1,807,522 bytes
+%LOCALAPPDATA%\Fluence\models\diarization\segmentation.onnx      5,992,913 bytes
+%LOCALAPPDATA%\Fluence\models\diarization\embedding.onnx        26,530,550 bytes
+```
+
+Pinned to Hugging Face commits; the app checks size and SHA-256 before loading
+(`windows/src/Murmur.Speech/MeetingModels.cs`), exactly as for Parakeet:
+
+| Saved as | Source (repo @ commit / file) | SHA-256 |
+|---|---|---|
+| `silero_vad.onnx` | `csukuangfj/vad` @ `fba88cd2e921609e7675c3aaf51e0b9b295da4bc` / `silero_vad.onnx` | `a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28` |
+| `segmentation.onnx` | `csukuangfj/sherpa-onnx-pyannote-segmentation-3-0` @ `9403a6902bb58e3d5ae8c7e77c3422de279db2e0` / `model.onnx` | `220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079` |
+| `embedding.onnx` | `csukuangfj/speaker-embedding-models` @ `0743f301363dec56491a490f6d6cbc9d67f9a3bf` / `wespeaker_en_voxceleb_resnet34_LM.onnx` | `e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012` |
+
+The hashes are the LFS `oid`s the Hugging Face API reports at those commits, and were checked
+against downloaded copies (2026-10-07).
+
+```powershell
+$root = "$env:LOCALAPPDATA\Fluence\models"
+$files = @(
+  @{ Dir="silero-vad";  Name="silero_vad.onnx";   Url="https://huggingface.co/csukuangfj/vad/resolve/fba88cd2e921609e7675c3aaf51e0b9b295da4bc/silero_vad.onnx"; Sha="a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28" },
+  @{ Dir="diarization"; Name="segmentation.onnx"; Url="https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/9403a6902bb58e3d5ae8c7e77c3422de279db2e0/model.onnx"; Sha="220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079" },
+  @{ Dir="diarization"; Name="embedding.onnx";    Url="https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/0743f301363dec56491a490f6d6cbc9d67f9a3bf/wespeaker_en_voxceleb_resnet34_LM.onnx"; Sha="e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012" }
+)
+foreach ($f in $files) {
+  $dir = Join-Path $root $f.Dir
+  New-Item -ItemType Directory -Force $dir | Out-Null
+  $out = Join-Path $dir $f.Name
+  curl.exe -L --fail --progress-bar -o $out $f.Url
+  $got = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLower()
+  if ($got -ne $f.Sha) { Write-Host "HASH MISMATCH: $($f.Name)" -ForegroundColor Red }
+}
+```
+
+Licences: Silero VAD **MIT**; pyannote segmentation 3.0 **MIT**; the WeSpeaker VoxCeleb
+weights are to be confirmed with WeSpeaker before redistributing them inside a product (the
+VoxCeleb data itself is CC BY 4.0). Downloading them for your own use is unaffected.
+
+---
+
 ## <a id="licence"></a>Licence and attribution
 
 **Model weights: CC-BY-4.0.** Commercial use is permitted. If you redistribute the model
@@ -300,8 +351,8 @@ Repo:    csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8   (HuggingFace, p
 Files:   encoder.int8.onnx, decoder.int8.onnx, joiner.int8.onnx, tokens.txt
 Commit:  1ab9323565ddb038682214b292f588070a538ce2   (v3: 2bda32ec70b097a55adaa07d9a7173915b43cc78)
 Target:  %LOCALAPPDATA%\Fluence\models\parakeet-v2\   (or parakeet-v3)
-NuGet:   org.k2fsa.sherpa.onnx 1.13.5
-         org.k2fsa.sherpa.onnx.runtime.win-x64 1.13.5   (or .win-arm64)
+NuGet:   org.k2fsa.sherpa.onnx 1.13.8
+         org.k2fsa.sherpa.onnx.runtime.win-x64 1.13.8   (or .win-arm64)
 ```
 
 Config that actually works — every field verified against a running transcription:

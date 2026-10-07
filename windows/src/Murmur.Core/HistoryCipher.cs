@@ -142,6 +142,22 @@ public sealed class HistoryCipher : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Seals bytes bound to <paramref name="associatedData"/> under this key — how the meeting
+    /// store wraps each meeting's own key with its DPAPI-protected master key.
+    /// </summary>
+    public byte[] SealBytes(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> associatedData)
+    {
+        lock (_sync) return AeadBox.Seal(_aes, plaintext, associatedData);
+    }
+
+    /// <summary>Opens what <see cref="SealBytes"/> produced.</summary>
+    /// <returns>False when corrupt, tampered with, or sealed under another key or label.</returns>
+    public bool TryOpenBytes(ReadOnlySpan<byte> blob, ReadOnlySpan<byte> associatedData, [NotNullWhen(true)] out byte[]? plaintext)
+    {
+        lock (_sync) return AeadBox.TryOpen(_aes, blob, associatedData, out plaintext);
+    }
+
     /// <inheritdoc />
     public void Dispose() => _aes.Dispose();
 }

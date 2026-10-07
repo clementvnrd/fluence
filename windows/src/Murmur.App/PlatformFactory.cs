@@ -76,6 +76,20 @@ internal static class PlatformFactory
     public static IAudioCapture? CreateAudioCapture() =>
         Create<IAudioCapture>("WasapiAudioCapture", [null]);
 
+    /// <summary>Creates the WASAPI loopback binding for meetings, or null off Windows.</summary>
+    public static ILoopbackCapture? CreateLoopbackCapture() =>
+        Create<ILoopbackCapture>("LoopbackAudioCapture", []);
+
+    /// <summary>
+    /// Activates process loopback for this process and releases it, through the platform layer.
+    /// </summary>
+    /// <returns>Null off Windows. Throws whatever the platform layer threw, unwrapped.</returns>
+    public static string? ProbeLoopback() => InvokeStatic("LoopbackAudioCapture", "Probe");
+
+    /// <summary>Creates the meeting-detection enumeration (audio sessions, window titles), or null off Windows.</summary>
+    public static IMeetingSignals? CreateMeetingSignals() =>
+        Create<IMeetingSignals>("WindowsMeetingSignals", []);
+
     /// <summary>Creates the low-level keyboard hook, or null off Windows.</summary>
     [UnconditionalSuppressMessage(
         "Trimming",
@@ -112,11 +126,22 @@ internal static class PlatformFactory
         "Trimming",
         "IL2026:RequiresUnreferencedCode",
         Justification = "Murmur.Platform.Windows is published whole and never trimmed.")]
-    public static string? ProbeAudio()
+    public static string? ProbeAudio() => InvokeStatic("WasapiAudioCapture", "Probe");
+
+    /// <summary>Calls a public static string-returning method of a platform type, unwrapping its exception.</summary>
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2075:DynamicallyAccessedMembers",
+        Justification = "Murmur.Platform.Windows is published whole and never trimmed.")]
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2026:RequiresUnreferencedCode",
+        Justification = "Murmur.Platform.Windows is published whole and never trimmed.")]
+    private static string? InvokeStatic(string typeName, string methodName)
     {
         var method = Load()?
-            .GetType($"{Namespace}.WasapiAudioCapture")?
-            .GetMethod("Probe");
+            .GetType($"{Namespace}.{typeName}")?
+            .GetMethod(methodName);
         if (method is null) return null;
 
         try

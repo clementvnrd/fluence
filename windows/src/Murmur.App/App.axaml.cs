@@ -16,6 +16,8 @@ public partial class App : Application
 {
     private Composition? _composition;
     private MainWindow? _main;
+    private MeetingPanelWindow? _meetingPanel;
+    private DispatcherTimer? _meetingTicker;
 
     /// <inheritdoc />
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
@@ -28,6 +30,7 @@ public partial class App : Application
             _composition = Composition.Create(Program.Log);
             _main = new MainWindow(_composition);
             desktop.MainWindow = _main;
+            StartNotetaker(_composition);
 
             // Clipboard paste for the injector. Without this the ClipboardPaste hook the
             // injector was designed around stays null, and multi-line dictation is typed
@@ -48,6 +51,7 @@ public partial class App : Application
             // machine feel broken until it is rebooted.
             desktop.ShutdownRequested += (_, _) =>
             {
+                _meetingTicker?.Stop();
                 try
                 {
                     _composition?.DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -65,6 +69,60 @@ public partial class App : Application
     }
 
     private void OnTrayShow(object? sender, EventArgs e) => ShowMain();
+
+    private void OnTrayTakeNotes(object? sender, EventArgs e) => _main?.ToggleMeetingNotes();
+
+    private void OnTrayMeetings(object? sender, EventArgs e)
+    {
+        ShowMain();
+        _main?.ShowMeetings();
+    }
+
+    /// <summary>
+    /// The Notetaker runs on a one-second tick on the UI thread: detection, the card's countdown,
+    /// stop rules, autosave. The panel window follows the controller's state.
+    /// </summary>
+    private void StartNotetaker(Composition composition)
+    {
+        if (composition.Meetings.Controller is not { } controller) return;
+
+        _meetingPanel = new MeetingPanelWindow(controller);
+        var ticking = false;
+        _meetingTicker = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _meetingTicker.Tick += async (_, _) =>
+        {
+            // A tick that starts or stops a recording can take longer than a second.
+            if (ticking) return;
+            ticking = true;
+            try
+            {
+                await controller.TickAsync().ConfigureAwait(true);
+            }
+            catch (Exception e)
+            {
+                Program.Log.Error("meeting.tick_failed", e);
+            }
+            finally
+            {
+                ticking = false;
+            }
+        };
+        _meetingTicker.Start();
+
+        // Meetings a crash left unfinished, once the app has settled.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            try
+            {
+                await controller.RecoverInterruptedAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                Program.Log.Error("meeting.recover_failed", e);
+            }
+        });
+    }
 
     private void OnTraySettings(object? sender, EventArgs e)
     {

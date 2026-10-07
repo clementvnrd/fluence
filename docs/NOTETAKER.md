@@ -177,20 +177,37 @@ On speakers, the mic hears the remote side → duplicated text attributed to "Me
 
 ## 3. Windows
 
-Same pipeline, after the Windows dictation app has run on real hardware.
+Status (FLU-10, 2026-10-07): **implemented and tested on fakes and on macOS, not yet run on
+Windows hardware.** Same pipeline as macOS; the platform-neutral logic is a C# port that runs
+the same `shared/meeting-test-vectors.json`. Code: `windows/src/Murmur.Meeting` (the port of
+FluenceMeetingCore and the notes core), `windows/src/Murmur.Core/Meetings` (pipeline, store,
+controller), `windows/src/Murmur.Speech` (sherpa-onnx), `windows/src/Murmur.Platform.Windows`
+(loopback and detection bindings only).
 
-| Piece | Windows |
+| Piece | Windows, as built |
 |---|---|
-| System audio | **NAudio 3.1** `WasapiRecorderBuilder().WithProcessLoopback(pid, IncludeTargetProcessTree)` — requires moving off the NAudio 2.3 pin. Loopback sends nothing during silence: pad from QPC timestamps. |
-| Detection | Poll WASAPI capture sessions (`IAudioSessionManager2`, active sessions → PID) every 1 s + UI Automation for browser titles + calendar |
-| Echo | LocalVQE / DTLN-aec via ONNX Runtime + the same dedupe |
-| ASR | sherpa-onnx **1.13.8** Parakeet v3 int8 + `VoiceActivityDetector`, token timestamps |
-| Diarization | `OfflineSpeakerDiarization` (pyannote seg 3.0 + embeddings) after the meeting; `SpeakerEmbeddingManager` for voice prints |
-| Notes | Foundry Local (GA) or llama.cpp; Phi Silica on Copilot+ PCs only |
-| Storage | DPAPI-wrapped AES-GCM key |
+| System audio | **Process loopback** (`ActivateAudioInterfaceAsync("VAD\Process_Loopback")`, build ≥ 20348) on the call's process tree, trying 16 kHz float, 16 kHz s16, then 44.1 kHz stereo; falls back to **whole-system loopback** (the recording panel says so). NAudio stays on **2.3.0**: its public `IAudioClient` / `AudioCaptureClient.GetBuffer` with QPC timestamps are enough, and only `ActivateAudioInterfaceAsync` is P/Invoked (3.1 would also drag `System.Numerics.Tensors`, which the publish glob drops). Loopback delivers nothing during silence: a heartbeat pads the timeline up to 0.5 s ago, and packet timestamps place speech. |
+| Microphone | A second WASAPI capture beside dictation's, timed by sample count (not arrival). |
+| Detection | Every second: active WASAPI **capture sessions** → process names (Teams, Zoom, Webex, Slack, Discord, GoTo), and for browsers the **visible window titles** (Meet, Teams, Zoom, Webex…). One offer per call; "Not now" holds until the app releases the microphone. **No UI Automation**: a call in a background browser tab is missed. **No calendar** on Windows. |
+| Card and panel | Always-on-top panel: "<service> call detected", visible countdown (default 10 s, or wait for a click), Record / Not now; then the recording strip with the **red lamp lit only while recording**, counter, Stop, **Keep audio**, and **Consent FR / EN** keys copying the macOS `ConsentNotice` text word for word (a test compares it with the Swift source). The panel cannot be closed while recording. |
+| Echo | **No echo canceller on Windows yet.** The text dedupe (`TranscriptMerger`) is the backstop, as on macOS. |
+| ASR | sherpa-onnx **1.13.8** (from 1.13.5): Silero VAD (512-sample hops into the ported segmenter; energy fallback when not installed) + Parakeet with token timestamps. Token durations from 1.13.8 are unreliable, so a word ends at the next token's start (capped). SentencePiece pieces are merged into words, then the dictionary corrects. |
+| Diarization | After the meeting, on the **system channel only**: `OfflineSpeakerDiarization` (pyannote segmentation 3.0 + WeSpeaker ResNet34-LM), cluster threshold **0.45** (measured on one two-speaker clip: 0.5 merged both, 0.4 split one), on the speech only. Word → speaker as on macOS. Without the models, remote speech stays "Others". |
+| Voice prints | **Opt-in, off by default**, sealed with the meetings key, deletable (turning the setting off deletes all). They are only ever matched against **calendar attendees**, and Windows has no calendar source, so on Windows **names come from the user's renames only**; a rename still enrols the voice for the day a calendar exists. |
+| Notes | Behind `INotesModel`. The default is **no model → no notes, never invented**: the Meetings window and the export say so. The macOS map-reduce prompts are not ported yet (nothing on Windows would run them). |
+| Storage | `%LOCALAPPDATA%\Fluence\meetings`: a master key wrapped by **DPAPI** (the FLU-2 history crypto), one **AES-256-GCM key per meeting** wrapped by it, the meeting and the index sealed, the audio spooled in sealed one-second records bound to meeting, channel and index. The spool is deleted after processing unless Keep audio. Retention (Forever / 7 / 30 / 90 days / 1 year, default Forever) purges at launch and on change; "Delete all meetings" in Settings and the Meetings window. No DPAPI → nothing is recorded (no plaintext fallback). |
+| Meetings window | MEETINGS section of the main window: search (decrypts, case- and accent-insensitive), transcript with speakers and timestamps, rename a speaker everywhere, Copy as Markdown, Export (the macOS `MarkdownRenderer`, ported with its tests), Delete. |
+| Stops | Stop, the call releasing the microphone for 30 s, 10 min of silence, 180 min, workstation lock. A crashed recording is finished from its spool at the next launch. |
 
-Merge, dedupe and word→speaker assignment are platform-neutral logic: give them shared
-test vectors under `shared/`, like the dictionary.
+Optional models and their pinned hashes: `docs/PARAKEET-WINDOWS.md` → Meeting models.
+The WeSpeaker weights' licence must be confirmed before Fluence redistributes them.
+
+**Not verified until it runs on Windows:** process-loopback activation and the formats it
+accepts, capture-session enumeration and the process names Teams/Zoom actually use, window
+titles of real calls, microphone/loopback clock drift over an hour, DPAPI for the meetings
+key, the panel's placement and focus behaviour. `Fluence.exe --selftest` checks the store,
+the sherpa VAD/diarization types, loopback activation and session enumeration on a real
+machine; the first real test should then be a short Teams call.
 
 ---
 

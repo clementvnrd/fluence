@@ -43,7 +43,7 @@ public enum ModelState
 /// the process is exiting anyway, and a leak is harmless where a use-after-free is a crash.
 /// </para>
 /// </remarks>
-public sealed class TranscriberHost : ITranscriber
+public sealed class TranscriberHost : ITranscriber, ITimedTranscriber
 {
     /// <summary>How long disposal waits for a decode in progress.</summary>
     public static readonly TimeSpan DisposeTimeout = TimeSpan.FromSeconds(10);
@@ -137,6 +137,35 @@ public sealed class TranscriberHost : ITranscriber
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             return await _inner.TranscribeAsync(samples, biasPhrases, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>Whether the engine behind this host reports token timings (meetings need them).</summary>
+    public bool SupportsTimings => _inner is ITimedTranscriber;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Shares the gate with dictation: one model in memory, one decode at a time, and disposal
+    /// still waits for a meeting utterance in flight.
+    /// </remarks>
+    public async ValueTask<TimedTranscript> TranscribeTimedAsync(ReadOnlyMemory<float> samples, CancellationToken cancellationToken)
+    {
+        if (_inner is not ITimedTranscriber timed)
+        {
+            throw new InvalidOperationException(_inner is null
+                ? "No speech model is installed."
+                : "This speech engine does not report word timings.");
+        }
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return await timed.TranscribeTimedAsync(samples, cancellationToken).ConfigureAwait(false);
         }
         finally
         {

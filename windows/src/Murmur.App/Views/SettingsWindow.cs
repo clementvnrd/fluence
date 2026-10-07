@@ -6,6 +6,8 @@ using Avalonia.Threading;
 using Murmur.App.Controls;
 using Murmur.App.Design;
 using Murmur.Core;
+using Murmur.Core.Meetings;
+using Murmur.Meeting;
 using Murmur.Speech;
 
 namespace Murmur.App.Views;
@@ -40,7 +42,14 @@ public sealed class SettingsWindow : Window
         (HistoryRetention.Forever, "FOREVER"),
     ];
 
+    /// <summary>Card countdown choices; 0 waits for a click.</summary>
+    private static readonly int[] Countdowns = [0, 5, 10, 30];
+
     private readonly AppSettings _settings;
+    private readonly MeetingStore? _meetings;
+    private readonly StackPanel _countdownRow = new() { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Snug };
+    private readonly StackPanel _meetingRetentionRow = new() { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Snug };
+    private readonly TransportKey _deleteMeetings = new() { Content = "DELETE ALL MEETINGS", EngagedColor = Tokens.Colors.Ink };
     private readonly TranscriptStore? _history;
     private readonly TranscriberHost? _model;
     private readonly Lamp _modelLamp = new() { VerticalAlignment = VerticalAlignment.Center };
@@ -61,9 +70,12 @@ public sealed class SettingsWindow : Window
     /// <param name="settings">The preferences being edited.</param>
     /// <param name="history">The history, to report whether it is sealed on disk.</param>
     /// <param name="model">The speech model, whose real load state is shown.</param>
-    public SettingsWindow(AppSettings settings, TranscriptStore? history = null, TranscriberHost? model = null)
+    /// <param name="meetings">The meetings, for "delete all"; null when the Notetaker is unavailable.</param>
+    public SettingsWindow(AppSettings settings, TranscriptStore? history = null, TranscriberHost? model = null,
+        MeetingStore? meetings = null)
     {
         _settings = settings;
+        _meetings = meetings;
         _history = history;
         _model = model;
 
@@ -117,7 +129,29 @@ public sealed class SettingsWindow : Window
             _retentionRow.Children.Add(button);
         }
 
-        Content = BuildContent();
+        foreach (var seconds in Countdowns)
+        {
+            var button = new TransportKey
+            {
+                Content = seconds == 0 ? "WAIT FOR CLICK" : seconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " S",
+                EngagedColor = Tokens.Colors.Ink,
+            };
+            button.Click += (_, _) => SelectCountdown(seconds);
+            _countdownRow.Children.Add(button);
+        }
+
+        foreach (var choice in Retention.Choices)
+        {
+            var button = new TransportKey { Content = choice.Title().ToUpperInvariant(), EngagedColor = Tokens.Colors.Ink };
+            button.Click += (_, _) => SelectMeetingRetention(choice);
+            _meetingRetentionRow.Children.Add(button);
+        }
+
+        _deleteMeetings.Click += (_, _) => DeleteAllMeetings();
+
+        Content = new ScrollViewer { Content = BuildContent(), MaxHeight = 760 };
+        SelectCountdown(_settings.Data.NotetakerCountdownSeconds);
+        SelectMeetingRetention(Retention.Choice(_settings.Data.NotetakerRetentionDays) ?? RetentionChoice.Forever);
         SelectKey(_settings.Data.PushToTalkKey, WarningFor(_settings.Data.PushToTalkKey));
         SelectRetention(_settings.Data.HistoryRetention);
     }
@@ -138,6 +172,72 @@ public sealed class SettingsWindow : Window
             Save(_settings.Data with { HistoryRetention = retention });
         }
     }
+
+    /// <summary>Engages a countdown key and saves. Exposed for headless tests.</summary>
+    public void SelectCountdown(int seconds)
+    {
+        for (var i = 0; i < Countdowns.Length; i++)
+        {
+            ((TransportKey)_countdownRow.Children[i]).IsEngaged = Countdowns[i] == seconds;
+        }
+
+        if (_settings.Data.NotetakerCountdownSeconds != seconds) Save(_settings.Data with { NotetakerCountdownSeconds = seconds });
+    }
+
+    /// <summary>Engages a meeting retention key and saves (old meetings are purged at once). Exposed for headless tests.</summary>
+    public void SelectMeetingRetention(RetentionChoice choice)
+    {
+        for (var i = 0; i < Retention.Choices.Count; i++)
+        {
+            ((TransportKey)_meetingRetentionRow.Children[i]).IsEngaged = Retention.Choices[i] == choice;
+        }
+
+        if (_settings.Data.NotetakerRetentionDays != choice.Days()) Save(_settings.Data with { NotetakerRetentionDays = choice.Days() });
+    }
+
+    private void DeleteAllMeetings()
+    {
+        if (_meetings is null) return;
+        if (!_deleteMeetings.IsEngaged)
+        {
+            _deleteMeetings.IsEngaged = true;
+            _deleteMeetings.Content = "CONFIRM: DELETE EVERY MEETING AND VOICE PRINT";
+            return;
+        }
+
+        _meetings.DeleteAll();
+        _deleteMeetings.IsEngaged = false;
+        _deleteMeetings.Content = "DELETED";
+    }
+
+    private StackPanel BuildNotetakerSection() => new()
+    {
+        Spacing = Tokens.Space.Snug,
+        Children =
+        {
+            Toggle("Offer to take notes when a call starts", _settings.Data.NotetakerDetectMeetings,
+                v => Save(_settings.Data with { NotetakerDetectMeetings = v })),
+            Note("Teams, Zoom, Webex, Slack, Discord, GoTo, and browser calls (Meet, Teams, Zoom, Webex…) when "
+               + "the call is the active tab. A card appears with a countdown; nothing is ever recorded silently."),
+            _countdownRow,
+            Toggle("Keep the audio by default", _settings.Data.NotetakerKeepAudioByDefault,
+                v => Save(_settings.Data with { NotetakerKeepAudioByDefault = v })),
+            Note("Off: the encrypted recording is deleted once the transcript is ready. Each meeting can still "
+               + "keep its audio from the recording panel."),
+            Toggle("Voice prints: recognise voices I have named", _settings.Data.NotetakerVoicePrints,
+                v => Save(_settings.Data with { NotetakerVoicePrints = v })),
+            Note("Off by default. A voice print is biometric data: it is kept encrypted on this computer only, "
+               + "and turning this off deletes every print. Voices are only matched against calendar attendees, "
+               + "and Fluence for Windows has no calendar yet, so names come from your renames only."),
+            new Silkscreen { Text = "KEEP MEETINGS" },
+            _meetingRetentionRow,
+            Note(_meetings is null
+                ? "Meetings are not available on this system."
+                : "Meetings are encrypted on disk (AES-256-GCM, one key per meeting) with a key only your "
+                  + "Windows account can unlock. Older meetings are deleted at startup and when this changes."),
+            _deleteMeetings,
+        },
+    };
 
     private static string? WarningFor(int key) =>
         Keys.FirstOrDefault(k => k.Key == key).Warning;
@@ -175,6 +275,8 @@ public sealed class SettingsWindow : Window
                     Note("Off: dictations go to the history only, nothing is typed."),
                 },
             }),
+
+            Section("NOTETAKER", BuildNotetakerSection()),
 
             Section("HISTORY", new StackPanel
             {

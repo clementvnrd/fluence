@@ -1,7 +1,9 @@
 using System.Runtime.InteropServices;
 using Murmur.Abstractions;
 using Murmur.Core;
+using Murmur.Core.Meetings;
 using Murmur.Dictionary;
+using Murmur.Meeting;
 using Murmur.Speech;
 
 namespace Murmur.App;
@@ -35,7 +37,9 @@ public static class SelfTest
 
         failures += CheckDictionary();
         failures += CheckStorage();
+        failures += CheckMeetingStore();
         failures += CheckNativeSpeech();
+        failures += CheckMeetingNative();
         failures += CheckModelDiscovery();
         failures += CheckPlatformLayer();
 
@@ -199,6 +203,8 @@ public static class SelfTest
 
         failures += CheckDpapi();
         failures += CheckSessionMonitor();
+        failures += CheckLoopback();
+        failures += CheckMeetingSignals();
 
         return failures;
     }
@@ -262,6 +268,159 @@ public static class SelfTest
         {
             Console.WriteLine($"  {e.GetType().Name}: {e.Message}");
             return Check("session lock notifications subscribe", false);
+        }
+    }
+
+    /// <summary>
+    /// The meeting store end to end: vault (DPAPI on Windows), a sealed meeting through the
+    /// source-generated JSON, the index, the audio spool, rename, export, delete.
+    /// </summary>
+    private static int CheckMeetingStore()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"murmur-selftest-meetings-{Guid.NewGuid():N}");
+        try
+        {
+            var protector = PlatformFactory.CreateSecretProtector() ?? new SelfTestProtector();
+            using var vault = MeetingVault.Open(directory, protector, SystemClock.Instance, NullDiagnosticLog.Instance, out var problem);
+            if (vault is null)
+            {
+                Console.WriteLine($"  {problem}");
+                return Check("meeting vault opens", false);
+            }
+
+            var store = new MeetingStore(directory, vault, null);
+            var meeting = new MeetingRecord
+            {
+                Title = "Self-test",
+                StartedAt = DateTimeOffset.UtcNow,
+                EndedAt = DateTimeOffset.UtcNow.AddMinutes(1),
+                Speakers = [Speaker.Me(), new Speaker("S1")],
+                Segments = [new TranscriptSegment { Source = AudioSource.System, SpeakerId = "S1", Start = 1, End = 2, Text = "Claude Code" }],
+            };
+            var saved = store.Save(meeting);
+            var renamed = store.RenameSpeaker(meeting.Id, "S1", "Ada");
+            var reopened = new MeetingStore(directory, vault, null);
+            var loaded = reopened.Load(meeting.Id);
+            var roundTrip = saved && renamed is not null && loaded?.Segments.Single().Text == "Claude Code"
+                            && loaded.SpeakerById("S1")?.Name == "Ada" && reopened.Summaries.Count == 1;
+            var sealedOnDisk = Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories)
+                .All(f => !File.ReadAllText(f).Contains("Claude", StringComparison.Ordinal));
+
+            float[] samples = [.. Enumerable.Range(0, 20_000).Select(i => (i % 100) / 200f)];
+            using var key = store.OpenKey(meeting.Id, create: false);
+            var spoolPath = MeetingAudioSpool.PathFor(store.DirectoryFor(meeting.Id), AudioSource.System);
+            using (var spool = new MeetingAudioSpool(spoolPath, key!, meeting.Id, AudioSource.System)) spool.Append(samples);
+            var back = new float[samples.Length];
+            using (var reader = MeetingAudioSpoolReader.Open(spoolPath, key!, meeting.Id, AudioSource.System))
+            {
+                reader?.Read(0, back);
+            }
+
+            var spoolOk = Math.Abs(back[150] - samples[150]) < 1e-3f && Math.Abs(back[19_999] - samples[19_999]) < 1e-3f;
+            var markdown = loaded?.Markdown(TimeZoneInfo.Utc) ?? string.Empty;
+
+            store.Delete(meeting.Id);
+            return Check("meeting store round-trips through source-generated JSON", roundTrip)
+                 + Check("meetings are sealed on disk", sealedOnDisk)
+                 + Check("meeting audio spool round-trips", spoolOk)
+                 + Check("meeting exports as Markdown", markdown.Contains("**[00:01] Ada:** Claude Code", StringComparison.Ordinal))
+                 + Check("meeting delete removes its folder", !Directory.Exists(store.DirectoryFor(meeting.Id)));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            Console.WriteLine($"  {e.GetType().Name}: {e.Message}");
+            return Check("meeting store round-trips", false);
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch (IOException) { /* best effort */ }
+        }
+    }
+
+    /// <summary>The VAD and speaker-diarization halves of sherpa-onnx, and the meeting models when installed.</summary>
+    private static int CheckMeetingNative()
+    {
+        int failures;
+        try
+        {
+            Console.WriteLine($"  meetings: {SherpaMeetingProbe.Run()}");
+            failures = Check("sherpa-onnx VAD and diarization types load", true);
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException
+                                      or TypeLoadException or FileNotFoundException or InvalidOperationException)
+        {
+            Console.WriteLine($"  {e.GetType().Name}: {e.Message}");
+            return Check("sherpa-onnx VAD and diarization types load", false);
+        }
+
+        var models = AppPaths.ModelsDirectory;
+        if (MeetingModels.LocateVad(models) is { } vad)
+        {
+            failures += Check("installed Silero VAD verifies",
+                MeetingModels.Verify(Path.GetDirectoryName(vad)!, [MeetingModels.SileroVad], CancellationToken.None).IsUsable);
+        }
+        else
+        {
+            Console.WriteLine("  Silero VAD: (not installed — meetings cut on energy)");
+        }
+
+        if (MeetingModels.LocateDiarization(models) is { } folder)
+        {
+            failures += Check("installed diarization models verify",
+                MeetingModels.Verify(folder, [MeetingModels.Segmentation, MeetingModels.Embedding], CancellationToken.None).IsUsable);
+        }
+        else
+        {
+            Console.WriteLine("  diarization: (not installed — remote speech stays \"Others\")");
+        }
+
+        return failures;
+    }
+
+    /// <summary>Process loopback activation. A runner without an audio device skips rather than fails.</summary>
+    private static int CheckLoopback()
+    {
+        try
+        {
+            Console.WriteLine($"  loopback: {PlatformFactory.ProbeLoopback()}");
+            return Check("process loopback activates", true);
+        }
+        catch (Exception e) when (e is FileNotFoundException or TypeLoadException or EntryPointNotFoundException or MissingMethodException)
+        {
+            // The platform layer or NAudio did not ship or did not resolve: a packaging failure.
+            Console.WriteLine($"  {e.GetType().Name}: {e.Message}");
+            return Check("process loopback activates", false);
+        }
+        catch (Exception e)
+        {
+            // Activation reached Windows and was refused: no render device or audio service.
+            Console.WriteLine($"  [warn] process loopback unavailable here: {e.GetType().Name} 0x{e.HResult:X8}");
+            return 0;
+        }
+    }
+
+    /// <summary>Meeting detection's enumeration: capture sessions, windows, processes.</summary>
+    private static int CheckMeetingSignals()
+    {
+        var signals = PlatformFactory.CreateMeetingSignals();
+        if (signals is null) return Check("meeting signals construct", false);
+        try
+        {
+            var sessions = signals.CaptureSessions().Count;
+            var windows = signals.VisibleWindows().Count;
+            Console.WriteLine($"  meeting signals: {sessions} capture sessions, {windows} windows");
+            return Check("meeting detection enumerates", true);
+        }
+        catch (Exception e) when (e is FileNotFoundException or TypeLoadException or MissingMethodException)
+        {
+            Console.WriteLine($"  {e.GetType().Name}: {e.Message}");
+            return Check("meeting detection enumerates", false);
+        }
+        catch (Exception e)
+        {
+            // No audio service on the runner: Windows refused, the code shipped.
+            Console.WriteLine($"  [warn] audio session enumeration unavailable: {e.GetType().Name} 0x{e.HResult:X8}");
+            return 0;
         }
     }
 
