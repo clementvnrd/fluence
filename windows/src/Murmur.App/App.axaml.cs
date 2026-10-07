@@ -68,7 +68,7 @@ public partial class App : Application
         ShowMain();
         if (_main is not null && _composition is not null)
         {
-            _ = new SettingsWindow(_composition.Settings, _composition.Transcripts).ShowDialog(_main);
+            _ = new SettingsWindow(_composition.Settings, _composition.Transcripts, _composition.Model).ShowDialog(_main);
         }
     }
 

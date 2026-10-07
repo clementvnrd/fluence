@@ -169,3 +169,82 @@ public sealed class HistoryCipherTests : IDisposable
         File.ReadAllBytes(KeyPath).ShouldBe(before);
     }
 }
+
+/// <summary>The model host: honest state, single load, safe disposal.</summary>
+public sealed class TranscriberHostTests
+{
+    [Fact]
+    public async Task No_model_means_not_installed_and_no_load()
+    {
+        await using var host = new TranscriberHost(null, null);
+
+        host.State.ShouldBe(ModelState.NotInstalled);
+        (await host.LoadAsync(CancellationToken.None)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Found_is_not_ready_until_it_actually_loads()
+    {
+        var inner = new FakeTranscriber("x");
+        await using var host = new TranscriberHost(inner, "/models/parakeet-v2");
+
+        host.State.ShouldBe(ModelState.NotLoaded);
+        host.IsReady.ShouldBeFalse("files existing is not the same as a loaded model");
+
+        (await host.LoadAsync(CancellationToken.None)).ShouldBeTrue();
+        host.State.ShouldBe(ModelState.Ready);
+    }
+
+    [Fact]
+    public async Task A_load_failure_is_reported_with_its_reason_and_can_be_retried()
+    {
+        var inner = new FakeTranscriber("x") { LoadError = new InvalidDataException("encoder.int8.onnx is truncated") };
+        var log = new RecordingDiagnosticLog();
+        await using var host = new TranscriberHost(inner, "/m", log);
+
+        (await host.LoadAsync(CancellationToken.None)).ShouldBeFalse();
+        host.State.ShouldBe(ModelState.Failed);
+        host.Detail.ShouldBe("encoder.int8.onnx is truncated");
+        log.Events.ShouldContain(e => e.Name == "model.load_failed");
+
+        inner.LoadError = null;
+        (await host.LoadAsync(CancellationToken.None)).ShouldBeTrue();
+        host.State.ShouldBe(ModelState.Ready);
+    }
+
+    [Fact]
+    public async Task Concurrent_loads_share_one_attempt()
+    {
+        var inner = new FakeTranscriber("x");
+        await using var host = new TranscriberHost(inner, "/m");
+
+        await Task.WhenAll(
+            host.LoadAsync(CancellationToken.None).AsTask(),
+            host.LoadAsync(CancellationToken.None).AsTask(),
+            host.LoadAsync(CancellationToken.None).AsTask());
+
+        inner.LoadCalls.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Disposal_waits_for_a_decode_in_progress()
+    {
+        var release = new TaskCompletionSource();
+        var inner = new FakeTranscriber("x") { TranscribeGate = release.Task };
+        var host = new TranscriberHost(inner, "/m");
+        await host.LoadAsync(CancellationToken.None);
+
+        var decoding = host.TranscribeAsync(new float[10], [], CancellationToken.None).AsTask();
+        while (!inner.IsTranscribing) await Task.Yield();
+
+        var disposing = host.DisposeAsync().AsTask();
+        await Task.Delay(50);
+        disposing.IsCompleted.ShouldBeFalse("native memory must not be freed under a running decode");
+
+        release.SetResult();
+        await decoding;
+        await disposing;
+
+        inner.Disposal.ShouldBe((true, false));
+    }
+}

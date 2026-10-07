@@ -120,27 +120,65 @@ public sealed class FakeTranscriber : ITranscriber
     /// <inheritdoc />
     public bool IsReady { get; private set; }
 
+    /// <summary>When set, <see cref="LoadAsync"/> throws this instead of loading.</summary>
+    public Exception? LoadError { get; set; }
+
+    /// <summary>When set, <see cref="TranscribeAsync"/> throws this.</summary>
+    public Exception? TranscribeError { get; set; }
+
+    /// <summary>When set, every transcription waits for this task first — a "slow decode".</summary>
+    public Task? TranscribeGate { get; set; }
+
+    /// <summary>How many times <see cref="LoadAsync"/> ran.</summary>
+    public int LoadCalls { get; private set; }
+
+    /// <summary>Whether a transcription is running right now.</summary>
+    public bool IsTranscribing { get; private set; }
+
+    /// <summary>Whether <see cref="DisposeAsync"/> ran, and whether a transcription was running at the time.</summary>
+    public (bool Disposed, bool WhileTranscribing) Disposal { get; private set; }
+
     /// <inheritdoc />
     public ValueTask<bool> LoadAsync(CancellationToken cancellationToken)
     {
+        LoadCalls++;
+        if (LoadError is not null) throw LoadError;
+
         IsReady = true;
         return ValueTask.FromResult(true);
     }
 
     /// <inheritdoc />
-    public ValueTask<string> TranscribeAsync(
+    public async ValueTask<string> TranscribeAsync(
         ReadOnlyMemory<float> samples,
         IReadOnlyList<string> biasPhrases,
         CancellationToken cancellationToken)
     {
-        SegmentLengths.Add(samples.Length);
-        LastBias = biasPhrases;
-        var text = _responses.Count > 1 ? _responses.Dequeue() : _responses.Peek();
-        return ValueTask.FromResult(text);
+        IsTranscribing = true;
+        try
+        {
+            if (TranscribeGate is not null) await TranscribeGate.ConfigureAwait(false);
+            if (TranscribeError is not null) throw TranscribeError;
+
+            lock (SegmentLengths)
+            {
+                SegmentLengths.Add(samples.Length);
+                LastBias = biasPhrases;
+                return _responses.Count > 1 ? _responses.Dequeue() : _responses.Peek();
+            }
+        }
+        finally
+        {
+            IsTranscribing = false;
+        }
     }
 
     /// <inheritdoc />
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public ValueTask DisposeAsync()
+    {
+        Disposal = (true, IsTranscribing);
+        return ValueTask.CompletedTask;
+    }
 }
 
 /// <summary>
@@ -211,5 +249,24 @@ public sealed class FakeSecretProtector : ISecretProtector
         var secret = new byte[protectedSecret.Length - 2];
         for (var i = 0; i < secret.Length; i++) secret[i] = (byte)(protectedSecret[i + 2] ^ _mask);
         return secret;
+    }
+}
+
+/// <summary>Captures diagnostic events so a test can assert on them.</summary>
+public sealed class RecordingDiagnosticLog : IDiagnosticLog
+{
+    private readonly List<(LogLevel Level, string Name, Exception? Exception, IReadOnlyDictionary<string, object?>? Fields)> _events = [];
+
+    /// <summary>Everything logged so far, in order.</summary>
+    public IReadOnlyList<(LogLevel Level, string Name, Exception? Exception, IReadOnlyDictionary<string, object?>? Fields)> Events
+    {
+        get { lock (_events) return [.. _events]; }
+    }
+
+    /// <inheritdoc />
+    public void Write(LogLevel level, string eventName, Exception? exception = null,
+        IReadOnlyDictionary<string, object?>? fields = null)
+    {
+        lock (_events) _events.Add((level, eventName, exception, fields));
     }
 }

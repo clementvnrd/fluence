@@ -35,6 +35,15 @@ public sealed class MainWindow : Window
     private readonly TransportKey _transcriptionsKey;
     private readonly TransportKey _dictionaryKey;
     private readonly DispatcherTimer _counterTimer;
+    private readonly BrushedPanel _banner;
+    private readonly TextBlock _bannerText = new()
+    {
+        FontFamily = Tokens.Fonts.Grotesque,
+        FontSize = Tokens.Fonts.Label,
+        Foreground = Tokens.Brushes.Ink,
+        TextWrapping = TextWrapping.Wrap,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
 
     private Control? _transcriptionsView;
     private Control? _dictionaryView;
@@ -75,6 +84,7 @@ public sealed class MainWindow : Window
         _dictionaryKey.Click += (_, _) => ShowSection(transcriptions: false);
 
         _sectionHost = new ContentControl();
+        _banner = BuildBanner();
 
         // The meter and counter are polled rather than pushed. The engine raises Changed on
         // a background thread at buffer rate, and marshalling every one of those to the UI
@@ -99,10 +109,7 @@ public sealed class MainWindow : Window
         root.Children.Add(Panels.Docked(BuildTransportPanel(), Dock.Top));
         root.Children.Add(Panels.Docked(BuildSectionKeys(), Dock.Top));
 
-        if (_composition is not null && !Composition.IsModelInstalled)
-        {
-            root.Children.Add(Panels.Docked(BuildModelBanner(), Dock.Top));
-        }
+        root.Children.Add(Panels.Docked(_banner, Dock.Top));
 
         root.Children.Add(BuildWell(_sectionHost));
         return root;
@@ -161,16 +168,19 @@ public sealed class MainWindow : Window
     };
 
     /// <summary>
-    /// A standing notice that the app cannot transcribe yet.
+    /// A standing notice for anything that stops dictation working: no model, a model that
+    /// failed to load, or the last dictation's error.
     /// </summary>
     /// <remarks>
-    /// Unlike macOS, Windows has no built-in engine to fall back on, so a missing model means
-    /// the app does nothing at all. That has to be visible on the front panel rather than
-    /// buried in Settings.
+    /// Unlike macOS, Windows has no built-in engine to fall back on, so a missing or broken
+    /// model means the app does nothing at all. That has to be visible on the front panel
+    /// rather than buried in Settings — and so does a dictation that failed, which used to
+    /// vanish without a word.
     /// </remarks>
-    private static BrushedPanel BuildModelBanner() => new()
+    private BrushedPanel BuildBanner() => new()
     {
         Margin = new Thickness(0, 0, 0, Tokens.Space.Base),
+        IsVisible = false,
         Child = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -184,19 +194,34 @@ public sealed class MainWindow : Window
                     LampColor = Tokens.Colors.MeterAmber,
                     VerticalAlignment = VerticalAlignment.Center,
                 },
-                new TextBlock
-                {
-                    Text = "Speech model not installed — Fluence cannot transcribe yet. "
-                         + "See Settings, or docs/PARAKEET-WINDOWS.md.",
-                    FontFamily = Tokens.Fonts.Grotesque,
-                    FontSize = Tokens.Fonts.Label,
-                    Foreground = Tokens.Brushes.Ink,
-                    TextWrapping = TextWrapping.Wrap,
-                    VerticalAlignment = VerticalAlignment.Center,
-                },
+                _bannerText,
             },
         },
     };
+
+    /// <summary>The banner's message, or null when hidden. Exposed for headless tests.</summary>
+    public string? BannerMessage => _banner.IsVisible ? _bannerText.Text : null;
+
+    private void UpdateBanner()
+    {
+        var message = Describe(_composition);
+        _banner.IsVisible = message is not null;
+        if (message is not null && _bannerText.Text != message) _bannerText.Text = message;
+    }
+
+    /// <summary>What the banner should say, or null for nothing.</summary>
+    internal static string? Describe(Composition? composition)
+    {
+        if (composition is null) return null;
+
+        var model = composition.Model;
+        var status = ModelStatus.Describe(model.State, model.Detail, model.Location, []);
+        if (!status.NeedsAttention) return null;
+
+        return model.State == ModelState.Failed
+            ? $"Speech model failed to load — {model.Detail} See Settings."
+            : "Speech model not installed — Fluence cannot transcribe yet. See Settings, or docs/PARAKEET-WINDOWS.md.";
+    }
 
     /// <summary>A recessed well cut into the panel — content sits inside it.</summary>
     private static Border BuildWell(Control content) => new()
@@ -250,12 +275,14 @@ public sealed class MainWindow : Window
     private void ShowSettings()
     {
         if (_composition is null) return;
-        _ = new SettingsWindow(_composition.Settings, _composition.Transcripts).ShowDialog(this);
+        _ = new SettingsWindow(_composition.Settings, _composition.Transcripts, _composition.Model).ShowDialog(this);
     }
 
     /// <summary>Pulls state from the engine onto the panel.</summary>
     private void SyncFromEngine()
     {
+        UpdateBanner();
+
         var engine = _composition?.Engine;
         if (engine is null)
         {

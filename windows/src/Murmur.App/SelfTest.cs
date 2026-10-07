@@ -95,11 +95,11 @@ public static class SelfTest
     {
         // A fresh machine has no model, and that must be a friendly message rather than a
         // crash on launch.
-        var located = ParakeetTranscriber.Locate();
+        var located = ParakeetTranscriber.Locate(null, AppPaths.ModelsDirectory);
         Console.WriteLine($"  model: {located ?? "(not installed — expected on a clean runner)"}");
 
         return Check("model search paths are absolute",
-            ParakeetTranscriber.DefaultSearchPaths().All(Path.IsPathRooted));
+            ParakeetTranscriber.SearchPaths(null, AppPaths.ModelsDirectory).All(Path.IsPathRooted));
     }
 
     /// <summary>

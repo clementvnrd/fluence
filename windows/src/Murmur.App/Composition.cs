@@ -29,8 +29,10 @@ public sealed class Composition : IAsyncDisposable
         TranscriptStore transcripts,
         DictationEngine? engine,
         ITextInjector? injector,
+        TranscriberHost model,
         bool platformAvailable)
     {
+        Model = model;
         Settings = settings;
         Dictionary = dictionary;
         Transcripts = transcripts;
@@ -60,8 +62,8 @@ public sealed class Composition : IAsyncDisposable
     /// <summary>Whether real audio and hotkey support were found.</summary>
     public bool IsPlatformAvailable { get; }
 
-    /// <summary>Whether the speech model is present on disk.</summary>
-    public static bool IsModelInstalled => ParakeetTranscriber.Locate() is not null;
+    /// <summary>The speech model: where it is, and whether it actually loaded.</summary>
+    public TranscriberHost Model { get; }
 
     /// <summary>Builds the object graph.</summary>
     /// <param name="log">Where failures are recorded. Never receives transcript text.</param>
@@ -88,16 +90,20 @@ public sealed class Composition : IAsyncDisposable
         DictationEngine? engine = null;
         var available = capture is not null && hotkey is not null && injector is not null;
 
+        // ModelDirectory from settings.json, when set, is the only place looked at.
+        var modelDirectory = ParakeetTranscriber.Locate(settings.Data.ModelDirectory, AppPaths.ModelsDirectory);
+        var model = new TranscriberHost(
+            modelDirectory is null ? null : new ParakeetTranscriber(modelDirectory), modelDirectory, log);
+
         if (available)
         {
-            var modelDirectory = settings.Data.ModelDirectory ?? ParakeetTranscriber.Locate();
-
-            ITranscriber transcriber = modelDirectory is not null
-                ? new ParakeetTranscriber(modelDirectory)
-                : new UnavailableTranscriber();
+            // Load now, in the background, rather than on the first key press: the first
+            // dictation is not delayed, and a corrupt or missing file is reported in the
+            // window straight away instead of when the user first speaks.
+            _ = model.LoadAsync(CancellationToken.None).AsTask();
 
             engine = new DictationEngine(
-                capture!, hotkey!, transcriber, injector!,
+                capture!, hotkey!, model, injector!,
                 () => dictionary.Entries);
 
             engine.Completed += (_, result) =>
@@ -121,35 +127,16 @@ public sealed class Composition : IAsyncDisposable
             };
         }
 
-        return new Composition(settings, dictionary, transcripts, engine, injector, available);
+        return new Composition(settings, dictionary, transcripts, engine, injector, model, available);
     }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
+        // The engine disposes the model it was given; without one, dispose it here.
         if (Engine is not null) await Engine.DisposeAsync().ConfigureAwait(false);
+        else await Model.DisposeAsync().ConfigureAwait(false);
         Transcripts.Dispose();
         Dictionary.Dispose();
     }
-}
-
-/// <summary>
-/// A transcriber that reports the model is missing rather than throwing.
-/// </summary>
-/// <remarks>
-/// A fresh Windows install has no model, and that has to be a readable message in Settings
-/// rather than a crash on first press.
-/// </remarks>
-internal sealed class UnavailableTranscriber : ITranscriber
-{
-    public bool IsReady => false;
-
-    public ValueTask<bool> LoadAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
-
-    public ValueTask<string> TranscribeAsync(
-        ReadOnlyMemory<float> samples,
-        IReadOnlyList<string> biasPhrases,
-        CancellationToken cancellationToken) => ValueTask.FromResult(string.Empty);
-
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

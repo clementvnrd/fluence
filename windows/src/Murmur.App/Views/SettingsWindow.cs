@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Murmur.App.Controls;
 using Murmur.App.Design;
 using Murmur.Core;
@@ -41,6 +42,17 @@ public sealed class SettingsWindow : Window
 
     private readonly AppSettings _settings;
     private readonly TranscriptStore? _history;
+    private readonly TranscriberHost? _model;
+    private readonly Lamp _modelLamp = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _modelHeadline = new()
+    {
+        FontFamily = Tokens.Fonts.Grotesque,
+        FontSize = Tokens.Fonts.Body,
+        Foreground = Tokens.Brushes.Ink,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+    private readonly TextBlock _modelDetail = Note(string.Empty);
+    private readonly TransportKey _modelRetry = new() { Content = "TRY AGAIN", EngagedColor = Tokens.Colors.Ink };
     private readonly StackPanel _keyRow;
     private readonly StackPanel _retentionRow;
     private readonly TextBlock _keyWarning;
@@ -48,10 +60,20 @@ public sealed class SettingsWindow : Window
     /// <summary>Builds the settings window.</summary>
     /// <param name="settings">The preferences being edited.</param>
     /// <param name="history">The history, to report whether it is sealed on disk.</param>
-    public SettingsWindow(AppSettings settings, TranscriptStore? history = null)
+    /// <param name="model">The speech model, whose real load state is shown.</param>
+    public SettingsWindow(AppSettings settings, TranscriptStore? history = null, TranscriberHost? model = null)
     {
         _settings = settings;
         _history = history;
+        _model = model;
+
+        // The model loads in the background; follow it live rather than showing a snapshot.
+        if (_model is not null)
+        {
+            EventHandler onChange = (_, _) => Dispatcher.UIThread.Post(UpdateModelStatus);
+            _model.StateChanged += onChange;
+            Closed += (_, _) => _model.StateChanged -= onChange;
+        }
 
         Title = AppPaths.ProductName + " Settings";
         Width = 540;
@@ -171,44 +193,37 @@ public sealed class SettingsWindow : Window
              + "dictation. Never deletes the existing history now.";
     }
 
-    private static StackPanel BuildModelSection()
+    private StackPanel BuildModelSection()
     {
-        var located = ParakeetTranscriber.Locate();
-        var found = located is not null;
+        _modelRetry.Click += (_, _) => _ = _model?.LoadAsync(CancellationToken.None).AsTask();
 
         var status = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = Tokens.Space.Snug,
-            Children =
-            {
-                new Lamp
-                {
-                    IsLit = found,
-                    LampColor = found ? Tokens.Colors.MeterGreen : Tokens.Colors.MeterAmber,
-                    VerticalAlignment = VerticalAlignment.Center,
-                },
-                new TextBlock
-                {
-                    Text = found ? "Parakeet ready" : "Model not installed",
-                    FontFamily = Tokens.Fonts.Grotesque,
-                    FontSize = Tokens.Fonts.Body,
-                    Foreground = Tokens.Brushes.Ink,
-                    VerticalAlignment = VerticalAlignment.Center,
-                },
-            },
+            Children = { _modelLamp, _modelHeadline },
         };
 
-        var detail = found
-            // Showing the resolved path matters: "model not found" is unactionable without
-            // knowing which directory was actually checked.
-            ? Note($"Loaded from {located}")
-            : Note("Windows has no built-in speech engine equivalent to Apple's, so Fluence "
-                 + "cannot transcribe until the Parakeet model is downloaded (~661 MB). "
-                 + "See docs/PARAKEET-WINDOWS.md. Expected in:\n"
-                 + string.Join("\n", ParakeetTranscriber.DefaultSearchPaths()));
+        UpdateModelStatus();
+        return new StackPanel { Spacing = Tokens.Space.Snug, Children = { status, _modelDetail, _modelRetry } };
+    }
 
-        return new StackPanel { Spacing = Tokens.Space.Snug, Children = { status, detail } };
+    /// <summary>The model status currently shown. Exposed for headless tests.</summary>
+    public ModelStatus? ShownModelStatus { get; private set; }
+
+    private void UpdateModelStatus()
+    {
+        var searched = ParakeetTranscriber.SearchPaths(_settings.Data.ModelDirectory, AppPaths.ModelsDirectory);
+        var status = _model is null
+            ? ModelStatus.Describe(ModelState.NotInstalled, null, null, searched)
+            : ModelStatus.Describe(_model.State, _model.Detail, _model.Location, searched);
+
+        ShownModelStatus = status;
+        _modelLamp.IsLit = status.IsReady || _model?.State == ModelState.Loading;
+        _modelLamp.LampColor = status.IsReady ? Tokens.Colors.MeterGreen : Tokens.Colors.MeterAmber;
+        _modelHeadline.Text = status.Headline;
+        _modelDetail.Text = status.Detail;
+        _modelRetry.IsVisible = _model?.State == ModelState.Failed;
     }
 
     private void SelectKey(int key, string? warning)
