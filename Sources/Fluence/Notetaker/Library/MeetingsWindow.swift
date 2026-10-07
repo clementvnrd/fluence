@@ -336,6 +336,7 @@ private struct DetailHeader: View {
             }
 
             HStack(spacing: DS.Space.snug) {
+                MeetingExportKeys(model: model, meeting: meeting)
                 Spacer()
                 TransportKey(title: "Delete", systemImage: "trash") {
                     model.isConfirmingDelete = true
