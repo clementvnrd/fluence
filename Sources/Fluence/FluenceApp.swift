@@ -9,10 +9,13 @@ struct FluenceApp: App {
     var body: some Scene {
         // The main window. A `Window` rather than a `WindowGroup`: this app has one front
         // panel, and letting ⌘N spawn a second copy of it makes no sense.
+        // FLU-12: a sidebar window (navigation B) — the sidebar runs under the hidden title
+        // bar, the traffic lights float over it. The meetings library lives here too.
         Window(AppDelegate.mainTitle, id: "main") {
             MainWindow(controller: delegate.controller)
         }
-        .defaultSize(width: 860, height: 620)
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: DS.Window.main.width, height: DS.Window.main.height)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {}
@@ -21,6 +24,7 @@ struct FluenceApp: App {
                     NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
                 }
             }
+            MeetingsCommands()
         }
 
         // Clement's quick correction window: fix the last dictation and teach the dictionary.
@@ -35,6 +39,7 @@ struct FluenceApp: App {
         SwiftUI.Settings {
             SettingsWindow(controller: delegate.controller)
         }
+        .windowStyle(.hiddenTitleBar)
 
         // Secondary now: status and the hotkey while you're working in another app.
         MenuBarExtra {
@@ -52,13 +57,6 @@ struct FluenceApp: App {
         .defaultSize(width: 640, height: 560)
         .windowResizability(.contentMinSize)
 
-        // MARK: Notetaker (library)
-        Window("Réunions", id: MeetingsWindowID.library) {
-            MeetingsWindow(model: .shared)
-        }
-        .defaultSize(width: 1_040, height: 720)
-        .windowResizability(.contentMinSize)
-        .commands { MeetingsCommands() }
     }
 }
 
@@ -71,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let controller = DictationController()
     private var hud: HUDPanel?
+    private var previewHUD: HUDPanel?
     private var stateObservation: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -80,6 +79,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
 
         hud = HUDPanel(controller: controller)
+        // MARK: FLU-12 — dev-only HUD preview for screenshots, under
+        // FLUENCE_SUPPORT_DIRECTORY only (see `HUDPreview`).
+        if let preview = HUDPreview.requested {
+            previewHUD = HUDPanel(controller: controller, preview: preview)
+            previewHUD?.present()
+        }
 
         controller.activate()
         if !Permissions.hasAccessibility {
@@ -91,11 +96,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             retryActivation()
         }
         // MARK: FLU-5 input
-        if OnboardingWindow.isNeeded { OnboardingWindow.shared.show() }
+        if OnboardingWindow.isNeeded || DevPreview.onboardingStep != nil { OnboardingWindow.shared.show() }
 
         // Reads (and on first run after the update, seals and replaces) the history off the
         // main thread, then applies the retention setting.
         RunLog.start()
+        // FLU-12, dev only: synthetic data for screenshots (after the history load is queued,
+        // so the seeded runs land after it).
+        ScreenshotSeed.applyIfRequested()
         // MARK: FLU-5 text — snippets are sealed like history; open them now, not on the
         // first dictation, which would otherwise run without them.
         _ = SnippetStore.shared
@@ -131,6 +139,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotetakerNotes.launch()
 
         Log.app.info("Fluence ready — hold \(Settings.shared.pushToTalkKey.displayName, privacy: .public) to dictate")
+
+        DevPreview.snapshotIfRequested()
 
         // Clement's build brings the main window forward at launch.
         Task { @MainActor in
@@ -183,13 +193,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Shows and hides the HUD in step with the controller's state.
+    /// FLU-12: also while the auto-learn offer is on the capsule.
     private func observeState() {
         withObservationTracking {
             _ = controller.state
+            _ = LearnedWords.shared.spotlight
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                if self.controller.state.showsHUD {
+                if self.controller.state.showsHUD || LearnedWords.shared.spotlight != nil {
                     self.hud?.present()
                 } else {
                     self.hud?.dismiss()

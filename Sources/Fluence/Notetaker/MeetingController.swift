@@ -49,6 +49,26 @@ final class MeetingController {
         didSet { meeting?.keepAudio = keepAudio }
     }
 
+    /// Someone spoke in the last moments, on either channel: animates the level in the
+    /// pill and the banner. There is no meeting level meter; speech is what it shows.
+    private(set) var isHearingSpeech = false
+
+    /// The recording panel shows the controls and the live transcript (mock-up 07, step 3)
+    /// instead of the compact pill (step 2).
+    var isPanelExpanded = false {
+        didSet { if isPanelExpanded != oldValue { recordingPanel?.relayout() } }
+    }
+
+    /// "Zoom", "Google Chrome"… for the banner and the panel.
+    var appName: String? { meeting?.appBundleID.flatMap { MeetingApps.identify($0)?.name } }
+
+    /// The people in the call, the user included, when the calendar or the call's window
+    /// says who they are.
+    var participantCount: Int? {
+        let others = max(meeting?.attendees.count ?? 0, session?.participants.count ?? 0)
+        return others > 0 ? others + 1 : nil
+    }
+
     var isRecording: Bool { state == .recording }
     var isBusy: Bool { state == .recording || state == .processing }
 
@@ -69,8 +89,6 @@ final class MeetingController {
     private var detectionPanel: MeetingDetectionPanel?
     @ObservationIgnored
     private var recordingPanel: MeetingRecordingPanel?
-    @ObservationIgnored
-    private var transcriptPanel: LiveTranscriptPanel?
 
     // MARK: - Launch
 
@@ -245,6 +263,8 @@ final class MeetingController {
                 guard self.state == .recording, self.session === session else { return }
                 tick += 1
                 self.elapsed = session.elapsed
+                let hearing = session.speechClock.last.map { session.elapsed - $0 < 2 } ?? false
+                if hearing != self.isHearingSpeech { self.isHearingSpeech = hearing }
 
                 if let app = session.app, self.detector.isOnMicrophone(app) {
                     session.appLastOnMic = session.elapsed
@@ -283,6 +303,8 @@ final class MeetingController {
         guard state == .recording, let session, var meeting else { return }
         state = .processing
         lastStopReason = reason
+        isHearingSpeech = false
+        isPanelExpanded = false
         recordingPanel?.dismiss()
         detector.keepPollingWhileRecording = false
         Log.app.info("meeting recording stopped: \(reason.rawValue, privacy: .public)")
@@ -408,13 +430,35 @@ final class MeetingController {
     /// scratch folder, see `AppPaths`) and `FLUENCE_PREVIEW_RECORDING_PANEL=1`, shows the
     /// recording panel with no session — no microphone opened, no meeting created, and its
     /// Arrêter key does nothing.
+    ///
+    /// FLU-12: `FLUENCE_PREVIEW_RECORDING_PANEL=expanded` opens the panel expanded, and
+    /// `FLUENCE_PREVIEW_MEETING_FILE` names a JSON `Meeting` (synthetic, in the scratch
+    /// folder) whose title, app and segments stand in for a live one. `=detected` shows the
+    /// detection card instead.
     func previewRecordingPanelIfRequested() {
-        guard AppPaths.override != nil,
-              ProcessInfo.processInfo.environment["FLUENCE_PREVIEW_RECORDING_PANEL"] == "1",
-              state == .idle
+        guard AppPaths.override != nil, state == .idle,
+              let mode = ProcessInfo.processInfo.environment["FLUENCE_PREVIEW_RECORDING_PANEL"]
         else { return }
+        if mode == "detected" {
+            let app = MeetingApps.native[0]
+            state = .detected(DetectedMeeting(app: app, service: app.name, pid: nil))
+            countdown = 8
+            showDetectionPanel()
+            return
+        }
         state = .recording
-        elapsed = 754
+        elapsed = 767
+        isHearingSpeech = true
+        if let path = ProcessInfo.processInfo.environment["FLUENCE_PREVIEW_MEETING_FILE"],
+           let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            if let preview = try? decoder.decode(Meeting.self, from: data) {
+                meeting = preview
+                liveSegments = preview.segments
+            }
+        }
+        isPanelExpanded = mode == "expanded"
         showRecordingPanel()
     }
 
@@ -430,11 +474,12 @@ final class MeetingController {
         recordingPanel?.present()
     }
 
-    /// The read-only live transcript. Opened on request only: it would otherwise appear
-    /// in a screen share.
+    /// The live transcript, in the expanded recording panel. Shown on request only, and the
+    /// panel is excluded from screen sharing.
     func showLiveTranscript() {
-        if transcriptPanel == nil { transcriptPanel = LiveTranscriptPanel(controller: self) }
-        transcriptPanel?.present()
+        guard isRecording else { return }
+        isPanelExpanded = true
+        showRecordingPanel()
     }
 }
 

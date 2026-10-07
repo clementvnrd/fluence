@@ -14,12 +14,10 @@ extension Snippet {
     }
 }
 
-/// Voice Snippets panel: add, edit, delete, search spoken shortcuts.
-///
-/// Spoken cues ("my calendly", "bug report template") automatically expand into full
-/// multi-line blocks of text upon dictation.
+/// Snippets (FLU-12): spoken shortcuts — say "mon adresse", Fluence types the full text.
 struct SnippetPanel: View {
     @State private var store = SnippetStore.shared
+    @State private var settings = Settings.shared
     @State private var query = ""
     @State private var editing: SnippetEntry?
     @State private var isAdding = false
@@ -28,22 +26,40 @@ struct SnippetPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                SearchField(text: $query, placeholder: "Rechercher parmi les snippets…")
-                addButton
-                    .padding(.trailing, DS.Space.base)
-                    .background(DS.Color.deck)
+            HStack(alignment: .center, spacing: DS.Space.base) {
+                ContentTitle(
+                    title: "Snippets",
+                    subtitle: FrenchFormat.count(store.entries.count, "raccourci vocal", "raccourcis vocaux")
+                        + " · dites la phrase, Fluence écrit le texte complet"
+                )
+                Spacer(minLength: DS.Space.roomy)
+                HStack(spacing: DS.Space.snug) {
+                    Text(settings.snippetsEnabled ? "Activés" : "Désactivés")
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Color.inkSecondary)
+                    RowToggle(isOn: $settings.snippetsEnabled)
+                }
+                .help("Remplacer les phrases prononcées par leur texte pendant la dictée")
+                CapButton(title: "Ajouter", systemImage: "plus") { isAdding = true }
+                    .keyboardShortcut("n", modifiers: .command)
             }
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
-            }
+            .padding(.horizontal, DS.Space.panel)
+            .padding(.top, 28)
+            .padding(.bottom, DS.Space.roomy)
+
+            SearchWell(text: $query, placeholder: "Rechercher parmi les snippets…")
+                .padding(.horizontal, DS.Space.panel)
+                .padding(.bottom, DS.Space.base)
 
             if entries.isEmpty {
-                EmptyPanel(
-                    label: store.entries.isEmpty ? "Aucun snippet" : "Aucun résultat",
+                EmptyState(
+                    systemImage: store.entries.isEmpty ? "text.badge.plus" : "magnifyingglass",
+                    title: store.entries.isEmpty ? "Aucun snippet" : "Aucun résultat",
                     detail: store.entries.isEmpty
-                        ? "Ajoutez des raccourcis vocaux qui se transforment en texte complet."
-                        : "Essayez une autre recherche."
+                        ? "Un snippet est une phrase courte que vous dites, comme « mon adresse », et le texte qu'elle devient."
+                        : "Essayez une autre recherche.",
+                    actionTitle: store.entries.isEmpty ? "Ajouter un snippet" : nil,
+                    action: store.entries.isEmpty ? { isAdding = true } : nil
                 )
             } else {
                 ScrollView {
@@ -57,11 +73,19 @@ struct SnippetPanel: View {
                             )
                         }
                     }
-                    .padding(DS.Space.base)
+                    .padding(.horizontal, DS.Space.panel)
+                    .padding(.bottom, DS.Space.roomy)
                 }
             }
 
-            footer
+            ListFooter(text: FrenchFormat.count(store.entries.count, "snippet")) {
+                // The file is sealed, so there is nothing to reveal; a fault is said here instead.
+                if let problem = store.problem {
+                    Text(problem).font(DS.Font.caption).foregroundStyle(DS.Color.fault).lineLimit(2)
+                } else {
+                    Text("Chiffrés sur ce Mac").font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary)
+                }
+            }
         }
         .sheet(isPresented: $isAdding) {
             SnippetEditor(entry: nil, others: store.entries) { cue, expansion in
@@ -75,47 +99,6 @@ struct SnippetPanel: View {
                 updated.expansion = expansion
                 store.update(updated)
             }
-        }
-    }
-
-    private var addButton: some View {
-        Button { isAdding = true } label: {
-            HStack(spacing: DS.Space.tight) {
-                Image(systemName: "plus")
-                    .font(.system(size: 9, weight: .bold))
-                Silkscreen(text: "Ajouter", color: DS.Color.inkOnDeck)
-            }
-            .foregroundStyle(DS.Color.inkOnDeck)
-            .padding(.horizontal, DS.Space.base)
-            .padding(.vertical, DS.Space.snug)
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.Radius.chip)
-                    .strokeBorder(DS.Color.inkOnDeck.opacity(0.35), lineWidth: DS.Border.hairline)
-            )
-        }
-        .buttonStyle(.plain)
-        .keyboardShortcut("n", modifiers: .command)
-    }
-
-    private var footer: some View {
-        HStack(spacing: DS.Space.snug) {
-            Silkscreen(text: "\(store.entries.count) snippet\(store.entries.count == 1 ? "" : "s")", color: DS.Color.inkOnDeck.opacity(0.5))
-            Spacer()
-            // The file is sealed, so there is nothing to reveal; a fault is said here instead.
-            if let problem = store.problem {
-                Text(problem)
-                    .font(DS.Font.caption)
-                    .foregroundStyle(DS.Color.fault)
-                    .lineLimit(2)
-            } else {
-                Silkscreen(text: "Chiffrés sur ce Mac", color: DS.Color.inkOnDeck.opacity(0.5))
-            }
-        }
-        .padding(.horizontal, DS.Space.base)
-        .padding(.vertical, DS.Space.snug)
-        .background(DS.Color.deck)
-        .overlay(alignment: .top) {
-            Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
         }
     }
 }
@@ -140,7 +123,7 @@ private struct SnippetRow: View {
             )
             .frame(width: 32, alignment: .leading)
 
-            Text("\"\(entry.cue)\"")
+            Text(FrenchFormat.quoted(entry.cue))
                 .font(DS.Font.bodyEmphasis)
                 .foregroundStyle(DS.Color.inkOnDeck)
 
@@ -164,16 +147,19 @@ private struct SnippetRow: View {
         }
         .opacity(entry.isEnabled ? 1 : 0.45)
         .padding(.horizontal, DS.Space.base)
-        .padding(.vertical, DS.Space.snug)
-        .background(isHovering ? DS.Color.hover : DS.Color.deck, in: .rect(cornerRadius: DS.Radius.chip))
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                .fill(isHovering ? DS.Color.hover : DS.Color.panel)
+                .overlay(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous).strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline))
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2, perform: { onEdit() })
         .onHover { isHovering = $0 }
     }
 
     private func rowButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Silkscreen(text: title, color: DS.Color.inkOnDeck.opacity(0.6))
-        }
-        .buttonStyle(.plain)
+        ChipButton(title: title, action: action)
     }
 }
 

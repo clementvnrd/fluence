@@ -72,8 +72,8 @@ app: build
 	@cp $(BUILD) "$(CONTENTS)/MacOS/$(EXEC)"
 	@cp Resources/Info.plist "$(CONTENTS)/Info.plist"
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(CONTENTS)/Resources/"; fi
-	@# The Aqua orb drawn in the header, the settings and the HUD (`AquaOrbView`).
-	@cp Resources/AquaOrb.png "$(CONTENTS)/Resources/"
+	@# The brand mark is drawn (`AquaOrbView`, FLU-12); Resources/AquaOrb.png is the artwork
+	@# it was drawn from and is not shipped.
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"
 	@# Belt and braces: the staging dir isn't synced, but the copied binary can still carry
 	@# xattrs inherited from the synced .build directory.

@@ -11,7 +11,7 @@ import SwiftUI
 /// nothing to insert into. Hence `.nonactivatingPanel` plus `canBecomeKey == false`.
 @MainActor
 final class HUDPanel: NSPanel {
-    init(controller: DictationController) {
+    init(controller: DictationController, preview: HUDPreview? = nil) {
         self.controller = controller
         super.init(
             contentRect: NSRect(origin: .zero, size: DS.HUD.size),
@@ -37,7 +37,7 @@ final class HUDPanel: NSPanel {
         // screenshots, so dictating during a call doesn't broadcast what you're writing.
         sharingType = .none
 
-        let hosting = ClickThroughHostingView(rootView: HUDView(controller: controller))
+        let hosting = ClickThroughHostingView(rootView: HUDView(controller: controller, preview: preview))
         hosting.wantsLayer = true
         hosting.layer?.backgroundColor = NSColor.clear.cgColor
         contentView = hosting

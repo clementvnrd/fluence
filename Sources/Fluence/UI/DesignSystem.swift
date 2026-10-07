@@ -8,7 +8,8 @@ import SwiftUI
 /// Light paper-mist canvas, rounded white cards with hairline borders and soft shadows, one
 /// electric-blue accent (the Aqua orb's colour). The blue-to-cyan gradient is reserved for
 /// the Aqua identity — the orb, the "AI" badge and the primary *Dicter* button. Red marks a
-/// recording that can be stopped; amber and green are status (warnings, granted), never chrome.
+/// *meeting* recording (FLU-12 decision 3) and destructive actions; dictation stays blue.
+/// Amber and green are status (warnings, granted), never chrome.
 enum DS {
 
     // MARK: - Color
@@ -57,6 +58,11 @@ enum DS {
         static let record = face(light: 0x0084FF, dark: 0x38BDF8)
         static let recordRed = swatch(0xEF4444)
         static let recordIdle = face(light: 0x94A3B8, dark: 0x475569)
+        /// A meeting being recorded: the dot, the banner, the pill, *Arrêter*, the sidebar dot.
+        /// The only recording that is red (FLU-12 decision 3); a dictation uses `record`.
+        static let meetingRecord = recordRed
+        /// Destructive actions (*Supprimer*, *Tout effacer*): same red, a different meaning.
+        static let destructive = recordRed
 
         // Selection & Hover
         static let selection = face(light: 0xE0F2FE, dark: 0x162C46)
@@ -210,10 +216,32 @@ enum DS {
 extension DS {
     /// Fixed and minimum window sizes.
     enum Window {
-        static let mainMinimum = CGSize(width: 720, height: 540)
+        /// The main window: a sidebar and a content area (FLU-12, navigation B).
+        static let main = CGSize(width: 1_100, height: 720)
+        static let mainMinimum = CGSize(width: 880, height: 580)
         static let comparisonMinimum = CGSize(width: 560, height: 420)
-        /// The settings window: Clement's tabbed card layout, a little wider for the extra tabs.
-        static let settings = CGSize(width: 780, height: 580)
+        /// The settings window: a section list on the left, the section on the right.
+        static let settings = CGSize(width: 980, height: 720)
+        /// The main window's sidebar.
+        static let sidebar: CGFloat = 244
+        /// The settings window's section list.
+        static let settingsSidebar: CGFloat = 220
+        /// Room left at the top of a sidebar for the traffic lights (hidden title bar).
+        static let titleBarClearance: CGFloat = 46
+        /// Reading width of a meeting's notes and transcript.
+        static let readingWidth: CGFloat = 760
+    }
+
+    /// Tints for people (avatars, owner chips): soft fills of the palette, never decoration.
+    enum Tone {
+        static let all: [SwiftUI.Color] = [
+            SwiftUI.Color(hex: 0x0084FF), SwiftUI.Color(hex: 0x0EA5E9), SwiftUI.Color(hex: 0x10B981),
+            SwiftUI.Color(hex: 0xD97706), SwiftUI.Color(hex: 0x64748B),
+        ]
+        /// The user is always blue.
+        static let me = all[0]
+        static let neutral = all[4]
+        static let fillOpacity: Double = 0.14
     }
 
     /// The Aqua blue gradient: the orb, the "AI" badge and the primary action only.
@@ -226,8 +254,12 @@ extension DS {
     /// The floating capsule shown while dictating.
     enum HUD {
         /// A transparent canvas around the capsule, so its soft shadow is never clipped.
-        static let size = CGSize(width: 520, height: 100)
+        static let size = CGSize(width: 580, height: 110)
         static let capsule = CGSize(width: 430, height: 48)
+        /// The auto-learn offer is the one state that needs more room (two buttons).
+        static let offerWidth: CGFloat = 500
+        /// How long the offer stays on the capsule; it stays in the main window afterwards.
+        static let offerDuration: Duration = .seconds(10)
         /// Distance above the Dock (the bottom of the visible frame).
         static let bottomOffset: CGFloat = 96
         static let fade: TimeInterval = 0.15
@@ -241,7 +273,14 @@ extension DS {
     /// Sizes of the Notetaker's floating panels: the *Meeting detected* card, the
     /// recording indicator and the live transcript.
     enum MeetingPanel {
-        static let cardWidth: CGFloat = 340
+        static let cardWidth: CGFloat = 360
+        /// The expanded recording panel (mock-up 07, step 3).
+        static let panelWidth: CGFloat = 410
+        /// The compact pill's height.
+        static let pillHeight: CGFloat = 36
+        /// How many live lines the expanded panel shows.
+        static let liveLines = 6
+        static let countdownRing: CGFloat = 38
         static let recorderWidth: CGFloat = 300
         static let transcriptWidth: CGFloat = 420
         static let transcriptHeight: CGFloat = 480
@@ -260,9 +299,9 @@ extension DS {
 extension DS {
     /// The first-run window that walks through the permissions.
     enum Onboarding {
-        static let size = CGSize(width: 680, height: 460)
+        static let size = CGSize(width: 760, height: 520)
         /// The list of steps down the left side.
-        static let stepColumnWidth: CGFloat = 210
+        static let stepColumnWidth: CGFloat = 236
         /// How often the grants are re-read. There is no notification for any of them.
         static let poll: Duration = .seconds(1)
     }

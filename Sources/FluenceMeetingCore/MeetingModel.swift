@@ -241,6 +241,10 @@ public struct Meeting: Codable, Sendable, Identifiable {
 }
 
 /// What the meetings list needs, without decrypting every transcript.
+///
+/// The optional fields came with the FLU-12 list (app, recap line, audio kept, speakers):
+/// index entries written before them decode with `nil`, and are filled in the next time
+/// their meeting is saved.
 public struct MeetingSummary: Codable, Sendable, Identifiable, Hashable {
     public let id: UUID
     public var title: String
@@ -248,6 +252,13 @@ public struct MeetingSummary: Codable, Sendable, Identifiable, Hashable {
     public var duration: TimeInterval
     public var speakerNames: [String]
     public var hasNotes: Bool
+    /// Bundle ID of the meeting app, when known.
+    public var appBundleID: String?
+    /// The recap's first sentence, for the list row.
+    public var recapLine: String?
+    public var keepAudio: Bool?
+    /// The speakers themselves, so the row can tell named from numbered voices.
+    public var speakers: [Speaker]?
 
     public init(_ meeting: Meeting) {
         id = meeting.id
@@ -256,5 +267,56 @@ public struct MeetingSummary: Codable, Sendable, Identifiable, Hashable {
         duration = meeting.duration
         speakerNames = meeting.speakers.map(\.displayName)
         hasNotes = meeting.notes != nil
+        appBundleID = meeting.appBundleID
+        recapLine = meeting.notes.map { Self.recapLine(from: $0.recap) }
+        keepAudio = meeting.keepAudio
+        speakers = meeting.speakers
+    }
+
+    /// The first sentence of a recap, at most `limit` characters (cut on a word, with "…").
+    public static func recapLine(from recap: String, limit: Int = 140) -> String {
+        let text = recap.split(whereSeparator: \.isNewline).first.map(String.init)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        var sentence = text
+        if let end = text.firstIndex(where: { ".!?".contains($0) }) {
+            sentence = String(text[...end])
+        }
+        guard sentence.count > limit else { return sentence }
+        let cut = sentence.prefix(limit)
+        let word = cut.lastIndex(of: " ").map { cut[..<$0] } ?? cut
+        return word.trimmingCharacters(in: .whitespaces.union(.punctuationCharacters)) + "…"
+    }
+}
+
+// MARK: - French labels (FLU-12)
+
+extension Speaker {
+    /// What the French UI prints: the name if known, otherwise "Vous", "Les autres" or
+    /// "Intervenant 2".
+    public var frenchDisplayName: String {
+        if let name, !name.isEmpty { return name }
+        return SpeakerLabel.french(displayName: displayName)
+    }
+
+    /// A remote voice nobody has named yet.
+    public var isUnnamed: Bool {
+        !isMe && id != Speaker.othersID && (name ?? "").isEmpty
+    }
+}
+
+public enum SpeakerLabel {
+    /// Translates `Speaker.displayName`'s English placeholders, which older index entries
+    /// store as plain strings; a real name passes through.
+    public static func french(displayName: String) -> String {
+        switch displayName {
+        case "You": return "Vous"
+        case "Others": return "Les autres"
+        default:
+            if displayName.hasPrefix("Speaker "), displayName.dropFirst(8).allSatisfy(\.isNumber),
+               displayName.count > 8 {
+                return "Intervenant " + displayName.dropFirst(8)
+            }
+            return displayName
+        }
     }
 }

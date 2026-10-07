@@ -203,3 +203,50 @@ struct MeetingModelTests {
         #expect(decoded.transcriptText == "[00:01] Speaker 1: Hi")
     }
 }
+
+/// FLU-12: the list row's summary fields and the French speaker labels.
+struct MeetingSummaryFLU12Tests {
+    @Test("the summary carries app, recap line, audio and speakers")
+    func summaryFields() {
+        var meeting = Meeting(title: "Point", appBundleID: "us.zoom.xos", startedAt: Date(timeIntervalSince1970: 0), keepAudio: true)
+        meeting.speakers = [.me(), Speaker(id: "S1", name: "Camille", nameSource: .calendar), Speaker(id: "S2")]
+        meeting.notes = MeetingNotes(
+            recap: "Lancement fixé au 3 novembre. Le tutoriel passe à trois écrans.",
+            nextSteps: [], decisions: [], openQuestions: [], generatedAt: Date(timeIntervalSince1970: 0), model: "m"
+        )
+        let summary = MeetingSummary(meeting)
+        #expect(summary.appBundleID == "us.zoom.xos")
+        #expect(summary.recapLine == "Lancement fixé au 3 novembre.")
+        #expect(summary.keepAudio == true)
+        #expect(summary.speakers?.count == 3)
+    }
+
+    @Test("an index written before FLU-12 still decodes")
+    func legacyIndexDecodes() throws {
+        let json = #"[{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","title":"T","startedAt":0,"duration":60,"speakerNames":["You"],"hasNotes":false}]"#
+        let summaries = try JSONDecoder().decode([MeetingSummary].self, from: Data(json.utf8))
+        #expect(summaries.first?.appBundleID == nil)
+        #expect(summaries.first?.speakers == nil)
+    }
+
+    @Test("a long recap is cut on a word")
+    func recapLineIsBounded() {
+        let long = String(repeating: "mot ", count: 60)
+        let line = MeetingSummary.recapLine(from: long, limit: 20)
+        #expect(line.hasSuffix("…"))
+        #expect(line.count <= 21)
+        #expect(MeetingSummary.recapLine(from: "") == "")
+    }
+
+    @Test("placeholders are French; names pass through")
+    func frenchLabels() {
+        #expect(Speaker.me().frenchDisplayName == "Vous")
+        #expect(Speaker.others.frenchDisplayName == "Les autres")
+        #expect(Speaker(id: "S2").frenchDisplayName == "Intervenant 2")
+        #expect(Speaker(id: "S2", name: "Sophie").frenchDisplayName == "Sophie")
+        #expect(Speaker(id: "S2").isUnnamed)
+        #expect(!Speaker.me().isUnnamed)
+        #expect(SpeakerLabel.french(displayName: "Speaker 3") == "Intervenant 3")
+        #expect(SpeakerLabel.french(displayName: "Speakers") == "Speakers")
+    }
+}

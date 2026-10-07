@@ -120,29 +120,40 @@ down once already.
 ## Design system
 
 `Sources/Fluence/UI/DesignSystem.swift` holds the tokens (colours, type, spacing, radii,
-shadows, motion, window and panel sizes) and `UI/Equipment.swift` the shared components
-(`BrushedPanel` card, `Well`, `TransportKey` pill button, `Silkscreen` label, `Lamp` status
-dot, `VUMeter` level bars). New screens use them; prefer adding a token to inlining a value.
-The component names are historical — they no longer draw anything field-recorder-like.
+shadows, motion, window and panel sizes), `UI/Components.swift` the FLU-12 building blocks
+(sidebar items, pills, chips, avatars, section cards, settings rows, search well, empty
+state) and `UI/Equipment.swift` the older ones (`BrushedPanel`, `Well`, `TransportKey`,
+`Silkscreen`, `Lamp`, `VUMeter`). New screens use them; prefer adding a token to inlining a
+value. The Equipment names are historical — they no longer draw anything field-recorder-like.
 
-The art direction is **Clement's own** (FLU-11): pure, understated native macOS
-craftsmanship — Things 3, Apple Notes — in French. Light paper-mist canvas (`chassis`),
-rounded white cards (`panel`, radius 12–16, continuous corners) with a hairline `seam`
-border and a soft shadow, a deep slate-blue dark mode. Pill-shaped tab bars and buttons, SF
-symbols in the accent colour, rounded monospaced digits for timings.
+The art direction is **Clement's own** (FLU-11, then FLU-12 — see `docs/DESIGN-FLU-12.md`):
+pure, understated native macOS craftsmanship — Things 3, Apple Notes — in French. Light
+paper-mist canvas (`chassis`), rounded white cards (`panel`, radius 12–16, continuous corners)
+with a hairline `seam` border and a soft shadow, a deep slate-blue dark mode. Pill-shaped tab
+bars and buttons, SF symbols in the accent colour, rounded monospaced digits for timings.
 
+- **Navigation is a sidebar** (FLU-12 decision 1): the main window holds dictation
+  (Transcriptions, Dictionnaire, Snippets, Styles) and meetings (Toutes les réunions, À venir);
+  there is no separate meetings window. `MainNavigation.shared.show(_:openWindow:)` opens it on
+  a section. Settings use the same sidebar layout, six sections.
 - **One accent: electric aqua blue** (`DS.Color.accent`, #0084FF / #38BDF8 in dark), the colour
-  of the Aqua orb (`AquaOrbView`, `Resources/AquaOrb.png`) that is the app's identity — in the
-  header, the settings and the HUD.
+  of the Aqua orb. The small brand mark is always the **drawn** `AquaOrbView` (decision 4);
+  `Resources/AquaOrb.png` is not shipped and the Dock icon is unchanged.
 - **The blue→cyan gradient is reserved for the Aqua identity**: the orb, the "AI" badge and the
   primary *Dicter* button. Nothing else gets a gradient, and there are no neon glows or
   purple/pink "AI" gradients.
-- **Red marks a recording you can stop** (*Arrêter*, the recording dot) and errors; amber means
-  "needs attention" (permission banners), green means "granted / done". None of them is used
-  as decoration.
+- **Red means a meeting is recording** (decision 3): `DS.Color.meetingRecord` for the meeting
+  dot, pill, banner and its *Arrêter*; `DS.Color.destructive` for delete actions. A dictation
+  is never red — it stays blue. Amber means "needs attention" (permission banners), green
+  "granted / done". None of them is used as decoration.
 - The HUD is a floating capsule with the orb, light level bars, the live text, a language pill
-  and a finish button. It is excluded from screen sharing and never takes focus.
-- UI text is **French**; engine names, shortcuts and technical terms stay as they are.
+  and a finish button; the meeting surfaces are a detection card, a pill and an unfolded panel
+  (decision 2). All are excluded from screen sharing and never take focus.
+- UI text is **French**; engine names and technical terms stay as they are. Numbers, durations
+  and dates go through `FrenchFormat` / `FrenchDates` (FluenceCore, tested: "0,62 s",
+  "1 h 05", "Aujourd'hui, 10:00"), shortcuts through `ShortcutLabel` (from the configured
+  shortcut, never hard-coded), and stored English speaker labels are translated at display
+  time (`SpeakerLabel.french`).
 
 ---
 

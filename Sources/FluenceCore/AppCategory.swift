@@ -140,7 +140,7 @@ public enum WritingStyle: String, CaseIterable, Sendable, Codable {
 
     public var displayName: String {
         switch self {
-        case .formal: "Soutenu"
+        case .formal: "Formel"
         case .casual: "Décontracté"
         case .veryCasual: "Très décontracté"
         }

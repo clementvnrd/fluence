@@ -1,12 +1,13 @@
-import MurmurDictionary
 import AppKit
+import FluenceCore
+import MurmurDictionary
 import SwiftUI
 
-/// The dictionary: add, edit, delete, search.
+/// Dictionnaire (FLU-12): the words Fluence must write right — add, edit, delete, search.
 ///
 /// Both entry kinds live in one list rather than separate tabs — they're two shapes of the
 /// same idea and you want to see everything you've taught it at once. The kind is carried by
-/// a silkscreen tag on each row.
+/// a tag on each row.
 struct DictionaryPanel: View {
     @State private var store = DictionaryStore.shared
     @State private var query = ""
@@ -17,22 +18,39 @@ struct DictionaryPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                SearchField(text: $query, placeholder: "Rechercher dans le dictionnaire…")
-                actionButtons
-                    .padding(.trailing, DS.Space.base)
-                    .background(DS.Color.deck)
+            HStack(alignment: .center, spacing: DS.Space.snug) {
+                ContentTitle(
+                    title: "Dictionnaire",
+                    subtitle: FrenchFormat.count(store.entries.count, "entrée")
+                        + " · les noms et les termes que Fluence doit écrire correctement"
+                )
+                Spacer(minLength: DS.Space.roomy)
+                CapButton(title: "Lexique Tech", systemImage: "sparkles", isEngaged: true) {
+                    store.importTechLexicon()
+                }
+                .help("Importer les termes techniques, Git et anglicismes français")
+                CapButton(title: "Scanner un projet…", systemImage: "folder.badge.plus") { scanFolder() }
+                    .help("Scanner un dossier de code pour en extraire le vocabulaire")
+                CapButton(title: "Ajouter", systemImage: "plus") { isAdding = true }
+                    .keyboardShortcut("n", modifiers: .command)
             }
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
-            }
+            .padding(.horizontal, DS.Space.panel)
+            .padding(.top, 28)
+            .padding(.bottom, DS.Space.roomy)
+
+            SearchWell(text: $query, placeholder: "Rechercher dans le dictionnaire…")
+                .padding(.horizontal, DS.Space.panel)
+                .padding(.bottom, DS.Space.base)
 
             if entries.isEmpty {
-                EmptyPanel(
-                    label: store.entries.isEmpty ? "Dictionnaire vide" : "Aucun résultat",
+                EmptyState(
+                    systemImage: store.entries.isEmpty ? "book.closed" : "magnifyingglass",
+                    title: store.entries.isEmpty ? "Dictionnaire vide" : "Aucun résultat",
                     detail: store.entries.isEmpty
-                        ? "Ajoutez les mots que Fluence écrit souvent mal."
-                        : "Essayez une autre recherche."
+                        ? "Ajoutez les mots que Fluence écrit mal : un nom, une marque, un terme technique."
+                        : "Essayez une autre recherche.",
+                    actionTitle: store.entries.isEmpty ? "Ajouter un mot" : nil,
+                    action: store.entries.isEmpty ? { isAdding = true } : nil
                 )
             } else {
                 ScrollView {
@@ -50,82 +68,28 @@ struct DictionaryPanel: View {
                             )
                         }
                     }
-                    .padding(DS.Space.base)
+                    .padding(.horizontal, DS.Space.panel)
+                    .padding(.bottom, DS.Space.roomy)
                 }
             }
 
-            footer
+            // The file path is shown because the dictionary is meant to be editable outside
+            // the UI — which is only true if you can find it.
+            ListFooter(text: FrenchFormat.count(store.entries.count, "entrée")) {
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
+                } label: {
+                    Text("Afficher dictionary.txt dans le Finder").font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary)
+                }
+                .buttonStyle(.plain)
+                .help(DictionaryStore.fileURL.path)
+            }
         }
         .sheet(isPresented: $isAdding) {
             DictionaryEditor(entry: nil) { store.add($0) }
         }
         .sheet(item: $editing) { entry in
             DictionaryEditor(entry: entry) { store.update($0) }
-        }
-    }
-
-    private var actionButtons: some View {
-        HStack(spacing: 8) {
-            Button {
-                store.importTechLexicon()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 10))
-                    Text("Lexique Tech")
-                        .font(DS.Font.caption)
-                }
-                .foregroundStyle(DS.Color.accent)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(DS.Color.selection, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(DS.Color.selectionEdge, lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            .help("Importer les termes techniques, Git et anglicismes français")
-
-            Button {
-                scanFolder()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 10))
-                    Text("Scanner projet…")
-                        .font(DS.Font.caption)
-                }
-                .foregroundStyle(DS.Color.ink)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(DS.Color.seam, lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            .help("Scanner un projet pour extraire automatiquement son vocabulaire")
-
-            Button { isAdding = true } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .bold))
-                    Text("Ajouter")
-                        .font(DS.Font.label)
-                }
-                .foregroundStyle(DS.Color.ink)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(DS.Color.cap, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(DS.Color.seam, lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut("n", modifiers: .command)
         }
     }
 
@@ -139,28 +103,6 @@ struct DictionaryPanel: View {
             Task {
                 _ = await AutoLearningEngine.shared.scanWorkspaceForVocabulary(at: url)
             }
-        }
-    }
-
-    /// The file path is shown because the spec asks for the dictionary to be editable outside
-    /// the UI — which is only true if you can find it.
-    private var footer: some View {
-        HStack(spacing: DS.Space.snug) {
-            Silkscreen(text: "\(store.entries.count) entrée\(store.entries.count > 1 ? "s" : "")", color: DS.Color.inkOnDeck.opacity(0.5))
-            Spacer()
-            Button {
-                NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
-            } label: {
-                Silkscreen(text: "Afficher dictionary.txt dans le Finder", color: DS.Color.inkOnDeck.opacity(0.5))
-            }
-            .buttonStyle(.plain)
-            .help(DictionaryStore.fileURL.path)
-        }
-        .padding(.horizontal, DS.Space.base)
-        .padding(.vertical, DS.Space.snug)
-        .background(DS.Color.deck)
-        .overlay(alignment: .top) {
-            Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
         }
     }
 }
@@ -208,16 +150,19 @@ private struct DictionaryRow: View {
         }
         .opacity(entry.isEnabled ? 1 : 0.45)
         .padding(.horizontal, DS.Space.base)
-        .padding(.vertical, DS.Space.snug)
-        .background(isHovering ? DS.Color.hover : DS.Color.deck, in: .rect(cornerRadius: DS.Radius.chip))
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                .fill(isHovering ? DS.Color.hover : DS.Color.panel)
+                .overlay(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous).strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline))
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2, perform: { onEdit() })
         .onHover { isHovering = $0 }
     }
 
     private func rowButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Silkscreen(text: title, color: DS.Color.inkOnDeck.opacity(0.6))
-        }
-        .buttonStyle(.plain)
+        ChipButton(title: title, action: action)
     }
 }
 
@@ -278,7 +223,7 @@ private struct DictionaryEditor: View {
                 HStack(alignment: .top, spacing: DS.Space.snug) {
                     Lamp(color: DS.Color.pilot, isLit: true, size: 6)
                         .padding(.top, 3)
-                    Text(warning.message)
+                    Text(warning.french)
                         .font(DS.Font.label)
                         .foregroundStyle(DS.Color.ink)
                         .fixedSize(horizontal: false, vertical: true)
@@ -340,6 +285,22 @@ private struct DictionaryEditor: View {
                     RoundedRectangle(cornerRadius: DS.Radius.chip)
                         .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
                 )
+        }
+    }
+}
+
+extension DictionaryWarning {
+    /// The warning in French; MurmurDictionary's `message` is the English (FLU-12).
+    var french: String {
+        let trigger = FrenchFormat.quoted(self.trigger)
+        switch kind {
+        case .ordinaryWord:
+            return "\(trigger) est un mot courant (en anglais). Chacune de ses occurrences sera réécrite, "
+                + "pas seulement celles que vous visez. Préférez une expression plus longue."
+        case .veryShort:
+            return "\(trigger) est très court et se retrouvera souvent. Préférez une expression plus longue."
+        case .rewritesToItself:
+            return "Cette entrée remplace \(trigger) par lui-même : elle ne changera jamais rien."
         }
     }
 }

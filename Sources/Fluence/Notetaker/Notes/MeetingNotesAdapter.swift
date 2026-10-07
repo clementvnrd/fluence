@@ -49,16 +49,29 @@ extension Meeting {
     }
 
     /// The whole meeting as a Markdown document (title, facts, notes, my notes, transcript).
+    ///
+    /// FLU-12: in a French document, "You" / "Speaker 2" read "Vous" / "Intervenant 2" —
+    /// localised here, for display; the stored names and the notes prompt are unchanged.
     func markdown(timeZone: TimeZone = .current) -> String {
-        MarkdownRenderer.render(MarkdownMeeting(
+        let language = notesLanguage
+        let label: (String) -> String = { language == .french ? SpeakerLabel.french(displayName: $0) : $0 }
+        var draft = notes?.draft
+        if let current = draft {
+            draft?.nextSteps = current.nextSteps.map { step in
+                var step = step
+                step.owner = step.owner.map(label)
+                return step
+            }
+        }
+        return MarkdownRenderer.render(MarkdownMeeting(
             title: title,
             startedAt: startedAt,
             duration: duration,
-            participants: participantNames,
-            language: notesLanguage,
-            notes: notes?.draft,
+            participants: participantNames.map(label),
+            language: language,
+            notes: draft,
             userNotes: userNotes,
-            transcript: notesLines,
+            transcript: notesLines.map { TranscriptLine(start: $0.start, speaker: label($0.speaker), text: $0.text) },
             timeZone: timeZone
         ))
     }
@@ -91,6 +104,13 @@ extension Meeting {
 }
 
 extension MeetingNotes {
+    /// Who wrote the notes, for the French UI. `model` keeps the stored English name.
+    var modelDisplayName: String {
+        model == NotesEngine.modelName || model.hasPrefix("Apple Foundation Models")
+            ? "le modèle d'Apple Intelligence, sur l'appareil"
+            : model
+    }
+
     init(_ draft: FinalNotesDraft, generatedAt: Date = Date(), model: String = NotesEngine.modelName) {
         self.init(
             recap: draft.recap,
