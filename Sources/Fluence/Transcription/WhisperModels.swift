@@ -1,3 +1,4 @@
+import FluenceCore
 import Foundation
 import WhisperKit
 import os
@@ -89,28 +90,43 @@ actor WhisperModels {
             }
         }
 
-        let options = DecodingOptions(
-            verbose: false,
-            task: .transcribe,
-            language: language,
-            temperature: 0.0,
-            temperatureIncrementOnFallback: 0.2,
-            temperatureFallbackCount: 2,
-            usePrefillPrompt: true,
-            detectLanguage: language == nil,
-            withoutTimestamps: true,
-            promptTokens: promptTokens,
-            noSpeechThreshold: 0.8
-        )
+        // FLU-20: the full fallback ladder (a looping window is retried hotter, up to 1.0),
+        // and long audio cut at pauses so no window runs out of tokens mid-sentence.
+        func options(prompt promptTokens: [Int]?) -> DecodingOptions {
+            DecodingOptions(
+                verbose: false,
+                task: .transcribe,
+                language: language,
+                temperature: 0.0,
+                temperatureIncrementOnFallback: 0.2,
+                temperatureFallbackCount: 5,
+                usePrefillPrompt: true,
+                detectLanguage: language == nil,
+                withoutTimestamps: true,
+                promptTokens: promptTokens,
+                compressionRatioThreshold: 2.4,
+                logProbThreshold: -1.0,
+                noSpeechThreshold: 0.8,
+                chunkingStrategy: .vad
+            )
+        }
 
-        let results = await kit.transcribe(audioArrays: [samples], decodeOptions: options)
+        func run(_ options: DecodingOptions) async -> String {
+            let results = await kit.transcribe(audioArrays: [samples], decodeOptions: options)
+            return results.first??
+                .compactMap { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+
+        var text = await run(options(prompt: promptTokens))
+        // Still looping: the prompt is the usual cause. Once more without it.
+        if promptTokens != nil, TranscriptHealth.isDegenerate(text) {
+            Log.speech.error("WhisperKit: output repeated itself with a prompt — retrying without it")
+            text = await run(options(prompt: nil))
+        }
         let elapsed = Date().timeIntervalSince(started)
         let audioSeconds = Double(samples.count) / 16_000
-
-        let text = results.first??
-            .compactMap { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         Log.speech.info("""
             WhisperKit (\(language ?? "auto", privacy: .public)): \(audioSeconds, format: .fixed(precision: 1))s audio in \

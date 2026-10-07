@@ -448,6 +448,14 @@ final class DictationController {
             return
         }
 
+        // FLU-20: an engine stuck in a loop ("Node.js, Node.js, …") is not what was said.
+        // Typing it into the user's document is worse than typing nothing.
+        if TranscriptHealth.isDegenerate(raw) {
+            Log.speech.error("dictation dropped — the engine repeated itself (\(raw.count, privacy: .public) characters)")
+            fail("La transcription a tourné en boucle et n'a pas été collée. Réessayez ; si ça se répète, essayez un autre moteur dans Réglages › Transcription.")
+            return
+        }
+
         // MARK: FLU-5 input — Command Mode: the words were an instruction, not text to type.
         if isCommand {
             await runCommand(session, instruction: raw)
