@@ -221,19 +221,19 @@ public sealed class DictationEngine : IAsyncDisposable
         var entries = _dictionary();
         var bias = DictionaryCorrector.BiasPhrases(entries);
 
-        var pieces = AudioSegmenter.Split(audio);
-        var transcripts = new List<string>(pieces.Count);
+        var pieces = AudioSegmenter.SplitWithSeams(audio);
+        var transcripts = new List<(string, bool)>(pieces.Count);
 
         foreach (var piece in pieces)
         {
             var text = await _transcriber
-                .TranscribeAsync(piece, bias, CancellationToken.None)
+                .TranscribeAsync(piece.Samples, bias, CancellationToken.None)
                 .ConfigureAwait(false);
 
-            if (!string.IsNullOrWhiteSpace(text)) transcripts.Add(text.Trim());
+            transcripts.Add((text ?? string.Empty, piece.OverlapsPrevious));
         }
 
-        var raw = string.Join(' ', transcripts);
+        var raw = TranscriptJoiner.Join(transcripts);
         if (string.IsNullOrWhiteSpace(raw)) return;
 
         // The dictionary runs last and unconditionally. Biasing only raises the odds of the

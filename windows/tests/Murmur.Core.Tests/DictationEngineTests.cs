@@ -204,6 +204,47 @@ public sealed class AudioSegmenterTests
     }
 
     [Fact]
+    public void A_short_dip_inside_a_word_does_not_attract_the_cut()
+    {
+        // Loud speech-like signal with a 40 ms gap (a plosive's closure) near the ideal cut,
+        // and a genuine 400 ms pause earlier in the search window. A 20 ms window would pick
+        // the plosive; a 200 ms window cannot fit inside it.
+        var total = AudioSegmenter.MaxSegmentSeconds * 2 * AudioChunk.SampleRate;
+        var samples = new float[total];
+        for (var i = 0; i < total; i++) samples[i] = 0.4f * MathF.Sin(i * 0.05f);
+
+        var plosive = (AudioSegmenter.MaxSegmentSeconds - 1) * AudioChunk.SampleRate;
+        Array.Clear(samples, plosive, AudioChunk.SampleRate * 40 / 1000);
+
+        var pause = (AudioSegmenter.MaxSegmentSeconds - 5) * AudioChunk.SampleRate;
+        Array.Clear(samples, pause, AudioChunk.SampleRate * 400 / 1000);
+
+        var cut = AudioSegmenter.SplitWithSeams(samples)[0].Samples.Length;
+
+        cut.ShouldBeGreaterThanOrEqualTo(pause);
+        cut.ShouldBeLessThanOrEqualTo(pause + (AudioChunk.SampleRate * 400 / 1000));
+    }
+
+    [Fact]
+    public void A_cut_in_a_pause_does_not_overlap_and_a_cut_through_speech_does()
+    {
+        var withPause = new float[AudioSegmenter.MaxSegmentSeconds * 2 * AudioChunk.SampleRate];
+        AudioSegmenter.SplitWithSeams(withPause).Skip(1).ShouldAllBe(s => !s.OverlapsPrevious);
+
+        var continuous = new float[AudioSegmenter.MaxSegmentSeconds * 2 * AudioChunk.SampleRate];
+        for (var i = 0; i < continuous.Length; i++) continuous[i] = 0.4f * MathF.Sin(i * 0.05f);
+
+        var pieces = AudioSegmenter.SplitWithSeams(continuous);
+        pieces.Count.ShouldBeGreaterThan(1);
+        pieces.Skip(1).ShouldAllBe(s => s.OverlapsPrevious);
+        pieces.Sum(p => p.Samples.Length).ShouldBeGreaterThan(continuous.Length, "overlap re-hears the seam");
+        foreach (var piece in pieces)
+        {
+            piece.Samples.Length.ShouldBeLessThanOrEqualTo(AudioSegmenter.MaxSegmentSeconds * AudioChunk.SampleRate);
+        }
+    }
+
+    [Fact]
     public void A_cut_lands_in_the_quiet_part_rather_than_mid_word()
     {
         // Loud throughout, with one silent second placed inside the search window that
@@ -220,5 +261,46 @@ public sealed class AudioSegmenterTests
 
         firstCut.ShouldBeGreaterThanOrEqualTo(quietStart);
         firstCut.ShouldBeLessThanOrEqualTo(quietStart + AudioChunk.SampleRate);
+    }
+}
+
+/// <summary>Joining segment texts at the seams.</summary>
+public sealed class TranscriptJoinerTests
+{
+    [Fact]
+    public void Overlapped_words_appear_once()
+    {
+        TranscriptJoiner.Join([("we shipped the new", false), ("the new release today", true)])
+            .ShouldBe("we shipped the new release today");
+    }
+
+    [Fact]
+    public void Repeats_are_only_removed_where_the_audio_overlapped()
+    {
+        TranscriptJoiner.Join([("I said that", false), ("that is fine", false)])
+            .ShouldBe("I said that that is fine");
+    }
+
+    [Fact]
+    public void Deduplication_ignores_case_and_punctuation()
+    {
+        TranscriptJoiner.Join([("send it to Alice.", true), ("Alice, then Bob", true)])
+            .ShouldBe("send it to Alice. then Bob");
+    }
+
+    [Fact]
+    public void Punctuation_is_never_doubled_at_a_seam()
+    {
+        TranscriptJoiner.Join([("first part.", false), (". second part", false)])
+            .ShouldBe("first part. second part");
+        TranscriptJoiner.Join([("first,", false), ("…and then", false)])
+            .ShouldBe("first, and then");
+    }
+
+    [Fact]
+    public void Empty_pieces_leave_no_stray_spaces()
+    {
+        TranscriptJoiner.Join([("", false), ("  hello ", false), ("   ", true), ("world", false)])
+            .ShouldBe("hello world");
     }
 }
