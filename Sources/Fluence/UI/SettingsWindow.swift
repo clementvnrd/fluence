@@ -3,463 +3,265 @@ import Carbon.HIToolbox
 import FluenceCore
 import SwiftUI
 
-/// Settings window (Fluence 2026 Edition):
-/// Ultra-clean, tabbed macOS settings inspired by Apple & Aqua Voice.
-/// Stripped of all text walls, cognitive overload, and clutter.
-///
-/// FLU-11: Clement's three tabs as he made them, plus three for what main shipped since —
-/// Texte (cleanup levels, styles, languages, dictionary helpers), Raccourcis, Réunions
-/// (Notetaker) — and Confidentialité (history retention, recording limit) beside the
-/// permissions.
+/// Réglages (FLU-12, mock-ups 08 and 09): a section list on the left, the section on the
+/// right. Every setting of the earlier tabbed window is here — see
+/// `docs/DESIGN-FLU-12.md` for the map from old tab to new section.
 struct SettingsWindow: View {
     @Bindable var controller: DictationController
-    @State private var settings = Settings.shared
-    @State private var selectedTab: SettingsTab = .general
-    @State private var isRecordingPTT = false
-    @State private var isRecordingCommand = false
-    @State private var recordedModifiersString = ""
-    @State private var localMonitor: Any?
-    @State private var availableAudioDevices: [AudioInputDevice] = []
-    @State private var hasAccessibility = Permissions.hasAccessibility
-    @State private var hasMicrophone = Permissions.hasMicrophone
-
-    enum SettingsTab: String, CaseIterable, Identifiable {
-        case general = "Général"
-        case intelligence = "IA & Formatage"
-        case text = "Texte"
-        case shortcuts = "Raccourcis"
-        case meetings = "Réunions"
-        case permissions = "Confidentialité"
-
-        var id: String { rawValue }
-        var icon: String {
-            switch self {
-            case .general: "slider.horizontal.3"
-            case .intelligence: "sparkles"
-            case .text: "textformat"
-            case .shortcuts: "keyboard"
-            case .meetings: "person.2.wave.2"
-            case .permissions: "lock.shield"
-            }
-        }
-    }
+    @State private var selection: SettingsSection = .dictation
 
     var body: some View {
-        ZStack {
-            DS.Color.chassis.ignoresSafeArea()
-
-            VStack(spacing: 16) {
-                // Header with Aqua Voice Orb & Tab Navigation
-                headerView
-
-                // Tab Content
-                ScrollView {
-                    Group {
-                        switch selectedTab {
-                        case .general:
-                            generalTab
-                        case .intelligence:
-                            intelligenceTab
-                        case .text:
-                            TextSettingsSection()
-                        case .shortcuts:
-                            ShortcutsSettingsSection(controller: controller)
-                        case .meetings:
-                            MeetingSettingsSection(model: .shared)
-                        case .permissions:
-                            permissionsTab
-                        }
-                    }
-                    .transition(.opacity)
-                    .padding(.bottom, DS.Space.snug)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Color.clear.frame(height: DS.Window.titleBarClearance)
+                HStack(spacing: 9) {
+                    AquaOrbView(size: 22)
+                    Text("Réglages").font(.system(size: 16, weight: .bold)).foregroundStyle(DS.Color.ink)
                 }
-                .scrollIndicators(.automatic)
-            }
-            .padding(20)
-        }
-        .frame(width: DS.Window.settings.width, height: DS.Window.settings.height)
-        .onAppear {
-            refreshAudioDevices()
-            hasAccessibility = Permissions.hasAccessibility
-            hasMicrophone = Permissions.hasMicrophone
-        }
-        .onDisappear {
-            stopRecordingKey()
-        }
-    }
-
-    // MARK: - Header & Tab Bar
-
-    private var headerView: some View {
-        HStack {
-            HStack(spacing: 9) {
-                AquaOrbView(size: 22)
-                Text("Réglages")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(DS.Color.ink)
-            }
-
-            Spacer()
-
-            // Modern Pill Tab Switcher
-            HStack(spacing: 3) {
-                ForEach(SettingsTab.allCases) { tab in
-                    Button {
-                        withAnimation(.spring(response: 0.22, dampingFraction: 0.8)) {
-                            selectedTab = tab
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: tab.icon)
-                                .font(.system(size: 10, weight: .medium))
-                            Text(tab.rawValue)
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 5)
-                        .foregroundStyle(selectedTab == tab ? DS.Color.ink : DS.Color.inkSecondary)
-                        .background {
-                            if selectedTab == tab {
-                                Capsule()
-                                    .fill(DS.Color.panel)
-                                    .shadow(color: Color.black.opacity(0.06), radius: 2, y: 1)
-                            }
-                        }
-                        .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(3)
-            .background(DS.Color.well, in: Capsule())
-        }
-        .padding(.bottom, 2)
-    }
-
-    // MARK: - Tab 1: Général
-
-    private var generalTab: some View {
-        VStack(spacing: 12) {
-            // Hotkey Card
-            sectionCard {
-                settingsRow(icon: "keyboard", title: "Raccourci Push-to-Talk") {
-                    shortcutControl(isPTT: true)
-                }
-            }
-
-            // Audio & Language Card
-            sectionCard {
-                settingsRow(icon: currentDeviceIcon, title: "Microphone") {
-                    microphoneMenu
-                }
-
-                rowDivider
-
-                settingsRow(
-                    icon: "globe",
-                    title: "Langue de dictée",
-                    subtitle: settings.engine == .whisper ? "Français, Anglais ou Détection automatique" : nil
-                ) {
-                    // Auto: Whisper and Parakeet detect the language; Apple listens in the
-                    // Mac's language. The other 23 languages are in the Texte tab.
-                    Picker("", selection: $settings.dictationLanguage) {
-                        Text("Français").tag(DictationLanguage.french)
-                        Text("English").tag(DictationLanguage.english)
-                        Text("Auto").tag(DictationLanguage.auto)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 230)
-                    .onChange(of: settings.dictationLanguage) { _, lang in
-                        Task.detached(priority: .utility) {
-                            await AppleSpeechEngine.prewarm(locale: lang.locale)
-                        }
+                .padding(.leading, 10)
+                .padding(.bottom, DS.Space.wide)
+                ForEach(SettingsSection.allCases) { section in
+                    SidebarItem(systemImage: section.symbol, title: section.title, isSelected: selection == section) {
+                        selection = section
                     }
                 }
-
-                rowDivider
-
-                settingsRow(
-                    icon: "arrow.triangle.swap",
-                    title: "Bascule rapide de langue",
-                    subtitle: settings.engine == .whisper ? "Français ⇄ English ⇄ Auto (⌥L)" : "Français ⇄ English (⌥L)"
-                ) {
-                    HStack(spacing: 6) {
-                        Text("⌥L")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(DS.Color.accent)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .strokeBorder(DS.Color.seam, lineWidth: 1)
-                            )
-                        Button(settings.dictationLanguage.displayName + " actif") {
-                            settings.toggleLanguage()
-                        }
-                        .font(.system(size: 11, weight: .medium))
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                }
-
-                rowDivider
-
-                settingsRow(icon: "waveform", title: "Moteur vocal") {
-                    Picker("", selection: $settings.engine) {
-                        Text("Apple").tag(SpeechEngineChoice.apple)
-                        Text("Whisper").tag(SpeechEngineChoice.whisper)
-                        Text("Parakeet").tag(SpeechEngineChoice.parakeet)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 220)
-                }
-
-                if settings.engine == .whisper {
-                    rowDivider
-
-                    settingsRow(
-                        icon: "cpu",
-                        title: "Modèle Whisper",
-                        subtitle: WhisperModels.isDownloaded(variant: settings.whisperModel) ? "Installé sur le disque ✓" : "Téléchargement au 1er usage"
-                    ) {
-                        Picker("", selection: $settings.whisperModel) {
-                            ForEach(WhisperModels.availableVariants) { v in
-                                Text(v.displayName).tag(v.id)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(width: 200)
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Tab 2: Intelligence & Formatage
-
-    private var intelligenceTab: some View {
-        VStack(spacing: 12) {
-            // Clean Text Toggles
-            sectionCard {
-                settingsRow(
-                    icon: "sparkles",
-                    title: "Nettoyage IA local (LLM Apple Intelligence)",
-                    subtitle: "Recommandé pour Apple Speech. Désactivé sur Whisper pour garantir une latence ultra-faible (< 0.8s)."
-                ) {
-                    Toggle("", isOn: $settings.smartCleanup)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                        .disabled(!FoundationModelFormatter.isAvailable)
-                }
-
-                if settings.engine == .whisper {
-                    rowDivider
-
-                    settingsRow(
-                        icon: "bolt",
-                        title: "Post-traitement LLM sur Whisper",
-                        subtitle: "Whisper ponctue déjà nativement. Activer ce LLM ajoute ~3.5s de délai."
-                    ) {
-                        Toggle("", isOn: $settings.smartCleanupOnWhisper)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                            .disabled(!FoundationModelFormatter.isAvailable)
-                    }
-                }
-
-                rowDivider
-
-                settingsRow(
-                    icon: "scissors",
-                    title: "Suppression des bégaiements & répétitions",
-                    subtitle: "Élimine les 'euh', bégaiements et faux départs"
-                ) {
-                    Toggle("", isOn: $settings.cleanupEnabled)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                }
-
-                rowDivider
-
-                settingsRow(icon: "chevron.left.forwardslash.chevron.right", title: "Formatage code & terminaux") {
-                    Toggle("", isOn: $settings.appAwareStylesEnabled)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                }
-
-                rowDivider
-
-                settingsRow(icon: "text.badge.plus", title: "Expansion des snippets vocaux") {
-                    Toggle("", isOn: $settings.snippetsEnabled)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                }
-            }
-
-            // Command Mode Card
-            sectionCard {
-                settingsRow(
-                    icon: "wand.and.stars",
-                    title: "Mode Commande (Réécriture IA)",
-                    subtitle: FoundationModelFormatter.isAvailable ? nil : "Nécessite Apple Intelligence sur ce Mac"
-                ) {
-                    Toggle("", isOn: $settings.commandModeEnabled)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                        .onChange(of: settings.commandModeEnabled) { _, _ in
-                            controller.reloadHotkey()
-                        }
-                }
-
-                if settings.commandModeEnabled {
-                    rowDivider
-
-                    settingsRow(icon: "command", title: "Raccourci Commande") {
-                        shortcutControl(isPTT: false)
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Tab 3: Permissions
-
-    private var permissionsTab: some View {
-        VStack(spacing: 12) {
-            sectionCard {
-                settingsRow(icon: "mic.fill", title: "Accès Microphone") {
-                    if hasMicrophone {
-                        statusBadge(text: "Autorisé", isOk: true)
-                    } else {
-                        Button("Autoriser…") {
-                            Permissions.openMicrophoneSettings()
-                        }
-                        .font(DS.Font.caption)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    }
-                }
-
-                rowDivider
-
-                settingsRow(icon: "accessibility", title: "Accessibilité (Collage ⌘V)") {
-                    if hasAccessibility {
-                        statusBadge(text: "Autorisé", isOk: true)
-                    } else {
-                        Button("Autoriser…") {
-                            Permissions.promptForAccessibility()
-                            Permissions.openAccessibilitySettings()
-                        }
-                        .font(DS.Font.caption)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    }
-                }
-
-                rowDivider
-
-                settingsRow(icon: "bolt.fill", title: "Raccourcis Carbon") {
-                    statusBadge(text: controller.isHotkeyActive ? "Actif" : "Inactif", isOk: controller.isHotkeyActive)
-                }
-
-                rowDivider
-
-                settingsRow(icon: "checklist", title: "Assistant de configuration") {
-                    Button("Ouvrir…") { OnboardingWindow.shared.show() }
-                        .font(DS.Font.caption)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
-            }
-
-            // History and recording limit (main, FLU-2 / FLU-3)
-            sectionCard {
-                settingsRow(
-                    icon: "clock.arrow.circlepath",
-                    title: "Garder l'historique",
-                    subtitle: settings.historyRetention == .never
-                        ? "Rien n'est écrit sur le disque"
-                        : "Chiffré sur ce Mac, jamais sauvegardé"
-                ) {
-                    Picker("", selection: Binding(
-                        get: { settings.historyRetention },
-                        set: { retention in
-                            settings.historyRetention = retention
-                            RunLog.applyRetention()
-                        }
-                    )) {
-                        ForEach(HistoryRetention.allCases, id: \.self) { retention in
-                            Text(retention.displayName).tag(retention)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 150)
-                }
-
-                rowDivider
-
-                settingsRow(
-                    icon: "timer",
-                    title: "Durée maximale d'une dictée",
-                    subtitle: "Au-delà, la dictée est terminée et tapée"
-                ) {
-                    Picker("", selection: $settings.maxRecordingMinutes) {
-                        ForEach(Settings.recordingLimitChoices, id: \.self) { minutes in
-                            Text("\(minutes) min").tag(minutes)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 200)
-                }
-            }
-
-            if let problem = RunStore.shared.problem {
-                Text(problem)
-                    .font(DS.Font.caption)
-                    .foregroundStyle(DS.Color.fault)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4)
-            }
-
-            // Maintenance / Reset
-            HStack {
                 Spacer()
-                Button("Réinitialiser l'autorisation Accessibilité") {
-                    Permissions.resetAccessibilityTCC()
-                    hasAccessibility = Permissions.hasAccessibility
-                }
-                .font(DS.Font.caption)
-                .foregroundStyle(DS.Color.inkSecondary)
-                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, DS.Space.base)
+            .frame(width: DS.Window.settingsSidebar)
+            .frame(maxHeight: .infinity)
+            .background(DS.Color.chassis)
+            .overlay(alignment: .trailing) { Rectangle().fill(DS.Color.seam).frame(width: 1) }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.base) {
+                    ContentTitle(title: selection.title, subtitle: selection.subtitle)
+                        .padding(.bottom, DS.Space.snug)
+                    switch selection {
+                    case .dictation: DictationSettingsSection(controller: controller)
+                    case .transcription: TranscriptionSettingsSection()
+                    case .text: TextSettingsSection()
+                    case .meetings: MeetingSettingsSection(model: .shared)
+                    case .privacy: PrivacySettingsSection(controller: controller, model: .shared)
+                    case .about: AboutSettingsSection()
+                    }
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 30)
+                .padding(.bottom, DS.Space.panel)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(DS.Color.chassis.opacity(0.6))
+        }
+        .ignoresSafeArea(.container, edges: .top)
+        .frame(width: DS.Window.settings.width, height: DS.Window.settings.height)
+    }
+}
+
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case dictation, transcription, text, meetings, privacy, about
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dictation: "Dictée"
+        case .transcription: "Transcription"
+        case .text: "Texte"
+        case .meetings: "Réunions"
+        case .privacy: "Confidentialité"
+        case .about: "À propos"
         }
     }
 
-    // MARK: - Controls & Helpers
+    var subtitle: String {
+        switch self {
+        case .dictation: "Comment vous dictez : raccourcis, micro et gestes."
+        case .transcription: "Le moteur qui transforme votre voix en texte, sur ce Mac."
+        case .text: "Ce que Fluence fait du texte avant de le coller."
+        case .meetings: "Repérer les appels, nommer les intervenants, prévenir les participants."
+        case .privacy: "Ce que Fluence garde, combien de temps, et comment l'effacer."
+        case .about: "Fluence, sa version et ce qu'il fait de vos données."
+        }
+    }
 
-    private func shortcutControl(isPTT: Bool) -> some View {
-        let isRecording = isPTT ? isRecordingPTT : isRecordingCommand
-        let key = isPTT ? settings.pushToTalkKey : settings.commandModeKey
+    var symbol: String {
+        switch self {
+        case .dictation: "mic"
+        case .transcription: "waveform"
+        case .text: "textformat"
+        case .meetings: "person.2"
+        case .privacy: "lock.shield"
+        case .about: "info.circle"
+        }
+    }
+}
 
-        return HStack(spacing: 6) {
-            Button {
-                if isRecording {
-                    stopRecordingKey()
-                } else {
-                    startRecordingKey(isPTT: isPTT)
+// MARK: - Dictée
+
+struct DictationSettingsSection: View {
+    @Bindable var controller: DictationController
+    @State private var settings = Settings.shared
+    @State private var devices: [AudioInputDevice] = []
+
+    var body: some View {
+        SectionCard {
+            SettingsRow(systemImage: "keyboard", title: "Raccourci de dictée", subtitle: "Maintenez pour dicter ; touchez pour les mains libres.") {
+                ShortcutRecorder(controller: controller, isCommand: false)
+            }
+            RowDivider()
+            SettingsRow(systemImage: microphoneIcon, title: "Microphone") {
+                microphoneMenu
+            }
+            RowDivider()
+            SettingsRow(systemImage: "timer", title: "Durée maximale d'une dictée", subtitle: "Au-delà, la dictée est terminée et tapée.") {
+                PillTabs(
+                    options: Settings.recordingLimitChoices,
+                    title: { "\($0)\(FrenchFormat.space)min" },
+                    selection: settings.maxRecordingMinutes,
+                    small: true
+                ) { settings.maxRecordingMinutes = $0 }
+            }
+            RowDivider()
+            SettingsRow(systemImage: "speaker.wave.2", title: "Son", subtitle: "Un léger signal au début et à la fin de la dictée.") {
+                RowToggle(isOn: $settings.soundEnabled)
+            }
+        }
+
+        SectionCard {
+            SettingsRow(
+                systemImage: "wand.and.stars",
+                title: "Mode Commande",
+                subtitle: FoundationModelFormatter.isAvailable
+                    ? "Sélectionnez un texte, maintenez le raccourci et dites comment le réécrire."
+                    : "Nécessite Apple Intelligence sur ce Mac."
+            ) {
+                RowToggle(isOn: Binding(
+                    get: { settings.commandModeEnabled },
+                    set: { on in
+                        settings.commandModeEnabled = on
+                        controller.reloadHotkey()
+                    }
+                ))
+            }
+            if settings.commandModeEnabled {
+                RowDivider()
+                SettingsRow(systemImage: "command", title: "Raccourci du Mode Commande") {
+                    ShortcutRecorder(controller: controller, isCommand: true)
                 }
+            }
+            RowDivider()
+            SettingsRow(
+                systemImage: "doc.on.clipboard",
+                title: "⌃⌘V colle, ⌃⌘C copie la dernière transcription",
+                subtitle: "Gardée en mémoire seulement, jusqu'à ce que vous quittiez."
+            ) {
+                RowToggle(isOn: Binding(
+                    get: { settings.lastTranscriptShortcuts },
+                    set: { on in
+                        settings.lastTranscriptShortcuts = on
+                        controller.reloadHotkey()
+                    }
+                ))
+            }
+            RowDivider()
+            SettingsRow(systemImage: "arrow.triangle.swap", title: "Bascule rapide de langue", subtitle: settings.engine == .whisper ? "Français ⇄ English ⇄ Auto" : "Français ⇄ English") {
+                HStack(spacing: 6) {
+                    KeyCap(text: "⌥L")
+                    CapButton(title: settings.dictationLanguage.displayName, height: 24) { settings.toggleLanguage() }
+                }
+            }
+        }
+
+        SectionCard {
+            SettingsRow(systemImage: "hand.tap", title: "Gestes", subtitle: "Ce que font vos raccourcis, partout sur le Mac.") { EmptyView() }
+            ShortcutLegend()
+                .padding(.leading, 46)
+                .padding(.trailing, 14)
+                .padding(.bottom, 12)
+            if !controller.hasEventTap {
+                RowNote(text: "Échap, ⌃⌘V / ⌃⌘C et les raccourcis sans touche (⌃ ⌥) ont besoin de l'autorisation Accessibilité. Les raccourcis avec une touche (⌥ Espace) marchent sans elle.")
+            }
+        }
+        .onAppear { devices = AudioDevices.availableInputDevices() }
+    }
+
+    private var isDefaultMicrophone: Bool {
+        settings.selectedMicrophoneUID == "default" || settings.selectedMicrophoneUID.isEmpty
+    }
+
+    private var microphoneIcon: String {
+        if isDefaultMicrophone { return "laptopcomputer" }
+        return devices.first { $0.id == settings.selectedMicrophoneUID }?.iconName ?? "mic.fill"
+    }
+
+    private var microphoneName: String {
+        if isDefaultMicrophone { return "Système (par défaut)" }
+        return devices.first { $0.id == settings.selectedMicrophoneUID }?.name ?? "Microphone externe"
+    }
+
+    private var microphoneMenu: some View {
+        HStack(spacing: 6) {
+            MenuChip(title: microphoneName) {
+                Button {
+                    settings.selectedMicrophoneUID = "default"
+                } label: {
+                    if isDefaultMicrophone { Label("Système (par défaut)", systemImage: "checkmark") } else { Text("Système (par défaut)") }
+                }
+                if !devices.isEmpty {
+                    Divider()
+                    ForEach(devices) { device in
+                        Button {
+                            settings.selectedMicrophoneUID = device.id
+                        } label: {
+                            if settings.selectedMicrophoneUID == device.id { Label(device.name, systemImage: "checkmark") } else { Text(device.name) }
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: 220)
+            Button {
+                devices = AudioDevices.availableInputDevices()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DS.Color.inkSecondary)
+                    .frame(width: 26, height: 26)
+                    .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(DS.Color.seam, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help("Actualiser la liste des microphones")
+        }
+    }
+}
+
+/// Clement's recorder: click, then press the combination; or pick a preset from the menu.
+struct ShortcutRecorder: View {
+    @Bindable var controller: DictationController
+    let isCommand: Bool
+
+    @State private var settings = Settings.shared
+    @State private var isRecording = false
+    @State private var heldModifiers = ""
+    @State private var monitor: Any?
+
+    private var key: PushToTalkKey { isCommand ? settings.commandModeKey : settings.pushToTalkKey }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                if isRecording { stop() } else { start() }
             } label: {
                 HStack(spacing: 5) {
                     if isRecording {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(recordedModifiersString.isEmpty ? "Tapez un combo…" : recordedModifiersString)
+                        ProgressView().controlSize(.small)
+                        Text(heldModifiers.isEmpty ? "Tapez la combinaison…" : heldModifiers)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(DS.Color.accent)
                     } else {
-                        Text(key.shortName)
+                        Text(ShortcutLabel.display(key.shortName))
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(DS.Color.ink)
                     }
@@ -467,29 +269,17 @@ struct SettingsWindow: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .background(isRecording ? DS.Color.selection : DS.Color.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(isRecording ? DS.Color.accent : DS.Color.seam, lineWidth: 1)
-                )
+                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(isRecording ? DS.Color.accent : DS.Color.seam, lineWidth: 1))
             }
             .buttonStyle(.plain)
+            .help("Cliquez puis appuyez sur la combinaison voulue (Échap pour annuler)")
 
             Menu {
-                ForEach(PushToTalkKey.allCases) { item in
+                ForEach(PushToTalkKey.allCases) { preset in
                     Button {
-                        if isPTT {
-                            settings.pushToTalkKey = item
-                        } else {
-                            settings.commandModeKey = item
-                        }
-                        controller.reloadHotkey()
+                        apply(preset)
                     } label: {
-                        HStack {
-                            Text(item.displayName)
-                            if (isPTT ? settings.pushToTalkKey : settings.commandModeKey) == item {
-                                Image(systemName: "checkmark")
-                            }
-                        }
+                        if preset == key { Label(preset.displayName, systemImage: "checkmark") } else { Text(preset.displayName) }
                     }
                 }
             } label: {
@@ -498,240 +288,287 @@ struct SettingsWindow: View {
                     .foregroundStyle(DS.Color.inkSecondary)
                     .frame(width: 20, height: 26)
                     .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(DS.Color.seam, lineWidth: 1)
-                    )
+                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(DS.Color.seam, lineWidth: 1))
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .fixedSize()
         }
+        .onDisappear { stop() }
     }
 
-    private var microphoneMenu: some View {
-        HStack(spacing: 6) {
-            Menu {
-                Button {
-                    settings.selectedMicrophoneUID = "default"
-                } label: {
-                    HStack {
-                        Text("Système (Par défaut)")
-                        if isDefaultMicrophoneSelected { Image(systemName: "checkmark") }
-                    }
-                }
-
-                if !availableAudioDevices.isEmpty {
-                    Divider()
-                    ForEach(availableAudioDevices) { dev in
-                        Button {
-                            settings.selectedMicrophoneUID = dev.id
-                        } label: {
-                            HStack {
-                                Text(dev.name)
-                                if settings.selectedMicrophoneUID == dev.id { Image(systemName: "checkmark") }
-                            }
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(currentDeviceDisplayName)
-                        .font(DS.Font.label)
-                        .foregroundStyle(DS.Color.ink)
-                        .lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(DS.Color.inkSecondary)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(DS.Color.seam, lineWidth: 1)
-                )
-            }
-            .menuStyle(.borderlessButton)
-            .frame(maxWidth: 190, alignment: .trailing)
-
-            Button {
-                refreshAudioDevices()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(DS.Color.inkSecondary)
-                    .frame(width: 26, height: 26)
-                    .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(DS.Color.seam, lineWidth: 1)
-                    )
-            }
-            .buttonStyle(.plain)
-            .help("Actualiser la liste des microphones")
-        }
-    }
-
-    private func statusBadge(text: String, isOk: Bool) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: isOk ? "checkmark" : "exclamationmark")
-                .font(.system(size: 9, weight: .bold))
-            Text(text)
-                .font(.system(size: 11, weight: .medium))
-        }
-        .foregroundStyle(isOk ? DS.Color.meterGreen : DS.Color.meterAmber)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-            (isOk ? DS.Color.meterGreen : DS.Color.meterAmber).opacity(0.12),
-            in: Capsule()
-        )
-    }
-
-    private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            content()
-        }
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(DS.Color.panel)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(DS.Color.seam, lineWidth: 1)
-                )
-                .shadow(color: DS.Shadow.raised.color, radius: DS.Shadow.raised.radius, y: DS.Shadow.raised.y)
-        )
-    }
-
-    private func settingsRow<Control: View>(
-        icon: String,
-        title: String,
-        subtitle: String? = nil,
-        @ViewBuilder control: () -> Control
-    ) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(DS.Color.accent)
-                .frame(width: 20)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(DS.Font.label)
-                    .foregroundStyle(DS.Color.ink)
-                    .lineLimit(1)
-
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.system(size: 10, weight: .regular))
-                        .foregroundStyle(DS.Color.inkSecondary)
-                        .lineLimit(1)
-                }
-            }
-            .layoutPriority(1)
-
-            Spacer(minLength: 12)
-
-            control()
-                .fixedSize(horizontal: true, vertical: false)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-    }
-
-    private var rowDivider: some View {
-        Divider()
-            .overlay(DS.Color.seam)
-            .padding(.leading, 44)
-    }
-
-    // MARK: - Device State Helpers
-
-    private var isDefaultMicrophoneSelected: Bool {
-        settings.selectedMicrophoneUID == "default" || settings.selectedMicrophoneUID.isEmpty
-    }
-
-    private var currentDeviceDisplayName: String {
-        if isDefaultMicrophoneSelected {
-            return "Système (Par défaut)"
-        }
-        if let match = availableAudioDevices.first(where: { $0.id == settings.selectedMicrophoneUID }) {
-            return match.name
-        }
-        return "Microphone externe"
-    }
-
-    private var currentDeviceIcon: String {
-        if isDefaultMicrophoneSelected {
-            return "laptopcomputer"
-        }
-        if let match = availableAudioDevices.first(where: { $0.id == settings.selectedMicrophoneUID }) {
-            return match.iconName
-        }
-        return "mic.fill"
-    }
-
-    private func refreshAudioDevices() {
-        availableAudioDevices = AudioDevices.availableInputDevices()
-    }
-
-    // MARK: - Key Recording Logic
-
-    private func startRecordingKey(isPTT: Bool) {
-        stopRecordingKey()
-        recordedModifiersString = ""
-        if isPTT {
-            isRecordingPTT = true
-            isRecordingCommand = false
-        } else {
-            isRecordingCommand = true
-            isRecordingPTT = false
-        }
-
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+    private func start() {
+        stop()
+        isRecording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
             if event.type == .keyDown && Int(event.keyCode) == kVK_Escape {
-                stopRecordingKey()
+                stop()
                 return nil
             }
             if event.type == .flagsChanged {
-                var syms: [String] = []
-                if event.modifierFlags.contains(.control) { syms.append("⌃") }
-                if event.modifierFlags.contains(.option) { syms.append("⌥") }
-                if event.modifierFlags.contains(.command) { syms.append("⌘") }
-                if event.modifierFlags.contains(.shift) { syms.append("⇧") }
-                recordedModifiersString = syms.joined(separator: " ")
+                var symbols: [String] = []
+                if event.modifierFlags.contains(.control) { symbols.append("⌃") }
+                if event.modifierFlags.contains(.option) { symbols.append("⌥") }
+                if event.modifierFlags.contains(.command) { symbols.append("⌘") }
+                if event.modifierFlags.contains(.shift) { symbols.append("⇧") }
+                heldModifiers = symbols.joined(separator: " ")
             }
             if let combo = PushToTalkKey.comboFrom(event: event) {
-                applyRecordedKey(combo, isPTT: isPTT)
+                apply(combo)
+                stop()
                 return nil
             }
             return event
         }
     }
 
-    private func applyRecordedKey(_ key: PushToTalkKey, isPTT: Bool) {
-        if isPTT {
-            settings.pushToTalkKey = key
-            if settings.commandModeKey == key {
-                if let alt = PushToTalkKey.allCases.first(where: { $0 != key }) {
-                    settings.commandModeKey = alt
-                }
-            }
+    private func apply(_ combo: PushToTalkKey) {
+        if isCommand {
+            settings.commandModeKey = combo
         } else {
-            settings.commandModeKey = key
+            settings.pushToTalkKey = combo
+            // The two shortcuts must differ.
+            if settings.commandModeKey == combo, let other = PushToTalkKey.allCases.first(where: { $0 != combo }) {
+                settings.commandModeKey = other
+            }
         }
         controller.reloadHotkey()
-        stopRecordingKey()
     }
 
-    private func stopRecordingKey() {
-        if let monitor = localMonitor {
+    private func stop() {
+        if let monitor {
             NSEvent.removeMonitor(monitor)
-            localMonitor = nil
+            self.monitor = nil
         }
-        isRecordingPTT = false
-        isRecordingCommand = false
-        recordedModifiersString = ""
+        isRecording = false
+        heldModifiers = ""
+    }
+}
+
+/// Every gesture of the shortcuts; also on the onboarding's last page.
+struct ShortcutLegend: View {
+    @State private var settings = Settings.shared
+
+    private var rows: [(keys: String, action: String)] {
+        let key = ShortcutLabel.display(settings.pushToTalkKey.shortName)
+        var rows: [(String, String)] = [
+            ("Maintenir \(key)", "Dicter ; relâcher pour taper le texte"),
+            ("Toucher \(key)", "Mains libres : enregistre jusqu'au prochain appui"),
+        ]
+        if settings.pushToTalkKey.isModifierOnly {
+            rows.append(("\(key) + Espace", "Mains libres, depuis un maintien"))
+        }
+        rows.append(("Échap", "Annuler — rien n'est tapé"))
+        if settings.commandModeEnabled {
+            rows.append((ShortcutLabel.display(settings.commandModeKey.shortName), "Mode Commande : dites comment modifier la sélection"))
+        }
+        rows.append(("⌥L", "Basculer la langue de dictée"))
+        if settings.lastTranscriptShortcuts {
+            rows.append(("⌃⌘V", "Coller la dernière transcription"))
+            rows.append(("⌃⌘C", "Copier la dernière transcription"))
+        }
+        return rows
+    }
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: DS.Space.roomy, verticalSpacing: DS.Space.snug) {
+            ForEach(rows, id: \.keys) { row in
+                GridRow {
+                    KeyCap(text: row.keys)
+                    Text(row.action).font(DS.Font.label).foregroundStyle(DS.Color.ink)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Transcription
+
+struct TranscriptionSettingsSection: View {
+    @State private var settings = Settings.shared
+    @State private var boostStatus: BoostStatus = ParakeetModels.isVocabularyModelDownloaded ? .ready : .idle
+    @Environment(\.openWindow) private var openWindow
+
+    private enum BoostStatus: Equatable {
+        case idle, downloading, ready
+        case failed(String)
+    }
+
+    private static let quickLanguages: [DictationLanguage] = [.french, .english, .auto]
+
+    var body: some View {
+        SectionCard {
+            SettingsRow(systemImage: "globe", title: "Langue de dictée") {
+                HStack(spacing: DS.Space.snug) {
+                    PillTabs(
+                        options: Self.quickLanguages,
+                        title: { $0 == .auto ? "Auto" : $0.displayName },
+                        selection: Self.quickLanguages.contains(settings.dictationLanguage) ? settings.dictationLanguage : nil,
+                        small: true
+                    ) { setLanguage($0) }
+                    let isOther = !Self.quickLanguages.contains(settings.dictationLanguage)
+                    MenuChip(title: isOther ? settings.dictationLanguage.displayName : "Autre…") {
+                        ForEach(DictationLanguage.spoken.filter { !Self.quickLanguages.contains($0) }, id: \.self) { language in
+                            Button(language.displayName) { setLanguage(language) }
+                        }
+                    }
+                }
+            }
+            RowNote(text: languageNote)
+            RowDivider()
+            SettingsRow(systemImage: "waveform", title: "Moteur vocal", subtitle: settings.engine.explanation) {
+                PillTabs(options: SpeechEngineChoice.allCases, title: \.shortName, selection: settings.engine, small: true) {
+                    settings.engine = $0
+                }
+            }
+            if settings.engine == .whisper {
+                RowDivider()
+                SettingsRow(
+                    systemImage: "cpu",
+                    title: "Modèle Whisper",
+                    subtitle: WhisperModels.isDownloaded(variant: settings.whisperModel) ? "Installé sur ce Mac" : "Téléchargé à la première dictée"
+                ) {
+                    MenuChip(title: WhisperModels.availableVariants.first { $0.id == settings.whisperModel }?.displayName ?? settings.whisperModel) {
+                        ForEach(WhisperModels.availableVariants) { variant in
+                            Button(variant.displayName) { settings.whisperModel = variant.id }
+                        }
+                    }
+                }
+                RowDivider()
+                SettingsRow(
+                    systemImage: "bolt",
+                    title: "Nettoyage par le modèle avec Whisper",
+                    subtitle: "Whisper ponctue déjà. Le modèle local ajoute environ 3,5 s ; sans lui, les niveaux Moyen et Élevé nettoient avec les règles."
+                ) {
+                    RowToggle(isOn: $settings.smartCleanupOnWhisper, isEnabled: FoundationModelFormatter.isAvailable)
+                }
+            }
+        }
+
+        SectionCard {
+            SettingsRow(systemImage: "text.magnifyingglass", title: "Renforcer les mots du dictionnaire dans Parakeet", subtitle: boostNote) {
+                RowToggle(isOn: Binding(get: { settings.parakeetVocabularyBoost }, set: { setBoost($0) }))
+            }
+        }
+
+        SectionCard {
+            SettingsRow(
+                systemImage: "square.split.2x1",
+                title: "Mode comparaison",
+                subtitle: "Chaque dictée passe par tous les moteurs, côte à côte. Rien n'est tapé dans ce mode."
+            ) {
+                HStack(spacing: DS.Space.snug) {
+                    CapButton(title: "Ouvrir", height: 24) {
+                        openWindow(id: "comparison")
+                        NSApp.activate(ignoringOtherApps: true)
+                    }
+                    RowToggle(isOn: $settings.compareMode)
+                }
+            }
+        }
+    }
+
+    private func setLanguage(_ language: DictationLanguage) {
+        settings.dictationLanguage = language
+        settings.prewarmCurrentEngine()
+    }
+
+    private var languageNote: String {
+        switch settings.dictationLanguage {
+        case .auto:
+            "Apple écoute dans la langue de votre Mac ; Whisper et Parakeet détectent la langue eux-mêmes. Le nettoyage reconnaît la langue de chaque dictée."
+        case .english, .french:
+            "Les moteurs et le nettoyage attendent : \(settings.dictationLanguage.displayName)."
+        default:
+            "Les moteurs attendent : \(settings.dictationLanguage.displayName). Le nettoyage corrige les espaces et les majuscules ; les hésitations et la ponctuation dictée ne sont connues qu'en anglais et en français."
+        }
+    }
+
+    private var boostNote: String {
+        let what = "Un petit modèle repère les mots de votre dictionnaire dans ce que Parakeet entend. Environ 100 Mo, une fois ; réglé pour l'anglais."
+        switch boostStatus {
+        case .idle: return what
+        case .downloading: return "Téléchargement du modèle (environ 100 Mo)…"
+        case .ready: return what + " Installé."
+        case .failed(let message): return "Échec du téléchargement : \(message). Désactivez puis réactivez pour réessayer."
+        }
+    }
+
+    private func setBoost(_ enabled: Bool) {
+        settings.parakeetVocabularyBoost = enabled
+        guard enabled, boostStatus != .downloading else { return }
+        boostStatus = .downloading
+        Task {
+            do {
+                _ = try await ParakeetModels.shared.loadVocabularyModel()
+                boostStatus = .ready
+            } catch {
+                boostStatus = .failed(error.localizedDescription)
+            }
+        }
+    }
+}
+
+extension SpeechEngineChoice {
+    var explanation: String {
+        switch self {
+        case .apple: "Apple : le texte s'affiche pendant que vous parlez. Rien à télécharger."
+        case .whisper: "Whisper : très précis, ponctue tout seul ; le texte arrive au relâchement."
+        case .parakeet: "Parakeet : le plus rapide sur la puce Apple ; le texte arrive au relâchement."
+        }
+    }
+}
+
+// MARK: - À propos
+
+struct AboutSettingsSection: View {
+    @Environment(\.openWindow) private var openWindow
+
+    private var version: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String
+        return build.map { "\(short) (\($0))" } ?? short
+    }
+
+    var body: some View {
+        SectionCard {
+            HStack(spacing: DS.Space.roomy) {
+                AquaOrbView(size: 44)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text("Fluence").font(DS.Font.title).foregroundStyle(DS.Color.ink)
+                        AIBadge()
+                    }
+                    Text("Version \(version)").font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary)
+                    Text("Dictée et notes de réunion, entièrement sur ce Mac.").font(DS.Font.body).foregroundStyle(DS.Color.inkSecondary)
+                }
+                Spacer()
+            }
+            .padding(DS.Space.wide)
+        }
+
+        SectionCard {
+            SettingsRow(systemImage: "checklist", title: "Assistant de configuration", subtitle: "Les autorisations, une par une, en mots simples.") {
+                CapButton(title: "Ouvrir…", height: 24) { OnboardingWindow.shared.show() }
+            }
+            RowDivider()
+            SettingsRow(systemImage: "doc.text", title: "Fichier du dictionnaire", subtitle: "Un mot par ligne, modifiable dans n'importe quel éditeur.") {
+                CapButton(title: "Afficher dans le Finder", height: 24) {
+                    NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
+                }
+            }
+            RowDivider()
+            SettingsRow(systemImage: "square.split.2x1", title: "Comparaison des moteurs") {
+                CapButton(title: "Ouvrir…", height: 24) {
+                    openWindow(id: "comparison")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            }
+        }
+
+        RowNote(text: "Fluence est né d'une copie de murmur-youtube (per-simmons). Les modèles de transcription — Apple, Whisper (WhisperKit) et Parakeet (FluidAudio) — tournent sur ce Mac.")
+            .padding(.leading, -46)
     }
 }

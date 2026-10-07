@@ -1,4 +1,5 @@
 import AppKit
+import FluenceCore
 import Observation
 import SwiftUI
 
@@ -23,11 +24,14 @@ final class OnboardingWindow {
         if window == nil {
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: DS.Onboarding.size),
-                styleMask: [.titled, .closable],
+                styleMask: [.titled, .closable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
             window.title = "Configurer Fluence"
+            // FLU-12: the sidebar runs under the title bar, as in the main window.
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
             window.isReleasedWhenClosed = false
             self.window = window
         }
@@ -58,7 +62,7 @@ final class OnboardingModel {
         var name: String {
             switch self {
             case .accessibility: "Accessibilité"
-            case .microphone: "Microphone"
+            case .microphone: "Micro"
             case .systemAudio: "Audio système"
             case .calendar: "Calendrier"
             case .ready: "Prêt"
@@ -123,28 +127,21 @@ final class OnboardingModel {
 
 // MARK: - View
 
-/// Laid out like the main window: the orb and "Fluence" on top, the steps in a rounded card
-/// on the left (a green check once granted), and the current step in a card on the right.
+/// FLU-12 (mock-up 10): the steps down a sidebar with a progress bar, the current step on
+/// the right — a symbol, a title, what it is for in plain words, and one button.
 private struct OnboardingView: View {
     let onDone: () -> Void
 
     @State private var model = OnboardingModel()
 
+    private static let listed = OnboardingModel.Step.allCases.filter { $0 != .ready }
+
     var body: some View {
-        ZStack {
-            DS.Color.chassis.ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: DS.Space.base) {
-                header
-
-                HStack(alignment: .top, spacing: DS.Space.base) {
-                    stepList
-                        .frame(width: DS.Onboarding.stepColumnWidth)
-                    detail
-                }
-            }
-            .padding(DS.Space.roomy)
+        HStack(spacing: 0) {
+            sidebar
+            detail
         }
+        .ignoresSafeArea(.container, edges: .top)
         .frame(width: DS.Onboarding.size.width, height: DS.Onboarding.size.height)
         .task {
             while !Task.isCancelled {
@@ -154,34 +151,22 @@ private struct OnboardingView: View {
         }
     }
 
-    // MARK: Header
+    // MARK: Sidebar
 
-    private var header: some View {
-        HStack(spacing: DS.Space.base) {
-            AquaOrbView(size: 28)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Fluence")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(DS.Color.ink)
-                Text("Configuration")
-                    .font(DS.Font.caption)
-                    .foregroundStyle(DS.Color.inkSecondary)
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Color.clear.frame(height: 40)
+            HStack(spacing: 10) {
+                AquaOrbView(size: 34)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Fluence").font(.system(size: 17, weight: .bold)).foregroundStyle(DS.Color.ink)
+                    Text("Premiers réglages · 2\u{00A0}min").font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary)
+                }
             }
-            Spacer()
-            Text(model.step == .ready ? "Terminé" : "Étape \(model.step.rawValue + 1) sur 4")
-                .font(DS.Font.caption)
-                .foregroundStyle(DS.Color.inkSecondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(DS.Color.well, in: Capsule())
-        }
-    }
+            .padding(.leading, 10)
+            .padding(.bottom, DS.Space.wide)
 
-    // MARK: Steps
-
-    private var stepList: some View {
-        VStack(alignment: .leading, spacing: DS.Space.tight) {
-            ForEach(OnboardingModel.Step.allCases) { step in
+            ForEach(Self.listed) { step in
                 Button {
                     withAnimation(DS.Motion.panel) { model.step = step }
                 } label: {
@@ -189,166 +174,168 @@ private struct OnboardingView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Spacer(minLength: 0)
+            Spacer()
+            VStack(alignment: .leading, spacing: 6) {
+                Text(model.step == .ready ? "Terminé" : "Étape \(model.step.rawValue + 1) sur \(Self.listed.count)")
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Color.inkSecondary)
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(DS.Color.seam)
+                        Capsule().fill(DS.Color.accent).frame(width: geometry.size.width * progress)
+                    }
+                }
+                .frame(height: 4)
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, DS.Space.wide)
         }
-        .padding(DS.Space.snug)
+        .padding(.horizontal, DS.Space.base)
+        .frame(width: DS.Onboarding.stepColumnWidth)
         .frame(maxHeight: .infinity)
-        .background(BrushedPanel())
+        .background(DS.Color.chassis)
+        .overlay(alignment: .trailing) { Rectangle().fill(DS.Color.seam).frame(width: 1) }
+    }
+
+    private var progress: CGFloat {
+        model.step == .ready ? 1 : CGFloat(model.step.rawValue + 1) / CGFloat(Self.listed.count)
     }
 
     private func stepRow(_ step: OnboardingModel.Step) -> some View {
-        HStack(spacing: DS.Space.snug) {
-            stepIcon(step)
-            VStack(alignment: .leading, spacing: DS.Space.hair) {
-                Text(step.name)
-                    .font(DS.Font.bodyEmphasis)
-                    .foregroundStyle(DS.Color.ink)
-                if step.isOptional {
-                    Silkscreen(text: "Facultatif")
+        let isCurrent = model.step == step
+        let isDone = model.status(of: step) == .granted
+        return HStack(spacing: 10) {
+            ZStack {
+                if isDone {
+                    Circle().fill(DS.Color.accent)
+                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                } else {
+                    Circle().strokeBorder(isCurrent ? DS.Color.accent : DS.Color.seam, lineWidth: 1.5)
+                    Text("\(step.rawValue + 1)")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(isCurrent ? DS.Color.accent : DS.Color.silkscreen)
                 }
             }
-            Spacer()
-        }
-        .padding(.horizontal, DS.Space.snug)
-        .padding(.vertical, DS.Space.snug)
-        .background {
-            if model.step == step {
-                RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
-                    .fill(DS.Color.selection)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
-                            .strokeBorder(DS.Color.selectionEdge, lineWidth: DS.Border.hairline)
-                    )
+            .frame(width: 20, height: 20)
+            Text(step.name)
+                .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
+                .foregroundStyle(isCurrent || isDone ? DS.Color.ink : DS.Color.inkSecondary)
+            Spacer(minLength: 0)
+            if step.isOptional {
+                Text("optionnel").font(.system(size: 10, weight: .medium)).foregroundStyle(DS.Color.silkscreen)
             }
         }
-        .contentShape(.rect)
-    }
-
-    /// A green check once granted; otherwise the step's number (a flag for the last one).
-    private func stepIcon(_ step: OnboardingModel.Step) -> some View {
-        let symbol: String
-        if isLit(step) {
-            symbol = "checkmark.circle.fill"
-        } else if step == .ready {
-            symbol = "flag.circle"
-        } else {
-            symbol = "\(step.rawValue + 1).circle"
+        .padding(.horizontal, 10)
+        .frame(height: 34)
+        .background {
+            if isCurrent { RoundedRectangle(cornerRadius: 8, style: .continuous).fill(DS.Color.selection) }
         }
-        return Image(systemName: symbol)
-            .font(.system(size: 15, weight: .medium))
-            .foregroundStyle(isLit(step) ? DS.Color.meterGreen : DS.Color.inkSecondary)
-            .frame(width: 18)
-    }
-
-    /// Granted steps are checked; "Prêt" is checked once dictation's two requirements are on.
-    private func isLit(_ step: OnboardingModel.Step) -> Bool {
-        step == .ready ? Self.requiredGranted(model) : model.status(of: step) == .granted
+        .contentShape(Rectangle())
     }
 
     // MARK: Detail
 
     private var detail: some View {
-        VStack(alignment: .leading, spacing: DS.Space.roomy) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: DS.Space.roomy) {
-                    Text(page.title)
-                        .font(DS.Font.title)
-                        .foregroundStyle(DS.Color.ink)
-                        .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 0) {
+            Image(systemName: page.symbol)
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(DS.Color.accent)
+                .frame(width: 60, height: 60)
+                .background(Circle().fill(DS.Color.selection))
+                .padding(.bottom, DS.Space.wide)
+            Text(page.title)
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(DS.Color.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, DS.Space.snug)
+            Text(page.body)
+                .font(DS.Font.body)
+                .foregroundStyle(DS.Color.inkSecondary)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, DS.Space.wide)
 
-                    ForEach(page.paragraphs, id: \.self) { paragraph in
-                        Text(paragraph)
-                            .font(DS.Font.body)
-                            .foregroundStyle(DS.Color.inkSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
+            if model.step == .ready {
+                if Self.requiredGranted(model) { ShortcutLegend() }
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(page.facts, id: \.text) { fact in
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: fact.symbol)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(DS.Color.accent)
+                                .frame(width: 16)
+                                .padding(.top, 1)
+                            Text(fact.text).font(DS.Font.body).foregroundStyle(DS.Color.ink).fixedSize(horizontal: false, vertical: true)
+                        }
                     }
-
-                    if model.step == .ready {
-                        if Self.requiredGranted(model) { ShortcutLegend() }
-                    } else {
-                        statusRow
-                    }
+                    statusLine
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .scrollIndicators(.never)
-
+            Spacer(minLength: DS.Space.base)
             controls
         }
-        .padding(DS.Space.wide)
+        .padding(.horizontal, 36)
+        .padding(.top, 48)
+        .padding(.bottom, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(BrushedPanel())
+        .background(DS.Color.panel)
     }
 
-    /// Granted: a green "Autorisé" badge. Otherwise the one button to the right place.
-    private var statusRow: some View {
-        HStack(spacing: DS.Space.snug) {
-            switch model.status(of: model.step) {
-            case .granted:
-                statusBadge(text: "Autorisé")
-            case .askedOnFirstUse:
-                Text("macOS le demande à la première utilisation")
-                    .font(DS.Font.caption)
-                    .foregroundStyle(DS.Color.inkSecondary)
-            case .missing, nil:
-                EmptyView()
-            }
-            if let action = page.action, model.status(of: model.step) != .granted {
-                Button(action.title) { action.run() }
-                    .font(DS.Font.caption)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-            }
-            Spacer(minLength: 0)
+    @ViewBuilder
+    private var statusLine: some View {
+        switch model.status(of: model.step) {
+        case .granted:
+            GrantBadge(text: "Autorisé", isOK: true).padding(.top, DS.Space.snug)
+        case .askedOnFirstUse:
+            Text("macOS le demande à la première utilisation.")
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Color.inkSecondary)
+                .padding(.top, DS.Space.snug)
+        case .missing, nil:
+            EmptyView()
         }
-    }
-
-    private func statusBadge(text: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 9, weight: .bold))
-            Text(text)
-                .font(.system(size: 11, weight: .medium))
-        }
-        .foregroundStyle(DS.Color.meterGreen)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(DS.Color.meterGreen.opacity(0.12), in: Capsule())
     }
 
     private var controls: some View {
         HStack(spacing: DS.Space.snug) {
             if model.step != .accessibility {
-                TransportKey(title: "Retour", systemImage: "chevron.left", engagedColor: DS.Color.ink) {
-                    withAnimation(DS.Motion.panel) { model.back() }
-                }
+                Button("Retour") { withAnimation(DS.Motion.panel) { model.back() } }
+                    .buttonStyle(.plain)
+                    .font(DS.Font.label)
+                    .foregroundStyle(DS.Color.inkSecondary)
             }
             Spacer()
             if model.step == .ready {
-                TransportKey(title: "Terminer", isEngaged: true, engagedColor: DS.Color.ink, action: onDone)
-            } else {
-                TransportKey(
-                    title: nextTitle,
-                    systemImage: "chevron.right",
-                    engagedColor: DS.Color.ink
-                ) {
+                RecordPill(kind: .start, title: "Terminer", systemImage: "checkmark", action: onDone)
+            } else if model.status(of: model.step) == .granted {
+                RecordPill(kind: .start, title: "Suivant", systemImage: "chevron.right") {
                     withAnimation(DS.Motion.panel) { model.advance() }
+                }
+            } else {
+                // "Plus tard" moves on with the step still off, so it never looks done.
+                CapButton(title: "Plus tard", height: 32) {
+                    withAnimation(DS.Motion.panel) { model.advance() }
+                }
+                if let action = page.action {
+                    RecordPill(kind: .start, title: action.title, systemImage: page.symbol) { action.run() }
                 }
             }
         }
     }
 
-    /// "Passer" when moving on would leave something off, so it never looks like the step
-    /// was done.
-    private var nextTitle: String {
-        model.status(of: model.step) == .missing ? "Passer" : "Suivant"
-    }
-
     // MARK: Copy
 
+    private struct Fact {
+        var symbol: String
+        var text: String
+    }
+
     private struct Page {
+        var symbol: String
         var title: String
-        var paragraphs: [String]
+        var body: String
+        var facts: [Fact]
         var action: Action?
     }
 
@@ -357,23 +344,22 @@ private struct OnboardingView: View {
         var run: () -> Void
     }
 
-    private var key: String { Settings.shared.pushToTalkKey.displayName }
+    private var key: String { ShortcutLabel.display(Settings.shared.pushToTalkKey.shortName) }
 
     private var page: Page {
         switch model.step {
         case .accessibility:
             Page(
-                title: "Laissez Fluence repérer la touche et écrire pour vous",
-                paragraphs: [
-                    "L'Accessibilité permet à Fluence de voir quand vous maintenez \(key) dans "
-                        + "n'importe quelle app, et de taper vos mots là où se trouve le curseur. "
-                        + "Sans elle, seuls les raccourcis avec une touche (⌥ Espace) marchent, "
-                        + "et le texte reste dans le presse-papiers : collez-le avec ⌘V.",
-                    "Fluence ne guette que ses propres raccourcis et ignore toutes les autres touches. "
-                        + "Activez Fluence dans la liste qui s'ouvre ; cette fenêtre passe à la suite "
-                        + "toute seule.",
+                symbol: "accessibility",
+                title: "Autoriser l'Accessibilité",
+                body: "L'Accessibilité permet à Fluence de voir quand vous maintenez \(key) dans n'importe quelle app, "
+                    + "et de taper vos mots là où se trouve le curseur.",
+                facts: [
+                    Fact(symbol: "keyboard", text: "Fluence ne guette que ses propres raccourcis et ignore toutes les autres touches."),
+                    Fact(symbol: "doc.on.clipboard", text: "Sans elle, seuls les raccourcis avec une touche (⌥ Espace) marchent, et le texte reste dans le presse-papiers : collez-le avec ⌘V."),
+                    Fact(symbol: "arrow.right.circle", text: "Activez Fluence dans la liste qui s'ouvre ; cette fenêtre passe à la suite toute seule."),
                 ],
-                action: Action(title: "Autoriser…") {
+                action: Action(title: "Autoriser l'Accessibilité") {
                     // Puts Fluence in the list, so there is something to switch on.
                     Permissions.promptForAccessibility()
                     Permissions.openAccessibilitySettings()
@@ -381,52 +367,53 @@ private struct OnboardingView: View {
             )
         case .microphone:
             Page(
-                title: "Laissez Fluence écouter pendant que vous maintenez la touche",
-                paragraphs: [
-                    "Le micro n'est ouvert que pendant la dictée : tant que la touche est maintenue, "
-                        + "ou jusqu'à ce que vous arrêtiez une dictée mains libres. Jamais en arrière-plan.",
-                    "Ce que vous dites est transformé en texte sur ce Mac. Rien n'est jamais envoyé ailleurs.",
+                symbol: "mic.fill",
+                title: "Autoriser le micro",
+                body: "Fluence a besoin du micro pour vous entendre quand vous maintenez \(key). "
+                    + "Votre voix est transformée en texte sur ce Mac, puis l'audio est effacé.",
+                facts: [
+                    Fact(symbol: "lock.fill", text: "Le son ne quitte jamais cet ordinateur."),
+                    Fact(symbol: "hand.raised.fill", text: "Fluence n'écoute que pendant que vous dictez, ou pendant une réunion que vous avez acceptée."),
+                    Fact(symbol: "gearshape.fill", text: "Vous pouvez retirer l'accès à tout moment dans Réglages Système."),
                 ],
                 action: Permissions.microphoneUndecided
-                    ? Action(title: "Autoriser…") {
-                        Task { _ = await Permissions.requestMicrophone() }
-                    }
-                    : Action(title: "Autoriser dans Réglages…") { Permissions.openMicrophoneSettings() }
+                    ? Action(title: "Autoriser le micro") { Task { _ = await Permissions.requestMicrophone() } }
+                    : Action(title: "Ouvrir Réglages Système") { Permissions.openMicrophoneSettings() }
             )
         case .systemAudio:
             Page(
-                title: "Facultatif : entendre l'autre côté d'un appel",
-                paragraphs: [
-                    "Les notes de réunion enregistrent les autres participants d'un appel à partir "
-                        + "du son de votre Mac. La dictée n'en a pas besoin.",
-                    "Rien à faire maintenant : macOS le demande la première fois que vous prenez des "
-                        + "notes de réunion. Si vous avez refusé, c'est ici qu'on le change.",
+                symbol: "speaker.wave.2.fill",
+                title: "Entendre l'autre côté d'un appel",
+                body: "Les notes de réunion enregistrent les autres participants à partir du son de votre Mac. La dictée n'en a pas besoin.",
+                facts: [
+                    Fact(symbol: "clock", text: "Rien à faire maintenant : macOS le demande la première fois que vous prenez des notes de réunion."),
+                    Fact(symbol: "gearshape.fill", text: "Si vous avez refusé, c'est dans Réglages Système qu'on le change."),
                 ],
-                action: Action(title: "Ouvrir Réglages…") { Permissions.openSystemAudioSettings() }
+                action: Action(title: "Ouvrir Réglages Système") { Permissions.openSystemAudioSettings() }
             )
         case .calendar:
             Page(
-                title: "Facultatif : nommer vos réunions",
-                paragraphs: [
-                    "Avec votre calendrier, les notes de réunion reprennent le titre de l'événement "
-                        + "et le nom des invités. La dictée n'en a pas besoin.",
-                    "Fluence lit le calendrier de ce Mac, uniquement pendant la prise de notes.",
+                symbol: "calendar",
+                title: "Nommer vos réunions",
+                body: "Avec votre calendrier, les notes de réunion reprennent le titre de l'événement et le nom des invités, "
+                    + "et Fluence montre vos prochains appels. La dictée n'en a pas besoin.",
+                facts: [
+                    Fact(symbol: "lock.fill", text: "Le calendrier est lu sur ce Mac, et rien n'en est envoyé ailleurs."),
+                    Fact(symbol: "person.2.fill", text: "Utilisé seulement pour les réunions : titres, invités, appels à venir."),
                 ],
                 action: Permissions.calendarUndecided
-                    ? Action(title: "Autoriser…") {
-                        Task { _ = await Permissions.requestCalendar() }
-                    }
-                    : Action(title: "Autoriser dans Réglages…") { Permissions.openCalendarSettings() }
+                    ? Action(title: "Autoriser le calendrier") { Task { _ = await Permissions.requestCalendar() } }
+                    : Action(title: "Ouvrir Réglages Système") { Permissions.openCalendarSettings() }
             )
         case .ready:
             Page(
+                symbol: Self.requiredGranted(model) ? "checkmark" : "exclamationmark",
                 title: Self.requiredGranted(model) ? "Fluence est prêt" : "Presque prêt",
-                paragraphs: [
-                    Self.requiredGranted(model)
-                        ? "Maintenez \(key) n'importe où et parlez. Ces raccourcis marchent dans toutes les apps :"
-                        : "La dictée a besoin de l'Accessibilité et du micro. Revenez en arrière pour les "
-                            + "activer, ou rouvrez cette fenêtre depuis la barre des menus : Configurer Fluence…",
-                ],
+                body: Self.requiredGranted(model)
+                    ? "Maintenez \(key) n'importe où et parlez. Ces raccourcis marchent dans toutes les apps :"
+                    : "La dictée a besoin de l'Accessibilité et du micro. Revenez en arrière pour les activer, "
+                        + "ou rouvrez cette fenêtre depuis la barre des menus : Configurer Fluence…",
+                facts: [],
                 action: nil
             )
         }
