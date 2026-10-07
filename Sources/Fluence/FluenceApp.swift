@@ -1,4 +1,5 @@
 import AppKit
+import FluenceCore
 import SwiftUI
 
 @main
@@ -78,6 +79,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Reads (and on first run after the update, seals and replaces) the history off the
         // main thread, then applies the retention setting.
         RunLog.start()
+        // MARK: FLU-5 text — snippets are sealed like history; open them now, not on the
+        // first dictation, which would otherwise run without them.
+        _ = SnippetStore.shared
 
         // Parakeet's models take ~20s to load from disk, and that cost lands on whichever
         // dictation touches them first — so the first hold after every launch would stall
@@ -223,15 +227,16 @@ private struct MenuContent: View {
             }
         }
 
-        Toggle("Clean up text", isOn: $settings.cleanupEnabled)
-
-        if settings.cleanupEnabled {
-            Toggle("Smart cleanup (on-device AI)", isOn: $settings.smartCleanup)
-                .disabled(!FoundationModelFormatter.isAvailable)
-            if let reason = FoundationModelFormatter.unavailableReason {
-                Text(reason).font(.caption)
+        // MARK: FLU-5 text
+        Picker("Cleanup", selection: $settings.cleanupLevel) {
+            ForEach(CleanupLevel.allCases, id: \.self) { level in
+                Text(level.title).tag(level)
             }
         }
+        if settings.cleanupLevel.usesModel, let reason = FoundationModelFormatter.unavailableReason {
+            Text(reason).font(.caption)
+        }
+        // MARK: end FLU-5 text
 
         Toggle("Sound", isOn: $settings.soundEnabled)
 

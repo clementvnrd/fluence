@@ -54,16 +54,9 @@ final class DictationController {
     private let capture = AudioCapture()
     private let makeEngine: @MainActor () -> any TranscriptionEngine
 
-    /// Injected only by tests; production reads the setting per-utterance below.
+    /// Injected only by tests; production picks the cleanup level's formatter per utterance
+    /// (`DictationPipeline`), so a change in the menu applies to the very next hold.
     private let formatter: (any TextFormatter)?
-
-    /// Chosen per-utterance so the menu toggle applies to the very next hold.
-    private var activeFormatter: any TextFormatter {
-        if let formatter { return formatter }
-        return Settings.shared.smartCleanup
-            ? FoundationModelFormatter()
-            : RuleBasedFormatter()
-    }
 
     /// The dictation in progress, if any. Its identity is the session token: see
     /// `DictationSession`.
@@ -303,6 +296,8 @@ final class DictationController {
 
         WisprTrigger.release()
         session.releasedAt = Date()
+        // MARK: FLU-5 text — where the text will go, read now while that app is in front.
+        session.target = FrontmostApp.capture(readURL: Settings.shared.cleanupLevel.appliesStyle)
         session.limitTask?.cancel()
         state = .finishing
         level = 0
@@ -366,16 +361,21 @@ final class DictationController {
             return
         }
 
-        let cleaned = Settings.shared.cleanupEnabled
-            ? await activeFormatter.format(raw)
-            : raw
+        // MARK: FLU-5 text — snippets, cleanup level, language, style, then the dictionary.
+        // The dictionary still runs last and regardless of the level: biasing only raises
+        // the odds of the right word; that pass guarantees it.
+        let processed = await DictationPipeline.process(
+            raw,
+            category: session.target?.category ?? .other,
+            formatter: formatter
+        )
         // Cancelled during cleanup (screen locked, say): don't type into whatever has focus now.
         guard self.session === session else { return }
-
-        // The dictionary runs last, and runs regardless of the cleanup setting. Biasing
-        // only raises the odds of the right word; this is the pass that guarantees it,
-        // so it must not be something the user can accidentally switch off.
-        let (output, corrections) = DictionaryStore.shared.corrector.apply(to: cleaned)
+        let output = processed.text
+        let corrections = processed.corrections
+        if processed.snippetCount > 0 {
+            Log.speech.info("snippets · \(processed.snippetCount, privacy: .public) expanded")
+        }
         if !corrections.isEmpty {
             Log.speech.info("dictionary · \(corrections.count, privacy: .public) correction(s) applied")
         }
@@ -667,6 +667,9 @@ private final class DictationSession {
     var engineError: Error?
     /// Capture ended on its own; the reason, for the user.
     var interruption: String?
+    // MARK: FLU-5 text
+    /// The frontmost app at release, and its category — the style at level High.
+    var target: FrontmostApp.Target?
 
     init(source: Source, isComparing: Bool, engineName: String) {
         self.source = source

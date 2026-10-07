@@ -29,13 +29,18 @@ public enum AppCategory: String, CaseIterable, Sendable, Codable {
     public static func classify(bundleID: String?, url: String?) -> AppCategory {
         guard let bundleID = bundleID?.lowercased() else { return .other }
         if let category = apps[bundleID] { return category }
+        guard isBrowser(bundleID: bundleID), let url, let host = host(of: url) else { return .other }
+        return classify(host: host)
+    }
+
+    /// Whether the front tab's address is worth reading for this app. Nothing else's is.
+    public static func isBrowser(bundleID: String) -> Bool {
+        let bundleID = bundleID.lowercased()
         // Web apps wrapped as standalone apps by Chrome/Edge/Safari ("Add to Dock") carry a
-        // generated bundle ID; their URL, when readable, still classifies them below.
-        let isBrowser = browsers.contains(bundleID)
+        // generated bundle ID; their URL, when readable, still classifies them.
+        return browsers.contains(bundleID)
             || bundleID.hasPrefix("com.google.chrome.app.")
             || bundleID.hasPrefix("com.apple.safari.webapp")
-        guard isBrowser, let url, let host = host(of: url) else { return .other }
-        return classify(host: host)
     }
 
     /// The category of a web page from its host name.

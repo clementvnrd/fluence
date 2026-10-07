@@ -43,9 +43,8 @@ public enum RuleCleanup {
             (" *\\n *", "\n"),
             (" +([,.!?;:…)])", "$1"),
             ("\\( +", "("),
-            // A filler removed between two commas, or right after a full stop, leaves one.
+            // A filler removed between two commas leaves one.
             (",(?:\\s*,)+", ","),
-            ("([.!?…])\\s*,", "$1"),
             ("^[\\s,]+", ""),
             ("\\n{3,}", "\n\n"),
         ]

@@ -1,4 +1,5 @@
 import AVFoundation
+import FluenceCore
 import FluidAudio
 import Foundation
 
@@ -13,6 +14,10 @@ import Foundation
 actor ParakeetEngine: TranscriptionEngine {
     private var samples: [Float] = []
     private var continuation: AsyncThrowingStream<TranscriptionChunk, Error>.Continuation?
+
+    // MARK: FLU-5 text
+    /// The chosen language as a script hint for v3's decoder; nil in Auto (v3 detects).
+    private var languageHint: Language?
 
     /// Defaults to 16 kHz mono float32 — exactly what Parakeet is trained on.
     private let converter = AudioConverter()
@@ -31,6 +36,10 @@ actor ParakeetEngine: TranscriptionEngine {
         // Force the (possibly very slow) first load to happen here rather than on release,
         // so the user waits before speaking instead of losing an utterance to a timeout.
         _ = try await ParakeetModels.shared.manager()
+
+        // MARK: FLU-5 text — read once per dictation, on the main actor where it lives.
+        let language = await MainActor.run { Settings.shared.dictationLanguage }
+        languageHint = language.code.flatMap(Language.init(rawValue:))
 
         return stream
     }
@@ -75,7 +84,8 @@ actor ParakeetEngine: TranscriptionEngine {
             let manager = try await ParakeetModels.shared.manager()
             var decoderState = try TdtDecoderState()
             let started = Date()
-            let result = try await manager.transcribe(samples, decoderState: &decoderState)
+            let result = try await manager.transcribe(samples, decoderState: &decoderState, language: languageHint)
+            let text = result.text
             let elapsed = Date().timeIntervalSince(started)
             let audioSeconds = Double(samples.count) / 16_000
 
@@ -86,7 +96,7 @@ actor ParakeetEngine: TranscriptionEngine {
 
             continuation?.yield(
                 TranscriptionChunk(
-                    text: result.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                    text: text.trimmingCharacters(in: .whitespacesAndNewlines),
                     isFinal: true
                 )
             )
@@ -102,6 +112,7 @@ actor ParakeetEngine: TranscriptionEngine {
         continuation?.finish()
         continuation = nil
     }
+
 }
 
 /// Process-wide model cache.

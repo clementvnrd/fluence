@@ -37,15 +37,34 @@ final class Settings {
         didSet { defaults.set(compareMode, forKey: Keys.compareMode) }
     }
 
-    /// Run the cleanup pass before injecting. Off = raw engine output.
-    var cleanupEnabled: Bool {
-        didSet { defaults.set(cleanupEnabled, forKey: Keys.cleanupEnabled) }
+    // MARK: FLU-5 text
+
+    /// How much cleanup runs between the engine and the text field. Replaces the old
+    /// `cleanupEnabled` / `smartCleanup` switches, which are migrated once (see `init`).
+    var cleanupLevel: CleanupLevel {
+        didSet { defaults.set(cleanupLevel.rawValue, forKey: Keys.cleanupLevel) }
     }
 
-    /// Use the on-device LLM for cleanup instead of the deterministic rule pass.
-    var smartCleanup: Bool {
-        didSet { defaults.set(smartCleanup, forKey: Keys.smartCleanup) }
+    /// The language dictated in. Auto keeps the system locale for Apple's engine, lets
+    /// Parakeet detect, and has cleanup detect each transcript's language.
+    var dictationLanguage: DictationLanguage {
+        didSet { defaults.set(dictationLanguage.rawValue, forKey: Keys.dictationLanguage) }
     }
+
+    /// The writing style per kind of app, applied at cleanup level High only.
+    var styles: [AppCategory: WritingStyle] {
+        didSet {
+            for (category, style) in styles {
+                defaults.set(style.rawValue, forKey: Keys.style(category))
+            }
+        }
+    }
+
+    func style(for category: AppCategory) -> WritingStyle {
+        styles[category] ?? category.defaultStyle
+    }
+
+    // MARK: end FLU-5 text
 
     /// Play a short tick when capture starts and stops.
     var soundEnabled: Bool {
@@ -71,13 +90,19 @@ final class Settings {
 
     private enum Keys {
         static let pushToTalkKey = "pushToTalkKey"
+        /// Legacy (before FLU-5): read once by the cleanup-level migration, never written.
         static let cleanupEnabled = "cleanupEnabled"
         static let soundEnabled = "soundEnabled"
         static let engine = "engine"
+        /// Legacy (before FLU-5), as above.
         static let smartCleanup = "smartCleanup"
         static let compareMode = "compareMode"
         static let historyRetention = "historyRetention"
         static let maxRecordingMinutes = "maxRecordingMinutes"
+        // MARK: FLU-5 text
+        static let cleanupLevel = "cleanupLevel"
+        static let dictationLanguage = "dictationLanguage"
+        static func style(_ category: AppCategory) -> String { "style.\(category.rawValue)" }
     }
 
     private init() {
@@ -87,8 +112,27 @@ final class Settings {
         pushToTalkKey = PushToTalkKey(rawValue: raw) ?? .rightOption
         // Apple by default: no download, no dependency, live text while speaking.
         engine = SpeechEngineChoice(rawValue: defaults.string(forKey: Keys.engine) ?? "") ?? .apple
-        cleanupEnabled = defaults.object(forKey: Keys.cleanupEnabled) as? Bool ?? true
-        smartCleanup = defaults.object(forKey: Keys.smartCleanup) as? Bool ?? false
+        // MARK: FLU-5 text
+        // The level is stored as soon as it is first derived, so the migration from the two
+        // old switches runs exactly once and a later change to them can't override it. The
+        // old keys are left in place: a downgraded build still finds what it expects.
+        if let level = CleanupLevel(rawValue: defaults.string(forKey: Keys.cleanupLevel) ?? "") {
+            cleanupLevel = level
+        } else {
+            cleanupLevel = CleanupLevel.migrated(
+                cleanupEnabled: defaults.object(forKey: Keys.cleanupEnabled) as? Bool,
+                smartCleanup: defaults.object(forKey: Keys.smartCleanup) as? Bool
+            )
+            defaults.set(cleanupLevel.rawValue, forKey: Keys.cleanupLevel)
+        }
+        dictationLanguage = DictationLanguage(rawValue: defaults.string(forKey: Keys.dictationLanguage) ?? "") ?? .auto
+        var styles: [AppCategory: WritingStyle] = [:]
+        for category in AppCategory.allCases {
+            styles[category] = WritingStyle(rawValue: defaults.string(forKey: Keys.style(category)) ?? "")
+                ?? category.defaultStyle
+        }
+        self.styles = styles
+        // MARK: end FLU-5 text
         compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         historyRetention = HistoryRetention(rawValue: defaults.string(forKey: Keys.historyRetention) ?? "")
