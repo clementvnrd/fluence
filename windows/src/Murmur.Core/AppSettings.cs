@@ -19,11 +19,36 @@ public sealed record SettingsData
     /// <summary>Where the speech model lives, or null to search the default locations.</summary>
     public string? ModelDirectory { get; init; }
 
-    /// <summary>Whether to type the transcript into the focused app.</summary>
+    /// <summary>
+    /// Whether to type the transcript into the focused app. When false, dictations go to the
+    /// history only.
+    /// </summary>
     public bool InjectText { get; init; } = true;
 
-    /// <summary>Whether to keep a transcript history.</summary>
-    public bool KeepHistory { get; init; } = true;
+    /// <summary>
+    /// Recording stops on its own after this many minutes (1–60), in case the key's release
+    /// is lost. Not shown in the UI; edit settings.json to change it.
+    /// </summary>
+    public int MaxRecordingMinutes { get; init; } = 10;
+
+    /// <summary>How long dictations stay in the (sealed) history. Defaults to 30 days.</summary>
+    public HistoryRetention HistoryRetention { get; init; } = HistoryRetention.ThirtyDays;
+
+    /// <summary>
+    /// The pre-retention on/off switch. Read once from old settings files so "off" becomes
+    /// <see cref="HistoryRetention.Never"/>, and never written again.
+    /// </summary>
+    [JsonPropertyName("KeepHistory")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LegacyKeepHistory { get; init; }
+
+    /// <summary>Folds legacy fields into their replacements.</summary>
+    public SettingsData Normalize() => LegacyKeepHistory switch
+    {
+        false => this with { HistoryRetention = HistoryRetention.Never, LegacyKeepHistory = null },
+        true => this with { LegacyKeepHistory = null },
+        null => this,
+    };
 }
 
 /// <summary>Settings, persisted as JSON.</summary>
@@ -39,9 +64,7 @@ public sealed class AppSettings
     }
 
     /// <summary>The default location.</summary>
-    public static string DefaultPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Murmur", "settings.json");
+    public static string DefaultPath => AppPaths.SettingsFile;
 
     /// <summary>Current values.</summary>
     public SettingsData Data { get; private set; }
@@ -54,8 +77,8 @@ public sealed class AppSettings
     {
         Data = data;
 
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        File.WriteAllText(_path, JsonSerializer.Serialize(data, SettingsJsonContext.Default.SettingsData));
+        // Atomic: a crash mid-write must leave the previous settings, not an empty file.
+        AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(data, SettingsJsonContext.Default.SettingsData));
 
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -68,8 +91,8 @@ public sealed class AppSettings
         {
             if (!File.Exists(path)) return new SettingsData();
 
-            return JsonSerializer.Deserialize(File.ReadAllText(path), SettingsJsonContext.Default.SettingsData)
-                   ?? new SettingsData();
+            return (JsonSerializer.Deserialize(File.ReadAllText(path), SettingsJsonContext.Default.SettingsData)
+                    ?? new SettingsData()).Normalize();
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {
@@ -79,6 +102,6 @@ public sealed class AppSettings
 }
 
 /// <summary>Source-generated JSON for settings.</summary>
-[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(SettingsData))]
 public sealed partial class SettingsJsonContext : JsonSerializerContext;

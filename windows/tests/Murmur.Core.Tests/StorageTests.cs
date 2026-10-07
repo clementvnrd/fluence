@@ -1,5 +1,6 @@
 using Murmur.Core;
 using Murmur.Dictionary;
+using Murmur.Testing;
 using Shouldly;
 using Xunit;
 
@@ -89,6 +90,106 @@ public sealed class DictionaryFileTests : IDisposable
     }
 
     [Fact]
+    public void Saving_keeps_the_users_comments_and_layout()
+    {
+        File.WriteAllText(_path, """
+            # My names — do not lose this note
+            Anthropic
+
+            # work stuff
+            cloud code -> Claude Code
+            this line -> is fine
+             -> malformed, but mine
+
+            """.Replace("\r\n", "\n", StringComparison.Ordinal));
+
+        var file = new DictionaryFile(_path);
+        file.Add(DictionaryEntry.Term("Vercel"));
+        file.Remove(file.Entries.Single(e => e.Hear == "this line").Id);
+
+        var text = File.ReadAllText(_path);
+        text.ShouldContain("# My names — do not lose this note");
+        text.ShouldContain("# work stuff");
+        text.ShouldContain(" -> malformed, but mine");
+        text.ShouldNotContain("this line");
+        text.ShouldEndWith("Vercel\n");
+        text.IndexOf("Anthropic", StringComparison.Ordinal)
+            .ShouldBeLessThan(text.IndexOf("# work stuff", StringComparison.Ordinal), "order is preserved");
+    }
+
+    [Fact]
+    public void An_external_edit_is_picked_up_before_the_next_save()
+    {
+        var file = new DictionaryFile(_path);
+        file.Add(DictionaryEntry.Term("Anthropic"));
+
+        // Another editor appends a line; the watcher has not run.
+        File.AppendAllText(_path, "Vercel\n");
+        file.Add(DictionaryEntry.Term("Fluence"));
+
+        new DictionaryFile(_path).Entries.Select(e => e.Write).ShouldBe(["Anthropic", "Vercel", "Fluence"]);
+    }
+
+    [Fact]
+    public void Ids_survive_a_reload_so_the_ui_can_still_edit()
+    {
+        var file = new DictionaryFile(_path);
+        file.Add(DictionaryEntry.Term("Anthropic"));
+        var id = file.Entries[0].Id;
+
+        file.Reload();
+
+        file.Entries[0].Id.ShouldBe(id);
+    }
+
+    [Fact]
+    public void A_missing_file_during_an_editor_save_does_not_empty_the_dictionary()
+    {
+        var file = new DictionaryFile(_path);
+        file.Add(DictionaryEntry.Term("Anthropic"));
+
+        // Delete-then-rename editors briefly leave no file at all.
+        File.Delete(_path);
+        file.Add(DictionaryEntry.Term("Vercel"));
+
+        new DictionaryFile(_path).Entries.Select(e => e.Write).ShouldBe(["Anthropic", "Vercel"],
+            "the in-app edit must not overwrite the user's dictionary with an empty one");
+    }
+
+    [Fact]
+    public async Task External_changes_are_reloaded_while_running()
+    {
+        using var file = new DictionaryFile(_path);
+        file.Add(DictionaryEntry.Term("Anthropic"));
+        file.StartWatching();
+
+        var changed = new TaskCompletionSource();
+        file.Changed += (_, _) => changed.TrySetResult();
+
+        // Write-to-temp-and-rename, the way most editors save.
+        var temporary = _path + ".editor-tmp";
+        File.WriteAllText(temporary, "Anthropic\nVercel\n");
+        File.Move(temporary, _path, overwrite: true);
+
+        var finished = await Task.WhenAny(changed.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+        finished.ShouldBe(changed.Task, "the watcher should have reloaded the file");
+        file.Entries.Select(e => e.Write).ShouldBe(["Anthropic", "Vercel"]);
+    }
+
+    [Fact]
+    public void Entries_is_a_snapshot_that_edits_do_not_mutate()
+    {
+        var file = new DictionaryFile(_path);
+        file.Add(DictionaryEntry.Term("Anthropic"));
+
+        var snapshot = file.Entries;
+        file.Add(DictionaryEntry.Term("Vercel"));
+
+        snapshot.Count.ShouldBe(1, "the engine may be enumerating this on another thread");
+        file.Entries.Count.ShouldBe(2);
+    }
+
+    [Fact]
     public void Update_and_remove_persist()
     {
         var file = new DictionaryFile(_path);
@@ -103,19 +204,26 @@ public sealed class DictionaryFileTests : IDisposable
     }
 }
 
-/// <summary>Transcript history persistence.</summary>
+/// <summary>Transcript history persistence: sealed at rest, migrated, purged.</summary>
 public sealed class TranscriptStoreTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(), $"murmur-hist-{Guid.NewGuid():N}.jsonl");
+    private readonly string _directory = Path.Combine(Path.GetTempPath(), $"murmur-hist-{Guid.NewGuid():N}");
+    private readonly FakeSecretProtector _protector = new();
+
+    private string HistoryPath => Path.Combine(_directory, "transcripts.jsonl");
+
+    public TranscriptStoreTests() => Directory.CreateDirectory(_directory);
 
     public void Dispose()
     {
-        if (File.Exists(_path)) File.Delete(_path);
+        if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
     }
 
-    private static TranscriptRecord Record(string text) => new()
+    private TranscriptStore Open() => new(HistoryPath, _protector);
+
+    private static TranscriptRecord Record(string text, DateTimeOffset? at = null) => new()
     {
-        At = DateTimeOffset.UtcNow,
+        At = at ?? DateTimeOffset.UtcNow,
         AudioSeconds = 2,
         ProcessingSeconds = 0.2,
         Text = text,
@@ -124,80 +232,207 @@ public sealed class TranscriptStoreTests : IDisposable
     [Fact]
     public void Records_round_trip_newest_first()
     {
-        var store = new TranscriptStore(_path);
-        store.Add(Record("first"));
-        store.Add(Record("second"));
+        using (var store = Open())
+        {
+            store.Add(Record("first"));
+            store.Add(Record("second"));
+        }
 
-        var reopened = new TranscriptStore(_path);
+        using var reopened = Open();
 
         reopened.Records.Count.ShouldBe(2);
         reopened.Records[0].Text.ShouldBe("second", "newest first is how the list reads");
     }
 
     [Fact]
-    public void Corrections_survive_the_round_trip()
+    public void Nothing_dictated_is_readable_on_disk()
     {
-        var store = new TranscriptStore(_path);
-        store.Add(Record("Claude Code") with
+        using (var store = Open())
         {
-            Corrections = [new AppliedCorrection("cloud code", "Claude Code", 2)],
-        });
+            store.Add(Record("my bank PIN is 4711") with
+            {
+                RawText = "my bank pin is four seven one one",
+                Corrections = [new AppliedCorrection("pin", "PIN", 1)],
+            });
+        }
 
-        var reopened = new TranscriptStore(_path);
-        var corrections = reopened.Records[0].Corrections;
+        var disk = File.ReadAllText(HistoryPath);
+        disk.ShouldNotContain("4711");
+        disk.ShouldNotContain("PIN");
+        disk.ShouldNotContain("four seven");
+        File.ReadAllLines(HistoryPath).ShouldAllBe(line => line.StartsWith(HistoryCipher.Prefix, StringComparison.Ordinal));
 
-        corrections.ShouldNotBeNull();
-        corrections[0].To.ShouldBe("Claude Code");
-        corrections[0].Count.ShouldBe(2);
+        // And the key beside it is the wrapped one, not the raw 32 bytes.
+        File.ReadAllBytes(TranscriptStore.KeyPathFor(HistoryPath)).Length.ShouldBe(34);
+    }
+
+    [Fact]
+    public void Raw_text_and_corrections_survive_the_round_trip()
+    {
+        using (var store = Open())
+        {
+            store.Add(Record("Claude Code") with
+            {
+                RawText = "cloud code",
+                Corrections = [new AppliedCorrection("cloud code", "Claude Code", 2)],
+            });
+        }
+
+        using var reopened = Open();
+        var record = reopened.Records.ShouldHaveSingleItem();
+
+        record.RawText.ShouldBe("cloud code");
+        record.Corrections.ShouldNotBeNull();
+        record.Corrections[0].To.ShouldBe("Claude Code");
+        record.Corrections[0].Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public void A_plaintext_history_is_migrated_once_and_the_plaintext_is_gone()
+    {
+        // Exactly what the pre-sealing build wrote: one JSON object per line.
+        File.WriteAllLines(HistoryPath,
+        [
+            """{"Id":"6f1c2c1e-0000-4000-8000-000000000001","At":"2026-09-01T10:00:00+00:00","AudioSeconds":1,"ProcessingSeconds":0.1,"Text":"old secret one"}""",
+            "{ corrupt plaintext",
+            """{"Id":"6f1c2c1e-0000-4000-8000-000000000002","At":"2026-09-02T10:00:00+00:00","AudioSeconds":1,"ProcessingSeconds":0.1,"Text":"old secret two"}""",
+        ]);
+
+        using (var store = Open())
+        {
+            store.Records.Select(r => r.Text).ShouldBe(["old secret two", "old secret one"]);
+        }
+
+        var disk = File.ReadAllText(HistoryPath);
+        disk.ShouldNotContain("old secret");
+        disk.ShouldNotContain("corrupt plaintext");
+
+        using var reopened = Open();
+        reopened.Records.Count.ShouldBe(2);
     }
 
     [Fact]
     public void A_corrupt_line_does_not_destroy_the_rest_of_the_history()
     {
-        var store = new TranscriptStore(_path);
-        store.Add(Record("good one"));
+        using (var store = Open())
+        {
+            store.Add(Record("good one"));
+            File.AppendAllText(HistoryPath, HistoryCipher.Prefix + "AAAAnot-really-sealed\n");
+            store.Add(Record("good two"));
+        }
 
-        File.AppendAllText(_path, "{ this is not json" + Environment.NewLine);
-        store.Add(Record("good two"));
-
-        var reopened = new TranscriptStore(_path);
+        using var reopened = Open();
         reopened.Records.Count.ShouldBe(2, "one bad line must cost one record, not the file");
+    }
+
+    [Fact]
+    public void A_key_from_another_account_sets_the_old_history_aside_instead_of_deleting_it()
+    {
+        using (var store = Open()) store.Add(Record("written by someone else"));
+
+        using var other = new TranscriptStore(HistoryPath, new FakeSecretProtector(identity: 0x11));
+
+        other.Records.ShouldBeEmpty();
+        other.IsPersistent.ShouldBeTrue("a fresh history starts under a fresh key");
+        other.Problem.ShouldNotBeNull();
+        Directory.GetFiles(_directory, "transcripts.unreadable-*.jsonl").ShouldHaveSingleItem();
+        Directory.GetFiles(_directory, "transcripts.unreadable-*.key").ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public void Without_a_protector_nothing_touches_the_disk()
+    {
+        using var store = new TranscriptStore(HistoryPath, protector: null);
+        store.Add(Record("memory only"));
+
+        store.IsPersistent.ShouldBeFalse();
+        store.Records.ShouldHaveSingleItem();
+        File.Exists(HistoryPath).ShouldBeFalse("no secure storage must never mean a plaintext fallback");
     }
 
     [Fact]
     public void Delete_removes_only_the_named_record_and_persists()
     {
-        var store = new TranscriptStore(_path);
-        store.Add(Record("keep me"));
-        store.Add(Record("delete me"));
+        using (var store = Open())
+        {
+            store.Add(Record("keep me"));
+            store.Add(Record("delete me"));
 
-        var doomed = store.Records.Single(r => r.Text == "delete me");
-        store.Remove(doomed.Id);
+            var doomed = store.Records.Single(r => r.Text == "delete me");
+            store.Remove(doomed.Id);
+        }
 
-        new TranscriptStore(_path).Records.Select(r => r.Text).ShouldBe(["keep me"]);
+        using var reopened = Open();
+        reopened.Records.Select(r => r.Text).ShouldBe(["keep me"]);
     }
 
     [Fact]
     public void Appending_after_a_delete_still_reads_back_in_order()
     {
         // Deleting rewrites the file; a later append must not scramble the ordering.
-        var store = new TranscriptStore(_path);
-        store.Add(Record("one"));
-        store.Add(Record("two"));
-        store.Remove(store.Records.Single(r => r.Text == "one").Id);
-        store.Add(Record("three"));
+        using (var store = Open())
+        {
+            store.Add(Record("one"));
+            store.Add(Record("two"));
+            store.Remove(store.Records.Single(r => r.Text == "one").Id);
+            store.Add(Record("three"));
+        }
 
-        new TranscriptStore(_path).Records.Select(r => r.Text).ShouldBe(["three", "two"]);
+        using var reopened = Open();
+        reopened.Records.Select(r => r.Text).ShouldBe(["three", "two"]);
     }
 
     [Fact]
-    public void Clear_empties_the_file()
+    public void Clear_deletes_the_file()
     {
-        var store = new TranscriptStore(_path);
-        store.Add(Record("gone"));
-        store.Clear();
+        using (var store = Open())
+        {
+            store.Add(Record("gone"));
+            store.Clear();
+        }
 
-        new TranscriptStore(_path).Records.ShouldBeEmpty();
+        File.Exists(HistoryPath).ShouldBeFalse();
+        using var reopened = Open();
+        reopened.Records.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Retention_purges_by_age_and_persists()
+    {
+        var now = new DateTimeOffset(2026, 10, 7, 12, 0, 0, TimeSpan.Zero);
+
+        using (var store = Open())
+        {
+            store.Add(Record("two months old", now.AddDays(-60)));
+            store.Add(Record("two days old", now.AddDays(-2)));
+            store.Add(Record("an hour old", now.AddHours(-1)));
+
+            store.ApplyRetention(HistoryRetention.Forever, now).ShouldBe(0);
+            store.ApplyRetention(HistoryRetention.ThirtyDays, now).ShouldBe(1);
+            store.ApplyRetention(HistoryRetention.OneDay, now).ShouldBe(1);
+        }
+
+        using var reopened = Open();
+        reopened.Records.Select(r => r.Text).ShouldBe(["an hour old"]);
+    }
+
+    [Fact]
+    public void Retention_never_deletes_the_whole_history()
+    {
+        using (var store = Open())
+        {
+            store.Add(Record("anything"));
+            store.ApplyRetention(HistoryRetention.Never, DateTimeOffset.UtcNow).ShouldBe(1);
+            store.Records.ShouldBeEmpty();
+        }
+
+        File.Exists(HistoryPath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Retention_defaults_to_thirty_days()
+    {
+        new SettingsData().HistoryRetention.ShouldBe(HistoryRetention.ThirtyDays);
     }
 }
 
@@ -231,10 +466,99 @@ public sealed class AppSettingsTests : IDisposable
     }
 
     [Fact]
+    public void Settings_are_saved_atomically_and_round_trip_the_retention()
+    {
+        var settings = new AppSettings(_path);
+        settings.Update(settings.Data with { HistoryRetention = HistoryRetention.OneDay });
+
+        new AppSettings(_path).Data.HistoryRetention.ShouldBe(HistoryRetention.OneDay);
+        File.ReadAllText(_path).ShouldContain("\"OneDay\"", Case.Sensitive, "enums are written by name, for hand-editing");
+    }
+
+    [Fact]
+    public void An_old_keep_history_off_becomes_retention_never()
+    {
+        File.WriteAllText(_path, """{ "PushToTalkKey": 163, "KeepHistory": false }""");
+
+        var settings = new AppSettings(_path);
+
+        settings.Data.HistoryRetention.ShouldBe(HistoryRetention.Never);
+        settings.Data.LegacyKeepHistory.ShouldBeNull();
+    }
+
+    [Fact]
     public void Corrupt_settings_fall_back_to_defaults_rather_than_failing_to_launch()
     {
         File.WriteAllText(_path, "{ not json at all");
 
         new AppSettings(_path).Data.PushToTalkKey.ShouldBe(0xA3);
+    }
+}
+
+/// <summary>The one-time move from the pre-rename data folder.</summary>
+public sealed class AppPathsTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), $"fluence-paths-{Guid.NewGuid():N}");
+
+    private string Legacy => Path.Combine(_root, "Murmur");
+    private string Current => Path.Combine(_root, "Fluence");
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
+    }
+
+    private static void Write(string path, string text)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, text);
+    }
+
+    [Fact]
+    public void Nothing_happens_without_a_legacy_folder()
+    {
+        AppPaths.MigrateLegacyData(Legacy, Current).ShouldBe(DataMigration.NothingToMigrate);
+        Directory.Exists(Current).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void The_legacy_folder_is_moved_not_copied()
+    {
+        Write(Path.Combine(Legacy, "transcripts.jsonl"), "old history");
+        Write(Path.Combine(Legacy, "models", "parakeet-v2", "tokens.txt"), "tokens");
+
+        AppPaths.MigrateLegacyData(Legacy, Current).ShouldBe(DataMigration.Moved);
+
+        File.ReadAllText(Path.Combine(Current, "transcripts.jsonl")).ShouldBe("old history");
+        File.Exists(Path.Combine(Current, "models", "parakeet-v2", "tokens.txt")).ShouldBeTrue();
+        Directory.Exists(Legacy).ShouldBeFalse("a plaintext copy left behind would defeat sealing the history");
+    }
+
+    [Fact]
+    public void A_merge_never_overwrites_the_new_folder()
+    {
+        Write(Path.Combine(Legacy, "settings.json"), "legacy settings");
+        Write(Path.Combine(Legacy, "dictionary.txt"), "legacy dictionary");
+        Write(Path.Combine(Legacy, "models", "parakeet-v3", "tokens.txt"), "v3");
+        Write(Path.Combine(Current, "settings.json"), "new settings");
+        Write(Path.Combine(Current, "models", "parakeet-v2", "tokens.txt"), "v2");
+
+        AppPaths.MigrateLegacyData(Legacy, Current).ShouldBe(DataMigration.Merged);
+
+        File.ReadAllText(Path.Combine(Current, "settings.json")).ShouldBe("new settings");
+        File.ReadAllText(Path.Combine(Current, "dictionary.txt")).ShouldBe("legacy dictionary");
+        File.Exists(Path.Combine(Current, "models", "parakeet-v3", "tokens.txt")).ShouldBeTrue();
+        File.Exists(Path.Combine(Current, "models", "parakeet-v2", "tokens.txt")).ShouldBeTrue();
+
+        // The conflicting file stays behind rather than being guessed at.
+        File.ReadAllText(Path.Combine(Legacy, "settings.json")).ShouldBe("legacy settings");
+    }
+
+    [Fact]
+    public void Paths_use_the_product_name()
+    {
+        AppPaths.DataDirectory.ShouldEndWith("Fluence");
+        AppPaths.TranscriptsFile.ShouldStartWith(AppPaths.DataDirectory);
+        AppPaths.LogsDirectory.ShouldStartWith(AppPaths.DataDirectory);
     }
 }

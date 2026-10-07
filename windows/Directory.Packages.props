@@ -14,9 +14,20 @@
     <PackageVersion Include="org.k2fsa.sherpa.onnx.runtime.win-x64" Version="1.13.5" />
     <PackageVersion Include="org.k2fsa.sherpa.onnx.runtime.win-arm64" Version="1.13.5" />
 
-    <!-- Audio. PINNED TO 2.3.0 ON PURPOSE.
-         NAudio 3.x targets net9.0+ only and will not restore here. -->
+    <!-- Audio. PINNED TO 2.3.0 ON PURPOSE. (An earlier note here said 3.x "will not
+         restore" on .NET 9+; that was wrong — this project is net10.0.) 3.x is a new major
+         version (the October 2026 audit notes 3.1 replaces the loopback API the planned
+         Notetaker needs); moving is a port that needs real-hardware testing, not a bump. -->
     <PackageVersion Include="NAudio" Version="2.3.0" />
+
+    <!-- Windows platform layer only. DPAPI wraps the key that seals the transcript history.
+         Ships as a loose DLL beside Fluence.exe (see Murmur.App.csproj). -->
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
+    <!-- Windows platform layer only. Session lock/switch notifications. CAUTION: its
+         lib/net10.0 DLL is a PlatformNotSupported stub; the real one is under runtimes/win,
+         and that is the file Murmur.App.csproj ships. The self-test subscribes to it, so
+         shipping the stub fails CI. -->
+    <PackageVersion Include="Microsoft.Win32.SystemEvents" Version="10.0.12" />
 
     <!-- UI. Avalonia rather than WPF: it is the only option that builds, runs and
          UI-tests on macOS, which is where this app is being written. -->

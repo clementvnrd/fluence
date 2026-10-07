@@ -91,10 +91,10 @@ without Xcode. CI builds the whole app on every pull request. Locally:
 
 ## Things that look like bugs and are not
 
-**`dotnet build Murmur.sln` fails on macOS** with `NETSDK1073`. Expected —
-`Murmur.Platform.Windows` targets `net10.0-windows`. Use `Murmur.CrossPlatform.slnf`, which
-omits it; everything else, including the whole UI suite, builds and tests on macOS in about
-half a second.
+**`dotnet build Murmur.sln` fails on macOS** with `NETSDK1073` — unless you pass
+`-p:EnableWindowsTargeting=true`, which compiles `Murmur.Platform.Windows` (and runs its
+analyzers) on a Mac too. `Murmur.CrossPlatform.slnf` omits it and holds every test (149);
+the whole UI suite runs headless on macOS in about a second.
 
 **`swift build` fails with "input file was modified during the build."** The repo lives in an
 iCloud-synced folder and the sync engine touches files mid-compile. **Always build with
@@ -172,7 +172,7 @@ them as load-bearing. Full detail in `windows/README.md` and `docs/PARAKEET-WIND
 
 | Package | Pin | Why |
 |---|---|---|
-| `NAudio` | 2.3.0 | 3.x targets .NET 9+ and will not restore |
+| `NAudio` | 2.3.0 | 3.x is a new major version — moving is a port that needs real-hardware testing. 3.1 is needed later for the Notetaker's process loopback (FLU-10) |
 | `Avalonia.Headless.XUnit` | 11.3.20 | 12.x requires xUnit **v3**, a different package line |
 | `org.k2fsa.sherpa.onnx` | 1.13.5 | Bundles ONNX Runtime — never also reference `Microsoft.ML.OnnxRuntime` |
 
