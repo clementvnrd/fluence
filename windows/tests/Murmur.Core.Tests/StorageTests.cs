@@ -90,6 +90,106 @@ public sealed class DictionaryFileTests : IDisposable
     }
 
     [Fact]
+    public void Saving_keeps_the_users_comments_and_layout()
+    {
+        File.WriteAllText(_path, """
+            # My names — do not lose this note
+            Anthropic
+
+            # work stuff
+            cloud code -> Claude Code
+            this line -> is fine
+             -> malformed, but mine
+
+            """.Replace("\r\n", "\n", StringComparison.Ordinal));
+
+        var file = new DictionaryFile(_path);
+        file.Add(DictionaryEntry.Term("Vercel"));
+        file.Remove(file.Entries.Single(e => e.Hear == "this line").Id);
+
+        var text = File.ReadAllText(_path);
+        text.ShouldContain("# My names — do not lose this note");
+        text.ShouldContain("# work stuff");
+        text.ShouldContain(" -> malformed, but mine");
+        text.ShouldNotContain("this line");
+        text.ShouldEndWith("Vercel\n");
+        text.IndexOf("Anthropic", StringComparison.Ordinal)
+            .ShouldBeLessThan(text.IndexOf("# work stuff", StringComparison.Ordinal), "order is preserved");
+    }
+
+    [Fact]
+    public void An_external_edit_is_picked_up_before_the_next_save()
+    {
+        var file = new DictionaryFile(_path);
+        file.Add(DictionaryEntry.Term("Anthropic"));
+
+        // Another editor appends a line; the watcher has not run.
+        File.AppendAllText(_path, "Vercel\n");
+        file.Add(DictionaryEntry.Term("Fluence"));
+
+        new DictionaryFile(_path).Entries.Select(e => e.Write).ShouldBe(["Anthropic", "Vercel", "Fluence"]);
+    }
+
+    [Fact]
+    public void Ids_survive_a_reload_so_the_ui_can_still_edit()
+    {
+        var file = new DictionaryFile(_path);
+        file.Add(DictionaryEntry.Term("Anthropic"));
+        var id = file.Entries[0].Id;
+
+        file.Reload();
+
+        file.Entries[0].Id.ShouldBe(id);
+    }
+
+    [Fact]
+    public void A_missing_file_during_an_editor_save_does_not_empty_the_dictionary()
+    {
+        var file = new DictionaryFile(_path);
+        file.Add(DictionaryEntry.Term("Anthropic"));
+
+        // Delete-then-rename editors briefly leave no file at all.
+        File.Delete(_path);
+        file.Add(DictionaryEntry.Term("Vercel"));
+
+        new DictionaryFile(_path).Entries.Select(e => e.Write).ShouldBe(["Anthropic", "Vercel"],
+            "the in-app edit must not overwrite the user's dictionary with an empty one");
+    }
+
+    [Fact]
+    public async Task External_changes_are_reloaded_while_running()
+    {
+        using var file = new DictionaryFile(_path);
+        file.Add(DictionaryEntry.Term("Anthropic"));
+        file.StartWatching();
+
+        var changed = new TaskCompletionSource();
+        file.Changed += (_, _) => changed.TrySetResult();
+
+        // Write-to-temp-and-rename, the way most editors save.
+        var temporary = _path + ".editor-tmp";
+        File.WriteAllText(temporary, "Anthropic\nVercel\n");
+        File.Move(temporary, _path, overwrite: true);
+
+        var finished = await Task.WhenAny(changed.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+        finished.ShouldBe(changed.Task, "the watcher should have reloaded the file");
+        file.Entries.Select(e => e.Write).ShouldBe(["Anthropic", "Vercel"]);
+    }
+
+    [Fact]
+    public void Entries_is_a_snapshot_that_edits_do_not_mutate()
+    {
+        var file = new DictionaryFile(_path);
+        file.Add(DictionaryEntry.Term("Anthropic"));
+
+        var snapshot = file.Entries;
+        file.Add(DictionaryEntry.Term("Vercel"));
+
+        snapshot.Count.ShouldBe(1, "the engine may be enumerating this on another thread");
+        file.Entries.Count.ShouldBe(2);
+    }
+
+    [Fact]
     public void Update_and_remove_persist()
     {
         var file = new DictionaryFile(_path);

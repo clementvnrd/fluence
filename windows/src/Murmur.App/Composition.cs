@@ -68,7 +68,8 @@ public sealed class Composition : IAsyncDisposable
     public static Composition Create(IDiagnosticLog log)
     {
         var settings = new AppSettings(AppSettings.DefaultPath);
-        var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
+        var dictionary = new DictionaryFile(DictionaryFile.DefaultPath, log);
+        dictionary.StartWatching();
 
         // Sealed under a DPAPI-wrapped key. With no platform layer there is no protector and
         // the history stays in memory — never a plaintext fallback.
@@ -128,6 +129,7 @@ public sealed class Composition : IAsyncDisposable
     {
         if (Engine is not null) await Engine.DisposeAsync().ConfigureAwait(false);
         Transcripts.Dispose();
+        Dictionary.Dispose();
     }
 }
 
