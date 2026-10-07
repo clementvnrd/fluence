@@ -553,7 +553,7 @@ private struct RenamePopover: View {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "info.circle").font(.system(size: 10)).foregroundStyle(DS.Color.inkSecondary).padding(.top, 1)
                 Text(model.renameMergeTarget.map { "\(FrenchFormat.quoted($0.frenchDisplayName)) existe déjà : les deux voix seront fusionnées." }
-                    ?? "Le nouveau nom remplace \(FrenchFormat.quoted(speaker.frenchDisplayName)) partout dans cette réunion : notes, transcription et export (\(FrenchFormat.count(model.interventions(of: speaker.id), "intervention"))). Laissez vide pour revenir à un intervenant numéroté.")
+                    ?? "Partout dans cette réunion (\(FrenchFormat.count(model.interventions(of: speaker.id), "intervention"))). Vide : intervenant numéroté.")
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Color.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
