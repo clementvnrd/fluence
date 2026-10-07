@@ -7,7 +7,7 @@ let package = Package(
     dependencies: [
         // Parakeet TDT as CoreML on the Neural Engine. Optional at runtime — Apple's
         // SpeechTranscriber remains the default and needs no dependency at all.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.6")
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.17.5")
     ],
     targets: [
         // The dictionary is its own target so it can be tested directly, and because its
@@ -16,6 +16,15 @@ let package = Package(
         .target(
             name: "MurmurDictionary",
             path: "Sources/MurmurDictionary",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Notetaker (capture): the platform-neutral meeting logic — model, merge, echo dedupe,
+        // word→speaker, naming, VAD segmentation. No AppKit or AVFoundation, so it is tested
+        // directly, and its behaviour is shared with the Windows port through
+        // shared/meeting-test-vectors.json.
+        .target(
+            name: "FluenceMeetingCore",
+            path: "Sources/FluenceMeetingCore",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Logic the app depends on that needs no microphone, Keychain or window — formats,
@@ -30,6 +39,8 @@ let package = Package(
             name: "Fluence",
             dependencies: [
                 "MurmurDictionary",
+                "FluenceMeetingCore",
+                "FluenceNotesCore",
                 "FluenceCore",
                 .product(name: "FluidAudio", package: "FluidAudio"),
             ],
@@ -38,11 +49,31 @@ let package = Package(
                 .swiftLanguageMode(.v6)
             ]
         ),
+        // The Notetaker's notes logic (chunking, prompts, merging, Markdown, retention),
+        // kept free of the app and of Foundation Models so it runs under `swift test`.
+        .target(
+            name: "FluenceNotesCore",
+            path: "Sources/FluenceNotesCore",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "FluenceNotesCoreTests",
+            dependencies: ["FluenceNotesCore"],
+            path: "Tests/FluenceNotesCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .testTarget(
             name: "MurmurDictionaryTests",
             dependencies: ["MurmurDictionary"],
             path: "Tests/MurmurDictionaryTests",
             resources: [.copy("dictionary-test-vectors.json")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "FluenceMeetingCoreTests",
+            dependencies: ["FluenceMeetingCore"],
+            path: "Tests/FluenceMeetingCoreTests",
+            resources: [.copy("meeting-test-vectors.json")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

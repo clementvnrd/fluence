@@ -4,7 +4,28 @@ A local, bot-free meeting note-taker: detect the meeting, capture **my voice (mi
 **everyone else (system audio)**, transcribe on-device, attribute every word to a named
 speaker, and produce notes. Nothing leaves the machine.
 
-Status: **design, nothing built.** Versions checked 2026-10-07.
+Status: **built for macOS (milestones 1–3), never run on a real call yet.** The pure logic
+(`FluenceMeetingCore`, `FluenceNotesCore`) is unit tested and shares
+`shared/meeting-test-vectors.json` with the future Windows port; the app code is compiled by
+CI. Windows (milestone 4) is not started. Versions checked 2026-10-07.
+
+### Where things are
+
+| Piece | Code |
+|---|---|
+| Model, merge, echo dedupe, word→speaker, naming, VAD cutting | `Sources/FluenceMeetingCore/` |
+| Detection (mic in use, browser titles, calendar) | `Notetaker/MeetingDetector.swift`, `CalendarContext.swift`, `MeetingWindowReader.swift` |
+| Capture (process tap, meeting mic, encrypted spool) | `SystemAudioTap.swift`, `MicCapture.swift`, `MeetingAudioSpool.swift` |
+| Echo cancellation, VAD, Parakeet per utterance | `ChannelPipeline.swift`, `MeetingSpeechModels.swift` |
+| Final pass: diarization, naming, voice prints | `MeetingFinalizer.swift`, `VoicePrintStore.swift` |
+| Orchestration and panels | `MeetingController.swift`, `MeetingSession.swift`, `MeetingPanels.swift` |
+| Notes (Foundation Models map-reduce), library, export, settings | `Notetaker/Notes/`, `Notetaker/Library/`, `Notetaker/Settings/`, `Sources/FluenceNotesCore/` |
+| Encrypted storage | `MeetingStore.swift` |
+
+Deviations from the design below: utterances are capped at **14.5 s** (Parakeet's single-pass
+window, to avoid FluidAudio's chunk seams); live labels are **You / Others** by channel and
+speaker names arrive with the final pass (no live diarizer); voice prints only match
+calendar attendees.
 
 ## Decisions (FLU-9, Clement, 2026-10-07)
 
