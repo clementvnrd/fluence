@@ -1,4 +1,6 @@
 import AVFoundation
+import AudioToolbox
+import CoreAudio
 import FluenceCore
 import Foundation
 
@@ -19,7 +21,7 @@ final class AudioCapture: @unchecked Sendable {
         case noInputDevice
 
         var errorDescription: String? {
-            "No microphone is available. Connect one, or pick an input in System Settings ▸ Sound."
+            "Aucun micro disponible. Branchez-en un, ou choisissez une entrée dans Réglages Système ▸ Son."
         }
     }
 
@@ -36,6 +38,11 @@ final class AudioCapture: @unchecked Sendable {
 
     var isRunning: Bool { sink != nil }
 
+    /// The microphone picked in Settings (Clement's picker): a Core Audio device UID, or nil
+    /// for the system input. Applied to this engine's input only — the Mac's own default
+    /// input is never changed. Read at every start, so a new choice takes effect next hold.
+    private var deviceUID: String?
+
     init() {
         observeConfiguration()
     }
@@ -46,6 +53,7 @@ final class AudioCapture: @unchecked Sendable {
     ///   - onInterrupted: capture ended on its own — the device disappeared, or kept changing.
     ///     Called on the main thread with a reason fit for the user.
     func start(
+        deviceUID: String? = nil,
         onBuffer: @escaping @Sendable (AudioChunk) -> Void,
         onLevel: @escaping @Sendable (Float) -> Void,
         onInterrupted: @escaping @Sendable (String) -> Void
@@ -53,6 +61,12 @@ final class AudioCapture: @unchecked Sendable {
         guard sink == nil else { return }
         let sink = TapSink(onBuffer: onBuffer, onLevel: onLevel, onInterrupted: onInterrupted)
         recoveries = 0
+        if deviceUID != self.deviceUID {
+            // A different device: start from a fresh engine rather than re-pointing a
+            // running one's input unit.
+            self.deviceUID = deviceUID
+            needsRebuild = true
+        }
         try install(sink)
         self.sink = sink
     }
@@ -71,6 +85,7 @@ final class AudioCapture: @unchecked Sendable {
         if needsRebuild { rebuildEngine() }
 
         let input = engine.inputNode
+        selectDevice(on: input)
         let native = input.outputFormat(forBus: 0)
 
         // With no input device the node reports a 0 Hz, 0-channel format, and installing a
@@ -98,6 +113,27 @@ final class AudioCapture: @unchecked Sendable {
         Log.audio.info("""
             capture started — \(native.sampleRate)Hz, \(native.channelCount, privacy: .public) channel(s)
             """)
+    }
+
+    /// Points the input node at the chosen microphone. A device that is gone (unplugged
+    /// webcam) falls back to the system input rather than failing the dictation.
+    private func selectDevice(on input: AVAudioInputNode) {
+        guard let uid = deviceUID, uid != "default", !uid.isEmpty else { return }
+        guard var device = AudioDevices.deviceID(for: uid), let unit = input.audioUnit else {
+            Log.audio.info("chosen microphone unavailable — using the system input")
+            return
+        }
+        let status = AudioUnitSetProperty(
+            unit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &device,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        if status != noErr {
+            Log.audio.error("couldn't select the chosen microphone (\(status, privacy: .public)) — using the system input")
+        }
     }
 
     private func rebuildEngine() {
@@ -154,7 +190,7 @@ final class AudioCapture: @unchecked Sendable {
             Log.audio.error("capture lost: \(error.localizedDescription)")
             sink.onInterrupted(
                 (error as? RecoveryFailure) == .flapping
-                    ? "The microphone kept changing, so recording stopped."
+                    ? "Le micro changeait sans cesse : l'enregistrement s'est arrêté."
                     : error.localizedDescription
             )
         }

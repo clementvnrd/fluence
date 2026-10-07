@@ -27,7 +27,7 @@ final class OnboardingWindow {
                 backing: .buffered,
                 defer: false
             )
-            window.title = "Set up Fluence"
+            window.title = "Configurer Fluence"
             window.isReleasedWhenClosed = false
             self.window = window
         }
@@ -57,11 +57,11 @@ final class OnboardingModel {
 
         var name: String {
             switch self {
-            case .accessibility: "Accessibility"
+            case .accessibility: "Accessibilité"
             case .microphone: "Microphone"
-            case .systemAudio: "System audio"
-            case .calendar: "Calendar"
-            case .ready: "Ready"
+            case .systemAudio: "Audio système"
+            case .calendar: "Calendrier"
+            case .ready: "Prêt"
             }
         }
 
@@ -123,9 +123,8 @@ final class OnboardingModel {
 
 // MARK: - View
 
-/// Laid out like the rest of the unit: the steps in a recessed well on the left, each with
-/// a pilot lamp (lit = granted — a power lamp, not a colour code: red means recording and
-/// green belongs to the meters), and the current step on a brushed panel on the right.
+/// Laid out like the main window: the orb and "Fluence" on top, the steps in a rounded card
+/// on the left (a green check once granted), and the current step in a card on the right.
 private struct OnboardingView: View {
     let onDone: () -> Void
 
@@ -135,10 +134,14 @@ private struct OnboardingView: View {
         ZStack {
             DS.Color.chassis.ignoresSafeArea()
 
-            HStack(alignment: .top, spacing: DS.Space.base) {
-                stepList
-                    .frame(width: DS.Onboarding.stepColumnWidth)
-                detail
+            VStack(alignment: .leading, spacing: DS.Space.base) {
+                header
+
+                HStack(alignment: .top, spacing: DS.Space.base) {
+                    stepList
+                        .frame(width: DS.Onboarding.stepColumnWidth)
+                    detail
+                }
             }
             .padding(DS.Space.roomy)
         }
@@ -151,39 +154,57 @@ private struct OnboardingView: View {
         }
     }
 
+    // MARK: Header
+
+    private var header: some View {
+        HStack(spacing: DS.Space.base) {
+            AquaOrbView(size: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Fluence")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(DS.Color.ink)
+                Text("Configuration")
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Color.inkSecondary)
+            }
+            Spacer()
+            Text(model.step == .ready ? "Terminé" : "Étape \(model.step.rawValue + 1) sur 4")
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Color.inkSecondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(DS.Color.well, in: Capsule())
+        }
+    }
+
     // MARK: Steps
 
     private var stepList: some View {
-        Well {
-            VStack(alignment: .leading, spacing: DS.Space.tight) {
-                ForEach(OnboardingModel.Step.allCases) { step in
-                    Button {
-                        withAnimation(DS.Motion.panel) { model.step = step }
-                    } label: {
-                        stepRow(step)
-                    }
-                    .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: DS.Space.tight) {
+            ForEach(OnboardingModel.Step.allCases) { step in
+                Button {
+                    withAnimation(DS.Motion.panel) { model.step = step }
+                } label: {
+                    stepRow(step)
                 }
-                Spacer()
-                HStack {
-                    Spacer()
-                    Vents(count: 5)
-                }
+                .buttonStyle(.plain)
             }
-            .padding(DS.Space.snug)
-            .frame(maxHeight: .infinity)
+            Spacer(minLength: 0)
         }
+        .padding(DS.Space.snug)
+        .frame(maxHeight: .infinity)
+        .background(BrushedPanel())
     }
 
     private func stepRow(_ step: OnboardingModel.Step) -> some View {
         HStack(spacing: DS.Space.snug) {
-            Lamp(color: DS.Color.pilot, isLit: isLit(step))
+            stepIcon(step)
             VStack(alignment: .leading, spacing: DS.Space.hair) {
                 Text(step.name)
                     .font(DS.Font.bodyEmphasis)
-                    .foregroundStyle(DS.Color.inkOnDeck)
+                    .foregroundStyle(DS.Color.ink)
                 if step.isOptional {
-                    Silkscreen(text: "Optional", color: DS.Color.inkOnDeck.opacity(DS.Library.inkDim))
+                    Silkscreen(text: "Facultatif")
                 }
             }
             Spacer()
@@ -192,10 +213,10 @@ private struct OnboardingView: View {
         .padding(.vertical, DS.Space.snug)
         .background {
             if model.step == step {
-                RoundedRectangle(cornerRadius: DS.Radius.control)
-                    .fill(DS.Color.deck)
+                RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                    .fill(DS.Color.selection)
                     .overlay(
-                        RoundedRectangle(cornerRadius: DS.Radius.control)
+                        RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
                             .strokeBorder(DS.Color.selectionEdge, lineWidth: DS.Border.hairline)
                     )
             }
@@ -203,7 +224,23 @@ private struct OnboardingView: View {
         .contentShape(.rect)
     }
 
-    /// Granted steps are lit; "Ready" lights once dictation's two requirements are on.
+    /// A green check once granted; otherwise the step's number (a flag for the last one).
+    private func stepIcon(_ step: OnboardingModel.Step) -> some View {
+        let symbol: String
+        if isLit(step) {
+            symbol = "checkmark.circle.fill"
+        } else if step == .ready {
+            symbol = "flag.circle"
+        } else {
+            symbol = "\(step.rawValue + 1).circle"
+        }
+        return Image(systemName: symbol)
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(isLit(step) ? DS.Color.meterGreen : DS.Color.inkSecondary)
+            .frame(width: 18)
+    }
+
+    /// Granted steps are checked; "Prêt" is checked once dictation's two requirements are on.
     private func isLit(_ step: OnboardingModel.Step) -> Bool {
         step == .ready ? Self.requiredGranted(model) : model.status(of: step) == .granted
     }
@@ -212,30 +249,29 @@ private struct OnboardingView: View {
 
     private var detail: some View {
         VStack(alignment: .leading, spacing: DS.Space.roomy) {
-            HStack(alignment: .firstTextBaseline) {
-                Silkscreen(text: model.step == .ready ? "Done" : "Step \(model.step.rawValue + 1) of 4", large: true)
-                Spacer()
-                Screw()
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.roomy) {
+                    Text(page.title)
+                        .font(DS.Font.title)
+                        .foregroundStyle(DS.Color.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    ForEach(page.paragraphs, id: \.self) { paragraph in
+                        Text(paragraph)
+                            .font(DS.Font.body)
+                            .foregroundStyle(DS.Color.inkSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if model.step == .ready {
+                        if Self.requiredGranted(model) { ShortcutLegend() }
+                    } else {
+                        statusRow
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            Text(page.title)
-                .font(DS.Font.title)
-                .foregroundStyle(DS.Color.ink)
-
-            ForEach(page.paragraphs, id: \.self) { paragraph in
-                Text(paragraph)
-                    .font(DS.Font.body)
-                    .foregroundStyle(DS.Color.inkSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if model.step == .ready {
-                if Self.requiredGranted(model) { ShortcutLegend() }
-            } else {
-                statusReadout
-            }
-
-            Spacer(minLength: 0)
+            .scrollIndicators(.never)
 
             controls
         }
@@ -244,46 +280,56 @@ private struct OnboardingView: View {
         .background(BrushedPanel())
     }
 
-    private var statusReadout: some View {
+    /// Granted: a green "Autorisé" badge. Otherwise the one button to the right place.
+    private var statusRow: some View {
         HStack(spacing: DS.Space.snug) {
-            Silkscreen(text: "Status")
-            DeckWindow {
-                HStack(spacing: DS.Space.snug) {
-                    Lamp(color: DS.Color.pilot, isLit: model.status(of: model.step) == .granted)
-                    Readout(text: statusText)
-                }
-                .padding(.horizontal, DS.Space.base)
-                .padding(.vertical, DS.Space.snug)
+            switch model.status(of: model.step) {
+            case .granted:
+                statusBadge(text: "Autorisé")
+            case .askedOnFirstUse:
+                Text("macOS le demande à la première utilisation")
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Color.inkSecondary)
+            case .missing, nil:
+                EmptyView()
             }
+            if let action = page.action, model.status(of: model.step) != .granted {
+                Button(action.title) { action.run() }
+                    .font(DS.Font.caption)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+            Spacer(minLength: 0)
         }
     }
 
-    private var statusText: String {
-        switch model.status(of: model.step) {
-        case .granted: "ON"
-        case .missing: "NOT YET"
-        case .askedOnFirstUse: "ASKED ON FIRST USE"
-        case nil: ""
+    private func statusBadge(text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 9, weight: .bold))
+            Text(text)
+                .font(.system(size: 11, weight: .medium))
         }
+        .foregroundStyle(DS.Color.meterGreen)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(DS.Color.meterGreen.opacity(0.12), in: Capsule())
     }
 
     private var controls: some View {
         HStack(spacing: DS.Space.snug) {
             if model.step != .accessibility {
-                TransportKey(title: "Back", systemImage: "backward.fill", engagedColor: DS.Color.ink) {
+                TransportKey(title: "Retour", systemImage: "chevron.left", engagedColor: DS.Color.ink) {
                     withAnimation(DS.Motion.panel) { model.back() }
                 }
             }
             Spacer()
-            if let action = page.action, model.status(of: model.step) != .granted {
-                TransportKey(title: action.title, engagedColor: DS.Color.ink) { action.run() }
-            }
             if model.step == .ready {
-                TransportKey(title: "Done", engagedColor: DS.Color.ink, action: onDone)
+                TransportKey(title: "Terminer", isEngaged: true, engagedColor: DS.Color.ink, action: onDone)
             } else {
                 TransportKey(
                     title: nextTitle,
-                    systemImage: "forward.fill",
+                    systemImage: "chevron.right",
                     engagedColor: DS.Color.ink
                 ) {
                     withAnimation(DS.Motion.panel) { model.advance() }
@@ -292,10 +338,10 @@ private struct OnboardingView: View {
         }
     }
 
-    /// "Skip" when moving on would leave something off, so it never looks like the step
+    /// "Passer" when moving on would leave something off, so it never looks like the step
     /// was done.
     private var nextTitle: String {
-        model.status(of: model.step) == .missing ? "Skip" : "Next"
+        model.status(of: model.step) == .missing ? "Passer" : "Suivant"
     }
 
     // MARK: Copy
@@ -317,14 +363,17 @@ private struct OnboardingView: View {
         switch model.step {
         case .accessibility:
             Page(
-                title: "Let Fluence hear the key and type for you",
+                title: "Laissez Fluence repérer la touche et écrire pour vous",
                 paragraphs: [
-                    "Accessibility lets Fluence notice when you hold \(key) in any app, and type "
-                        + "your words where the cursor is. Without it the key does nothing.",
-                    "Fluence only looks for its own shortcuts and ignores every other key. "
-                        + "Turn Fluence on in the list that opens; this window moves on by itself.",
+                    "L'Accessibilité permet à Fluence de voir quand vous maintenez \(key) dans "
+                        + "n'importe quelle app, et de taper vos mots là où se trouve le curseur. "
+                        + "Sans elle, seuls les raccourcis avec une touche (⌥ Espace) marchent, "
+                        + "et le texte reste dans le presse-papiers : collez-le avec ⌘V.",
+                    "Fluence ne guette que ses propres raccourcis et ignore toutes les autres touches. "
+                        + "Activez Fluence dans la liste qui s'ouvre ; cette fenêtre passe à la suite "
+                        + "toute seule.",
                 ],
-                action: Action(title: "Open Settings") {
+                action: Action(title: "Autoriser…") {
                     // Puts Fluence in the list, so there is something to switch on.
                     Permissions.promptForAccessibility()
                     Permissions.openAccessibilitySettings()
@@ -332,51 +381,51 @@ private struct OnboardingView: View {
             )
         case .microphone:
             Page(
-                title: "Let Fluence listen while you hold the key",
+                title: "Laissez Fluence écouter pendant que vous maintenez la touche",
                 paragraphs: [
-                    "The microphone is on only while you dictate — while the key is held, or "
-                        + "until you stop a hands-free dictation. Never in the background.",
-                    "What you say is turned into text on this Mac. It is never sent anywhere.",
+                    "Le micro n'est ouvert que pendant la dictée : tant que la touche est maintenue, "
+                        + "ou jusqu'à ce que vous arrêtiez une dictée mains libres. Jamais en arrière-plan.",
+                    "Ce que vous dites est transformé en texte sur ce Mac. Rien n'est jamais envoyé ailleurs.",
                 ],
                 action: Permissions.microphoneUndecided
-                    ? Action(title: "Allow microphone") {
+                    ? Action(title: "Autoriser…") {
                         Task { _ = await Permissions.requestMicrophone() }
                     }
-                    : Action(title: "Open Settings") { Permissions.openMicrophoneSettings() }
+                    : Action(title: "Autoriser dans Réglages…") { Permissions.openMicrophoneSettings() }
             )
         case .systemAudio:
             Page(
-                title: "Optional: hear the other side of a call",
+                title: "Facultatif : entendre l'autre côté d'un appel",
                 paragraphs: [
-                    "Meeting notes record the other people in a call from your Mac's sound. "
-                        + "Dictation doesn't need this.",
-                    "There is nothing to do now: macOS asks the first time you take meeting notes. "
-                        + "If you said no then, this is where to change it.",
+                    "Les notes de réunion enregistrent les autres participants d'un appel à partir "
+                        + "du son de votre Mac. La dictée n'en a pas besoin.",
+                    "Rien à faire maintenant : macOS le demande la première fois que vous prenez des "
+                        + "notes de réunion. Si vous avez refusé, c'est ici qu'on le change.",
                 ],
-                action: Action(title: "Open Settings") { Permissions.openSystemAudioSettings() }
+                action: Action(title: "Ouvrir Réglages…") { Permissions.openSystemAudioSettings() }
             )
         case .calendar:
             Page(
-                title: "Optional: name your meetings",
+                title: "Facultatif : nommer vos réunions",
                 paragraphs: [
-                    "With your calendar, meeting notes take the event's title and the names of "
-                        + "the people invited. Dictation doesn't need this.",
-                    "Fluence reads the calendar on this Mac, only while it takes notes.",
+                    "Avec votre calendrier, les notes de réunion reprennent le titre de l'événement "
+                        + "et le nom des invités. La dictée n'en a pas besoin.",
+                    "Fluence lit le calendrier de ce Mac, uniquement pendant la prise de notes.",
                 ],
                 action: Permissions.calendarUndecided
-                    ? Action(title: "Allow calendar") {
+                    ? Action(title: "Autoriser…") {
                         Task { _ = await Permissions.requestCalendar() }
                     }
-                    : Action(title: "Open Settings") { Permissions.openCalendarSettings() }
+                    : Action(title: "Autoriser dans Réglages…") { Permissions.openCalendarSettings() }
             )
         case .ready:
             Page(
-                title: Self.requiredGranted(model) ? "Fluence is ready" : "Almost ready",
+                title: Self.requiredGranted(model) ? "Fluence est prêt" : "Presque prêt",
                 paragraphs: [
                     Self.requiredGranted(model)
-                        ? "Hold \(key) anywhere and talk. These work in every app:"
-                        : "Dictation needs Accessibility and the microphone. Go back to switch "
-                            + "them on, or reopen this window from the menu bar: Set up Fluence…",
+                        ? "Maintenez \(key) n'importe où et parlez. Ces raccourcis marchent dans toutes les apps :"
+                        : "La dictée a besoin de l'Accessibilité et du micro. Revenez en arrière pour les "
+                            + "activer, ou rouvrez cette fenêtre depuis la barre des menus : Configurer Fluence…",
                 ],
                 action: nil
             )

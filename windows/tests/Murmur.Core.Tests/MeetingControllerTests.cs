@@ -65,6 +65,16 @@ public sealed class MeetingControllerTests : IDisposable
 
     private void ZoomOnMic() => _signals.Sessions.Add(new AudioSessionInfo(4242, "Zoom.exe", true));
 
+    private static async Task WaitForAsync(Func<bool> condition, string what)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException($"Timed out waiting for {what}.");
+            await Task.Delay(5);
+        }
+    }
+
     private async Task TickAsync(MeetingController controller, int times = 1)
     {
         for (var i = 0; i < times; i++)
@@ -207,6 +217,10 @@ public sealed class MeetingControllerTests : IDisposable
         await controller.TakeNotesAsync();
         controller.KeepAudio = true;
         await TickAsync(controller, 5);
+        // The loopback is read on its own task: stopping before it delivered left no remote
+        // speech to diarize, which failed this test on slow CI runners.
+        await WaitForAsync(() => controller.LiveSegments.Any(s => s.Source == AudioSource.System),
+            "the remote channel to produce a segment");
         var id = controller.Current!.Id;
         await controller.StopAsync(StopReason.User);
 

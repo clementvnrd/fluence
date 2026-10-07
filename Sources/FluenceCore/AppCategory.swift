@@ -10,10 +10,10 @@ public enum AppCategory: String, CaseIterable, Sendable, Codable {
 
     public var displayName: String {
         switch self {
-        case .personal: "Personal messages"
-        case .work: "Work messages"
-        case .email: "Email"
-        case .other: "Other"
+        case .personal: "Messages personnels"
+        case .work: "Messages pro"
+        case .email: "E-mail"
+        case .other: "Autres"
         }
     }
 
@@ -140,9 +140,9 @@ public enum WritingStyle: String, CaseIterable, Sendable, Codable {
 
     public var displayName: String {
         switch self {
-        case .formal: "Formal"
-        case .casual: "Casual"
-        case .veryCasual: "Very casual"
+        case .formal: "Soutenu"
+        case .casual: "Décontracté"
+        case .veryCasual: "Très décontracté"
         }
     }
 

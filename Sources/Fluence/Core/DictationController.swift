@@ -15,6 +15,10 @@ import Observation
 func engineForCurrentSetting() -> any TranscriptionEngine {
     switch Settings.shared.engine {
     case .apple: AppleSpeechEngine()
+    case .whisper: WhisperEngine(
+        variant: Settings.shared.whisperModel,
+        language: Settings.shared.dictationLanguage.whisperLanguageCode
+    )
     case .parakeet: ParakeetEngine()
     }
 }
@@ -68,6 +72,15 @@ final class DictationController {
     private(set) var lastTranscript: String?
     // MARK: end FLU-5 input
 
+    /// Clement's HUD and status pill read these names.
+    var isCommandMode: Bool { isCommand }
+    /// Whether a shortcut is armed (Carbon or the event tap) — the main window's status pill.
+    private(set) var isHotkeyActive = false
+
+    /// The last app other than Fluence to be frontmost: where a dictation started from the
+    /// main window's Dicter button is typed (Clement's focus restore).
+    @ObservationIgnored private var lastExternalApp: NSRunningApplication?
+
     private let hotkey = HotkeyMonitor()
     private let capture = AudioCapture()
     private let makeEngine: @MainActor () -> any TranscriptionEngine
@@ -109,8 +122,12 @@ final class DictationController {
     @discardableResult
     func activate() -> Bool {
         hotkey.key = Settings.shared.pushToTalkKey
+        hotkey.commandKey = Settings.shared.commandModeEnabled ? Settings.shared.commandModeKey : nil
+        hotkey.onLanguageToggle = {
+            Settings.shared.toggleLanguage()
+            if Settings.shared.soundEnabled { NSSound(named: "Tink")?.play() }
+        }
         // MARK: FLU-5 input
-        hotkey.commandModifier = Settings.shared.commandModifier
         hotkey.onGesture = { [weak self] action in self?.handleGesture(action) }
         hotkey.onEscape = { [weak self] in self?.cancelFromEscape() ?? false }
         hotkey.onLastTranscript = Settings.shared.lastTranscriptShortcuts
@@ -125,8 +142,13 @@ final class DictationController {
             self.cancelDictation(reason: "the key monitor was interrupted")
         }
         observeSystemEvents()
-        return hotkey.start()
+        let armed = hotkey.start()
+        isHotkeyActive = armed
+        return armed
     }
+
+    /// Whether the event tap (Accessibility) is armed, not just Carbon.
+    var hasEventTap: Bool { hotkey.hasEventTap }
 
     func deactivate() {
         hotkey.stop()
@@ -151,6 +173,16 @@ final class DictationController {
     private func observeSystemEvents() {
         guard systemObservers.isEmpty else { return }
         let workspace = NSWorkspace.shared.notificationCenter
+        rememberExternalApp(NSWorkspace.shared.frontmostApplication)
+        let activation = workspace.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            Task { @MainActor in self?.rememberExternalApp(app) }
+        }
+        systemObservers.append((workspace, activation))
         let distributed = DistributedNotificationCenter.default()
         let events: [(NotificationCenter, Notification.Name)] = [
             (workspace, NSWorkspace.willSleepNotification),
@@ -166,6 +198,21 @@ final class DictationController {
             }
             systemObservers.append((center, observer))
         }
+    }
+
+    private func rememberExternalApp(_ app: NSRunningApplication?) {
+        guard let app, app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+        lastExternalApp = app
+    }
+
+    /// Fluence itself is in front — the Dicter button was clicked in its window. Bring back
+    /// the app the user was in, so the text lands there rather than in Fluence.
+    private func restoreFocusIfNeeded() async {
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier,
+              let target = lastExternalApp, !target.isTerminated
+        else { return }
+        target.activate()
+        try? await Task.sleep(for: .milliseconds(250))
     }
 
     // MARK: - Button-driven recording
@@ -200,7 +247,7 @@ final class DictationController {
         let session = DictationSession(
             source: source,
             isComparing: isComparing,
-            engineName: isComparing ? "Comparing…" : Settings.shared.engine.displayName
+            engineName: isComparing ? "Comparaison…" : Settings.shared.engine.displayName
         )
         self.session = session
         isCommand = command
@@ -229,6 +276,7 @@ final class DictationController {
         let input = session.audioInput
         do {
             try capture.start(
+                deviceUID: Settings.shared.selectedMicrophoneUID,
                 onBuffer: { chunk in input.yield(chunk) },
                 onLevel: { [weak self] level in
                     Task { @MainActor in self?.updateLevel(level) }
@@ -253,7 +301,7 @@ final class DictationController {
         if !session.captureStarted {
             guard await Permissions.requestMicrophone() else {
                 if self.session === session {
-                    fail("Microphone access is off. Enable it in System Settings ▸ Privacy & Security ▸ Microphone.")
+                    fail("L'accès au micro est désactivé. Autorisez-le dans Réglages Système ▸ Confidentialité et sécurité ▸ Micro.")
                 }
                 return
             }
@@ -409,6 +457,9 @@ final class DictationController {
         let processed = await DictationPipeline.process(
             raw,
             category: session.target?.category ?? .other,
+            bundleID: session.target?.bundleID == Bundle.main.bundleIdentifier
+                ? lastExternalApp?.bundleIdentifier
+                : session.target?.bundleID,
             formatter: formatter
         )
         // Cancelled during cleanup (screen locked, say): don't type into whatever has focus now.
@@ -425,15 +476,19 @@ final class DictationController {
         // Typed first, filed second: the user is waiting on the text, not on the history.
         let processSeconds = session.releasedAt.map { Date().timeIntervalSince($0) } ?? 0
         // MARK: FLU-5 text — snapshot the field first, so a later correction can be found.
+        if session.source == .button { await restoreFocusIfNeeded() }
+        guard self.session === session else { return }
         if Settings.shared.learnFromEdits { EditWatcher.shared.willInsert(output) }
         TextInjector.insert(output)
+        // Clement's Whisper context and (opt-in) term learning. In memory only.
+        AutoLearningEngine.shared.recordInjectedText(output)
         lastTranscript = output  // MARK: FLU-5 input
         if Settings.shared.learnFromEdits { EditWatcher.shared.didInsert() }
         if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
 
         // Text arrived, but the engine also failed partway: type what there is, and say so.
         if let error = session.engineError {
-            fail("Transcription stopped early: \(error.localizedDescription)")
+            fail("La transcription s'est arrêtée trop tôt : \(error.localizedDescription)")
         } else {
             end(session, as: .idle)
         }
@@ -564,7 +619,7 @@ final class DictationController {
         }
         let holdStarted = session.started
 
-        transcript = "Running both engines…"
+        transcript = "Comparaison des moteurs…"
 
         let group = UUID().uuidString
         let held = releasedAt.timeIntervalSince(holdStarted)
@@ -599,7 +654,7 @@ final class DictationController {
         // cloud, so its row lands after both local engines have already finished — the wait
         // happens here rather than blocking the rows above from appearing.
         if WisprReader.isInstalled {
-            transcript = "Waiting for Wispr Flow…"
+            transcript = "En attente de Wispr Flow…"
             if let wispr = await WisprReader.result(after: holdStarted, timeout: 8) {
                 guard self.session === session else { return }
                 RunLog.record(
@@ -699,6 +754,7 @@ extension DictationController {
                 hotkey.sessionEnded()
                 return
             }
+            if case .error = state { state = .idle }
             if command, !FoundationModelFormatter.isAvailable {
                 hotkey.sessionEnded()
                 showNotice(CommandRewriter.Failure.unavailable.message)
@@ -741,7 +797,7 @@ extension DictationController {
         // middle of what is being said.
         guard session == nil else { return }
         guard let text = lastTranscript else {
-            showNotice("Nothing dictated yet.")
+            showNotice("Rien n'a encore été dicté.")
             return
         }
         switch action {
@@ -759,7 +815,7 @@ extension DictationController {
             let pasteboard = NSPasteboard.general
             pasteboard.prepareForNewContents(with: .currentHostOnly)
             pasteboard.setString(text, forType: .string)
-            showNotice("Last transcript copied.")
+            showNotice("Dernière transcription copiée.")
         }
     }
 
@@ -785,7 +841,7 @@ extension DictationController {
             return
         }
 
-        transcript = "Rewriting…"
+        transcript = "Réécriture…"
         let result = await CommandRewriter.rewrite(target.text, instruction: instruction)
         // Esc, a lock screen or a new session while the model worked: write nothing.
         guard self.session === session else { return }
@@ -794,7 +850,7 @@ extension DictationController {
         case .success(let rewritten):
             guard target.replace(with: rewritten) else {
                 Log.app.info("command · focus or selection moved during the rewrite — nothing replaced")
-                end(session, notice: "The text changed meanwhile. Nothing replaced.")
+                end(session, notice: "Le texte a changé entre-temps. Rien n'a été remplacé.")
                 return
             }
             if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }

@@ -7,7 +7,10 @@ let package = Package(
     dependencies: [
         // Parakeet TDT as CoreML on the Neural Engine. Optional at runtime — Apple's
         // SpeechTranscriber remains the default and needs no dependency at all.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.17.5")
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.17.5"),
+        // OpenAI Whisper as CoreML on Apple Silicon (WhisperKit). Optional at runtime too:
+        // its model is downloaded the first time Whisper is chosen.
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.1.0"),
     ],
     targets: [
         // The dictionary is its own target so it can be tested directly, and because its
@@ -43,6 +46,7 @@ let package = Package(
                 "FluenceNotesCore",
                 "FluenceCore",
                 .product(name: "FluidAudio", package: "FluidAudio"),
+                .product(name: "WhisperKit", package: "argmax-oss-swift"),
             ],
             path: "Sources/Fluence",
             swiftSettings: [

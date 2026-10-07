@@ -113,7 +113,9 @@ on its `Decision` issue, in the same step.
 ### 8. Interface issues carry images
 An issue about a user interface embeds screenshots of the current state and mock-ups or inspiration
 for the target: Clement decides and reviews design from images, not from code. Mock-ups follow the
-design system in `AGENTS.md` (field-recorder look, red only for recording, no gradients).
+design system in `AGENTS.md` (Clement's look: light canvas, rounded white cards, one aqua-blue
+accent and the Aqua orb, the blue gradient only on the orb / "AI" badge / *Dicter* button, red
+only for a recording or an error, French UI).
 
 ### 9. Close every substantial reply with the Linear changes
 List the issues created, moved or closed, with their keys, at the end of the reply.

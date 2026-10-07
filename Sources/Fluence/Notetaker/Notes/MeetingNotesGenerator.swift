@@ -117,7 +117,7 @@ final class MeetingNotesGenerator {
         do {
             meeting = try store.load(id)
         } catch {
-            status[id] = .failed("No notes: the meeting could not be read.")
+            status[id] = .failed("Pas de notes : la réunion n'a pas pu être lue.")
             return
         }
 
@@ -143,7 +143,7 @@ final class MeetingNotesGenerator {
             Log.app.info("meeting notes not written: \(NotesEngine.logLabel(failure), privacy: .public)")
         } catch {
             // Only the save can land here.
-            status[id] = .failed("No notes: they could not be saved.")
+            status[id] = .failed("Pas de notes : elles n'ont pas pu être enregistrées.")
             Log.app.error("meeting notes not saved: \(String(describing: type(of: error)), privacy: .public)")
         }
     }

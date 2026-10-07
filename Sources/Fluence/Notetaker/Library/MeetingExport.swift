@@ -18,8 +18,8 @@ enum MeetingExport {
     /// Asks where to save, then writes the file. False when the user cancelled.
     static func saveMarkdown(_ meeting: Meeting) throws -> Bool {
         let panel = NSSavePanel()
-        panel.title = "Export Meeting as Markdown"
-        panel.prompt = "Export"
+        panel.title = "Exporter la réunion en Markdown"
+        panel.prompt = "Exporter"
         panel.nameFieldStringValue = meeting.markdownFilename
         panel.allowedContentTypes = [UTType(filenameExtension: "md", conformingTo: .plainText) ?? .plainText]
         panel.canCreateDirectories = true
@@ -30,7 +30,7 @@ enum MeetingExport {
     }
 }
 
-/// "Copy as Markdown" and "Export Markdown…" for the selected meeting.
+/// "Copier en Markdown" and "Exporter en Markdown…" for the selected meeting.
 struct MeetingExportKeys: View {
     @Bindable var model: MeetingLibraryModel
     let meeting: Meeting
@@ -38,28 +38,28 @@ struct MeetingExportKeys: View {
     var body: some View {
         HStack(spacing: DS.Space.snug) {
             TransportKey(
-                title: model.flash == Self.copied ? Self.copied : "Copy as Markdown",
+                title: model.flash == Self.copied ? Self.copied : "Copier en Markdown",
                 systemImage: "doc.on.doc"
             ) {
                 MeetingExport.copyMarkdown(meeting)
                 model.showFlash(Self.copied)
             }
-            .help("Copy the notes, your notes and the transcript as Markdown")
+            .help("Copier les notes, vos notes et la transcription en Markdown")
 
             TransportKey(
-                title: model.flash == Self.exported ? Self.exported : "Export Markdown…",
+                title: model.flash == Self.exported ? Self.exported : "Exporter en Markdown…",
                 systemImage: "square.and.arrow.up"
             ) {
                 do {
                     if try MeetingExport.saveMarkdown(meeting) { model.showFlash(Self.exported) }
                 } catch {
-                    model.report("The Markdown file could not be written.")
+                    model.report("Le fichier Markdown n'a pas pu être écrit.")
                 }
             }
-            .help("Save the meeting as a Markdown file")
+            .help("Enregistrer la réunion dans un fichier Markdown")
         }
     }
 
-    private static let copied = "Copied"
-    private static let exported = "Exported"
+    private static let copied = "Copié !"
+    private static let exported = "Exporté"
 }

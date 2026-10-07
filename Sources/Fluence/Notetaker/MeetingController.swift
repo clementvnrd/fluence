@@ -169,7 +169,7 @@ final class MeetingController {
         lastStopReason = nil
 
         guard await Permissions.requestMicrophone() else {
-            fail("Fluence needs microphone access to take meeting notes. Allow it in System Settings › Privacy & Security › Microphone.")
+            fail("Fluence a besoin d'accéder au micro pour prendre des notes de réunion. Autorisez-le dans Réglages Système › Confidentialité et sécurité › Micro.")
             return
         }
 
@@ -177,7 +177,7 @@ final class MeetingController {
         let calendar = CalendarContext.shared.currentMeeting()
 
         var meeting = Meeting(
-            title: calendar?.title ?? detected.map { "\($0.service) call" } ?? "Meeting",
+            title: calendar?.title ?? detected.map { "Appel \($0.service)" } ?? "Réunion",
             appBundleID: detected?.app.mainBundleID,
             trigger: calendar != nil && trigger == .detected ? .calendar : trigger,
             startedAt: Date(),
@@ -199,12 +199,12 @@ final class MeetingController {
             )
             self.session = session
             if !session.hasSystemAudio {
-                notice = "Only your microphone is being recorded: Fluence could not capture the call's audio."
+                notice = "Seul votre micro est enregistré : Fluence n'a pas pu capter l'audio de l'appel."
             }
             try MeetingStore.shared.save(meeting)
         } catch {
             session = nil
-            fail("Could not start recording: \(error.localizedDescription)")
+            fail("Impossible de lancer l'enregistrement : \(error.localizedDescription)")
             return
         }
 
@@ -214,7 +214,7 @@ final class MeetingController {
         detector.keepPollingWhileRecording = true
         showRecordingPanel()
         if !pendingDownloads.isEmpty {
-            notice = "Downloading on-device models from Hugging Face (one time): " + pendingDownloads.joined(separator: ", ") + "."
+            notice = "Téléchargement des modèles locaux depuis Hugging Face (une seule fois) : " + pendingDownloads.joined(separator: ", ") + "."
         }
         Log.app.info("meeting recording started (\(meeting.trigger.rawValue, privacy: .public))")
         runTicker()
@@ -400,6 +400,22 @@ final class MeetingController {
                 self?.observeVoicePrintSetting()
             }
         }
+    }
+
+    // MARK: - Development preview
+
+    /// Screenshots of a fresh install (FLU-11): only with `FLUENCE_SUPPORT_DIRECTORY` set (a
+    /// scratch folder, see `AppPaths`) and `FLUENCE_PREVIEW_RECORDING_PANEL=1`, shows the
+    /// recording panel with no session — no microphone opened, no meeting created, and its
+    /// Arrêter key does nothing.
+    func previewRecordingPanelIfRequested() {
+        guard AppPaths.override != nil,
+              ProcessInfo.processInfo.environment["FLUENCE_PREVIEW_RECORDING_PANEL"] == "1",
+              state == .idle
+        else { return }
+        state = .recording
+        elapsed = 754
+        showRecordingPanel()
     }
 
     // MARK: - Panels

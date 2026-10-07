@@ -43,7 +43,7 @@ final class HistoryFile: @unchecked Sendable {
                 let key = try Vault.masterKey()
                 result = .success(try self.read(with: key).runs)
             } catch {
-                result = .failure("History couldn't be opened: \(Self.describe(error))")
+                result = .failure("L'historique n'a pas pu être ouvert : \(Self.describe(error))")
             }
             Task { @MainActor in completion(result) }
         }
@@ -53,7 +53,7 @@ final class HistoryFile: @unchecked Sendable {
         withKey { key in
             let line = try SealedLines.line(for: try Self.encode(run)) { try Vault.seal($0, with: key) }
             try self.appendLine(line)
-        } then: { report($0.map { "History isn't being saved: \($0)" }) }
+        } then: { report($0.map { "L'historique n'est pas enregistré : \($0)" }) }
     }
 
     func remove(where predicate: @escaping @Sendable (DictationRun) -> Bool, then report: @escaping Report) {
@@ -62,7 +62,7 @@ final class HistoryFile: @unchecked Sendable {
             let kept = current.runs.filter { !predicate($0) }
             guard kept.count != current.runs.count else { return }
             try self.rewrite(kept, preserving: current.unreadable, with: key)
-        } then: { report($0.map { "History couldn't be updated: \($0)" }) }
+        } then: { report($0.map { "L'historique n'a pas pu être mis à jour : \($0)" }) }
     }
 
     func purge(_ retention: HistoryRetention, now: Date, then report: @escaping Report) {
@@ -79,13 +79,13 @@ final class HistoryFile: @unchecked Sendable {
     func clear(then report: @escaping Report) {
         queue.async {
             var problem: String?
-            for file in [self.url, self.legacyRuns, self.legacyDashboard] {
+            for file in [self.url, self.legacyRuns, self.legacyDashboard] + LegacyMigration.legacyRunFiles(in: self.directory) {
                 do {
                     try FileManager.default.removeItem(at: file)
                 } catch CocoaError.fileNoSuchFile {
                     continue
                 } catch {
-                    problem = "History couldn't be deleted: \(Self.describe(error))"
+                    problem = "L'historique n'a pas pu être supprimé : \(Self.describe(error))"
                 }
             }
             Task { @MainActor in report(problem) }
@@ -168,34 +168,50 @@ final class HistoryFile: @unchecked Sendable {
         try handle.write(contentsOf: line)
     }
 
-    /// One-time move from the plaintext `runs.jsonl` (and the HTML copy rendered beside it)
-    /// to the sealed file.
+    /// One-time move from the plaintext `runs.jsonl` files (and the HTML copy rendered
+    /// beside them) to the sealed file — `Fluence/runs.jsonl`, and Clement's
+    /// `MurmurYouTube/runs.jsonl` when it is still there (FLU-11, `LegacyMigration`).
     ///
-    /// The plaintext is deleted only after its runs are safely sealed. If the Keychain
+    /// Each plaintext file is deleted only after its runs are safely sealed. If the Keychain
     /// refuses, it stays exactly where it was and the move is retried on the next launch —
-    /// never half-done, and never by writing anything new in plaintext.
+    /// never half-done, and never by writing anything new in plaintext. A line this version
+    /// can't decode is sealed as it is, kept with the other unreadable lines, rather than
+    /// lost with the plaintext.
     private func migrateLegacyFile() throws {
         let manager = FileManager.default
         // The dashboard is a rendered copy of runs.jsonl, never a source: always safe to drop.
         try? manager.removeItem(at: legacyDashboard)
 
-        guard let legacy = try? Data(contentsOf: legacyRuns) else { return }
-        let key = try Vault.masterKey()
+        for file in LegacyMigration.legacyRunFiles(in: directory) {
+            guard let legacy = try? Data(contentsOf: file) else { continue }
+            let key = try Vault.masterKey()
+            let decoder = Self.decoder()
 
-        let decoder = Self.decoder()
-        let legacyRuns = legacy.split(separator: 0x0A).compactMap {
-            try? decoder.decode(DictationRun.self, from: Data($0))
+            // A previous attempt may have sealed these and then failed to delete the
+            // plaintext; matching on date and text keeps that from duplicating them.
+            let existing = try read(with: key)
+            let plan = LegacyMerge.importHistory(
+                legacy,
+                alreadySealed: Set(existing.runs.map(Self.identity)),
+                identity: { line in (try? decoder.decode(DictationRun.self, from: line)).map(Self.identity) }
+            )
+            let fresh = plan.fresh.compactMap { try? decoder.decode(DictationRun.self, from: $0) }
+            let kept = try plan.unreadable.map { raw in
+                try SealedLines.line(for: raw) { try Vault.seal($0, with: key) }.dropLast()
+            }
+
+            try rewrite(fresh + existing.runs, preserving: existing.unreadable + kept, with: key)
+            try manager.removeItem(at: file)
+            Log.app.info("""
+                history: sealed \(fresh.count, privacy: .public) run(s) from a plaintext runs.jsonl \
+                (\(kept.count, privacy: .public) undecodable kept sealed) and removed the plaintext
+                """)
         }
+        LegacyMigration.removeIfEmpty(LegacyMigration.legacySupport)
+    }
 
-        // A previous attempt may have sealed these and then failed to delete the plaintext;
-        // matching on date and text keeps that from duplicating them.
-        let existing = try read(with: key)
-        let alreadySealed = Set(existing.runs.map { "\($0.date.timeIntervalSince1970)|\($0.text)" })
-        let fresh = legacyRuns.filter { !alreadySealed.contains("\($0.date.timeIntervalSince1970)|\($0.text)") }
-
-        try rewrite(fresh + existing.runs, preserving: existing.unreadable, with: key)
-        try manager.removeItem(at: self.legacyRuns)
-        Log.app.info("history: sealed \(fresh.count, privacy: .public) run(s) from runs.jsonl and removed the plaintext")
+    private static func identity(_ run: DictationRun) -> String {
+        "\(run.date.timeIntervalSince1970)|\(run.text)"
     }
 
     // MARK: - Coding

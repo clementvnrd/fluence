@@ -65,6 +65,9 @@ public enum CleanupPrompt {
         5 pm, no actually 6 pm" becomes "Let's meet at 6 pm."
         - Write numbers, times, dates, amounts and percentages with digits where that is how \
         they are normally written.
+        - Keep technical and developer vocabulary in its standard English form (endpoint, \
+        token, debug, push, merge, PR, branch, commit, API, backend, deploy), whatever the \
+        language around it.
         - Preserve the speaker's wording, tone, and meaning. Do not summarize, expand, \
         translate, or improve the writing.
         """
@@ -117,6 +120,9 @@ public enum CleanupPrompt {
         17 h, non en fait 18 h » devient « On se voit à 18 h. »
         - Écris en chiffres les nombres, heures, dates, montants et pourcentages quand c'est \
         l'usage.
+        - Garde le vocabulaire technique et de développement en anglais, sous sa forme \
+        standard (endpoint, token, debug, push, merge, PR, branch, commit, API, backend, \
+        deploy) : ne le traduis jamais (« token », pas « jeton » ; « route », pas « chemin »).
         - Garde le texte en français, avec les mots, le ton et le sens de la personne. Ne \
         résume pas, n'ajoute rien, ne traduis pas, n'améliore pas le style.
         """

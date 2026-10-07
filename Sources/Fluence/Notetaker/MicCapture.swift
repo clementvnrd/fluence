@@ -20,8 +20,8 @@ final class MicCapture: @unchecked Sendable {
 
         var errorDescription: String? {
             switch self {
-            case .noInput: "No microphone is available."
-            case .permissionDenied: "Fluence is not allowed to use the microphone."
+            case .noInput: "Aucun micro n'est disponible."
+            case .permissionDenied: "Fluence n'est pas autorisé à utiliser le micro."
             }
         }
     }

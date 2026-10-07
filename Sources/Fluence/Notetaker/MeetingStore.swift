@@ -133,7 +133,7 @@ final class MeetingStore {
                 .sorted { $0.startedAt > $1.startedAt }
             lastError = nil
         } catch {
-            lastError = "Meetings could not be decrypted: \(error)"
+            lastError = "Les réunions n'ont pas pu être déchiffrées : \(error)"
             Log.app.error("meeting index unreadable: \(String(describing: error), privacy: .public)")
         }
     }

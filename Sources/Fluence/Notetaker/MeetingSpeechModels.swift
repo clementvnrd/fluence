@@ -59,10 +59,10 @@ actor MeetingSpeechModels {
     /// Best effort: it checks FluidAudio's cache folders, not their contents.
     nonisolated static var missingDownloads: [String] {
         var missing: [String] = []
-        if !ParakeetModels.isDownloaded { missing.append("speech recognition (~470 MB)") }
-        if !present(.vad) { missing.append("voice detection (~2 MB)") }
-        if !present(.localVqe) { missing.append("echo cancellation (~19 MB)") }
-        if !present(.diarizer) { missing.append("speaker separation (~30 MB)") }
+        if !ParakeetModels.isDownloaded { missing.append("reconnaissance vocale (~470 Mo)") }
+        if !present(.vad) { missing.append("détection de la voix (~2 Mo)") }
+        if !present(.localVqe) { missing.append("annulation d'écho (~19 Mo)") }
+        if !present(.diarizer) { missing.append("séparation des intervenants (~30 Mo)") }
         return missing
     }
 }

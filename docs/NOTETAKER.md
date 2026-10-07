@@ -22,6 +22,10 @@ CI. Windows (milestone 4) is not started. Versions checked 2026-10-07.
 | Notes (Foundation Models map-reduce), library, export, settings | `Notetaker/Notes/`, `Notetaker/Library/`, `Notetaker/Settings/`, `Sources/FluenceNotesCore/` |
 | Encrypted storage | `MeetingStore.swift` |
 
+The panels, the meetings library and the Réunions settings tab are in French and use the
+app's design system (Clement's look, `AGENTS.md` ▸ Design system) since FLU-11; a fuller
+redesign of these screens is FLU-12.
+
 Deviations from the design below: utterances are capped at **14.5 s** (Parakeet's single-pass
 window, to avoid FluidAudio's chunk seams); live labels are **You / Others** by channel and
 speaker names arrive with the final pass (no live diarizer); voice prints only match

@@ -1,76 +1,40 @@
 import SwiftUI
 
-/// Settings ▸ Shortcuts (FLU-5): every gesture of the push-to-talk key in one card, the
-/// Command Mode modifier, and the switch for the last-transcript chords.
-///
-/// The card is printed like the legend under a deck's transport keys: what to press on the
-/// left, what it does on the right. It follows the chosen push-to-talk key, so it never
-/// describes a key the user isn't using.
+/// Réglages ▸ Raccourcis: every gesture of the shortcuts in one card, and the switch for
+/// the last-transcript chords. The shortcuts themselves are chosen in the Général and
+/// IA & Formatage tabs (Clement's recorder); this card describes what they do.
 struct ShortcutsSettingsSection: View {
     @Bindable var controller: DictationController
     @State private var settings = Settings.shared
 
-    private var key: String { settings.pushToTalkKey.displayName }
-
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.base) {
-            Silkscreen(text: "Shortcuts", large: true)
+            SettingsPanel(label: "Gestes") {
+                ShortcutLegend()
+                if !controller.hasEventTap {
+                    SettingsNote("Échap, ⌃⌘V / ⌃⌘C et les raccourcis sans touche (⌃ ⌥) ont besoin de "
+                        + "l'autorisation Accessibilité. Les raccourcis avec une touche (⌥ Espace) "
+                        + "marchent sans elle.")
+                }
+            }
 
-            ShortcutLegend()
-
-            Silkscreen(text: "Command Mode key")
-            HStack(spacing: DS.Space.snug) {
-                ForEach(CommandModifier.allCases, id: \.self) { modifier in
-                    TransportKey(
-                        title: modifier.displayName,
-                        isEngaged: settings.commandModifier == modifier,
-                        engagedColor: DS.Color.ink
-                    ) {
-                        settings.commandModifier = modifier
+            SettingsPanel(label: "Dernière transcription") {
+                Toggle(isOn: Binding(
+                    get: { settings.lastTranscriptShortcuts },
+                    set: { on in
+                        settings.lastTranscriptShortcuts = on
                         controller.reloadHotkey()
                     }
-                    .background {
-                        if settings.commandModifier == modifier {
-                            RoundedRectangle(cornerRadius: DS.Radius.control)
-                                .fill(DS.Color.selection)
-                        }
-                    }
+                )) {
+                    Text("⌃⌘V colle, ⌃⌘C copie la dernière transcription")
+                        .font(DS.Font.label)
+                        .foregroundStyle(DS.Color.ink)
                 }
+                .toggleStyle(.switch)
+                SettingsNote("Gardée en mémoire seulement, jusqu'à ce que vous quittiez. Désactivez-le si "
+                    + "une autre app utilise ces touches.")
             }
-            note(commandNote)
-
-            Toggle(isOn: Binding(
-                get: { settings.lastTranscriptShortcuts },
-                set: { on in
-                    settings.lastTranscriptShortcuts = on
-                    controller.reloadHotkey()
-                }
-            )) {
-                Silkscreen(text: "⌃⌘V / ⌃⌘C for the last transcript")
-            }
-            .toggleStyle(.switch)
-            note("The last transcript is kept in memory only, until you quit. Turn this off if "
-                + "another app needs these keys.")
         }
-        .padding(DS.Space.roomy)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(BrushedPanel())
-    }
-
-    private var commandNote: String {
-        if let reason = FoundationModelFormatter.unavailableReason {
-            return "Command Mode rewrites with Apple Intelligence, on this Mac. \(reason)"
-        }
-        return "Select text, hold \(key) with this key and say what to change — \"make it "
-            + "shorter\", \"translate to French\". With nothing selected, the whole field is "
-            + "rewritten. On this Mac, with Apple Intelligence."
-    }
-
-    private func note(_ text: String) -> some View {
-        Text(text)
-            .font(DS.Font.label)
-            .foregroundStyle(DS.Color.inkSecondary)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -79,38 +43,42 @@ struct ShortcutLegend: View {
     @State private var settings = Settings.shared
 
     private var rows: [(keys: String, action: String)] {
-        let key = settings.pushToTalkKey.displayName
+        let key = settings.pushToTalkKey.shortName
         var rows: [(String, String)] = [
-            ("Hold \(key)", "Dictate; let go to type"),
-            ("\(key) \(key)", "Hands-free: double-tap, keeps recording"),
-            ("\(key) + Space", "Hands-free, from a hold"),
-            ("\(key)", "Tap to end hands-free and type"),
-            ("Esc", "Cancel — nothing is typed"),
+            ("Maintenir \(key)", "Dicter ; relâcher pour taper le texte"),
+            ("Toucher \(key)", "Mains libres : enregistre jusqu'au prochain appui"),
         ]
-        if settings.commandModifier != .off {
-            rows.append(("\(key) + \(settings.commandModifier.displayName)", "Command Mode: say how to change the selection"))
+        if settings.pushToTalkKey.isModifierOnly {
+            rows.append(("\(key) + Espace", "Mains libres, depuis un maintien"))
         }
+        rows.append(("Échap", "Annuler — rien n'est tapé"))
+        if settings.commandModeEnabled {
+            rows.append((settings.commandModeKey.shortName, "Mode Commande : dites comment modifier la sélection"))
+        }
+        rows.append(("⌥L", "Basculer la langue de dictée"))
         if settings.lastTranscriptShortcuts {
-            rows.append(("⌃⌘V", "Paste the last transcript"))
-            rows.append(("⌃⌘C", "Copy the last transcript"))
+            rows.append(("⌃⌘V", "Coller la dernière transcription"))
+            rows.append(("⌃⌘C", "Copier la dernière transcription"))
         }
         return rows
     }
 
     var body: some View {
-        DeckWindow {
-            Grid(alignment: .leading, horizontalSpacing: DS.Space.roomy, verticalSpacing: DS.Space.snug) {
-                ForEach(rows, id: \.keys) { row in
-                    GridRow {
-                        Readout(text: row.keys)
-                        Text(row.action)
-                            .font(DS.Font.label)
-                            .foregroundStyle(DS.Color.inkOnDeck)
-                    }
+        Grid(alignment: .leading, horizontalSpacing: DS.Space.roomy, verticalSpacing: DS.Space.snug) {
+            ForEach(rows, id: \.keys) { row in
+                GridRow {
+                    Text(row.keys)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(DS.Color.accent)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(DS.Color.well, in: RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous))
+                    Text(row.action)
+                        .font(DS.Font.label)
+                        .foregroundStyle(DS.Color.ink)
                 }
             }
-            .padding(DS.Space.base)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

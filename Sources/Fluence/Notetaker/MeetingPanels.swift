@@ -6,7 +6,8 @@ import SwiftUI
 // app, and a notes tool must not steal focus. Buttons and checkboxes still take clicks.
 //
 // Red appears only on the lit record lamp while recording (AGENTS.md: red means
-// recording). The detection card shows the same lamp unlit.
+// recording; `DS.Color.recordRed`, since `DS.Color.record` is the blue accent). The
+// detection card shows the same lamp unlit.
 
 /// Base panel: floats over every Space and full-screen app, never takes focus.
 @MainActor
@@ -71,21 +72,21 @@ struct MeetingDetectionCard: View {
 
     private var title: String {
         if case .detected(let detected) = controller.state { return detected.displayName }
-        return "Meeting"
+        return "Réunion"
     }
 
     private var countdownText: String {
         if let seconds = controller.countdown {
-            return "Taking notes in \(seconds) s unless you say not now."
+            return "Prise de notes dans \(seconds) s, sauf si vous choisissez « Pas maintenant »."
         }
-        return "Take notes for this meeting?"
+        return "Prendre des notes pour cette réunion ?"
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.snug) {
             HStack(spacing: DS.Space.snug) {
                 Lamp(color: DS.Color.recordIdle, isLit: false)
-                Silkscreen(text: "Meeting detected")
+                Silkscreen(text: "Réunion détectée")
             }
             Text(title)
                 .font(DS.Font.title)
@@ -96,14 +97,14 @@ struct MeetingDetectionCard: View {
                 .foregroundStyle(DS.Color.inkSecondary)
                 .monospacedDigit()
             if !controller.pendingDownloads.isEmpty {
-                Text("First meeting: Fluence will download its on-device models from Hugging Face. Your audio never leaves this Mac.")
+                Text("Première réunion : Fluence va télécharger ses modèles locaux depuis Hugging Face. Votre audio ne quitte jamais ce Mac.")
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Color.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: DS.Space.snug) {
-                TransportKey(title: "Record", systemImage: "circle.fill") { controller.acceptDetection() }
-                TransportKey(title: "Not now") { controller.dismissDetection() }
+                TransportKey(title: "Enregistrer", systemImage: "circle.fill") { controller.acceptDetection() }
+                TransportKey(title: "Pas maintenant") { controller.dismissDetection() }
             }
             .padding(.top, DS.Space.tight)
         }
@@ -128,8 +129,8 @@ struct MeetingRecordingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.snug) {
             HStack(spacing: DS.Space.snug) {
-                Lamp(color: DS.Color.record, isLit: controller.isRecording)
-                Silkscreen(text: "Rec · meeting notes")
+                Lamp(color: DS.Color.recordRed, isLit: controller.isRecording)
+                Silkscreen(text: "Enregistrement en cours")
                 Spacer(minLength: DS.Space.tight)
                 DeckWindow {
                     Readout(text: Meeting.clock(controller.elapsed))
@@ -137,19 +138,23 @@ struct MeetingRecordingView: View {
                         .padding(.vertical, DS.Space.hair)
                 }
             }
+            // The checkbox sits on its own row: the French key titles do not fit beside it
+            // in the panel's fixed width.
+            Toggle(isOn: $controller.keepAudio) {
+                Text("Garder l'audio")
+                    .font(DS.Font.label)
+                    .foregroundStyle(DS.Color.ink)
+            }
+            .toggleStyle(.checkbox)
             HStack(spacing: DS.Space.snug) {
-                Toggle(isOn: $controller.keepAudio) {
-                    Text("Keep audio")
-                        .font(DS.Font.label)
-                        .foregroundStyle(DS.Color.ink)
-                }
-                .toggleStyle(.checkbox)
-                Spacer(minLength: DS.Space.tight)
                 // French then English, ready to paste into the meeting chat: recording others
                 // without telling them is an offence in France (Code pénal art. 226-1).
-                TransportKey(title: "Consent") { NotetakerConsent.copyNotice(nil) }
-                TransportKey(title: "Transcript") { controller.showLiveTranscript() }
-                TransportKey(title: "Stop", systemImage: "stop.fill") { controller.stop(reason: .user) }
+                TransportKey(title: "Prévenir") { NotetakerConsent.copyNotice(nil) }
+                    .help("Copier l'avis de consentement (français puis anglais) à coller dans le chat de la réunion")
+                TransportKey(title: "En direct") { controller.showLiveTranscript() }
+                    .help("Afficher la transcription en direct")
+                Spacer(minLength: 0)
+                TransportKey(title: "Arrêter", systemImage: "stop.fill") { controller.stop(reason: .user) }
             }
             if let notice = controller.notice {
                 Text(notice)
@@ -166,7 +171,7 @@ struct MeetingRecordingView: View {
 
 // MARK: - Live transcript
 
-/// Read-only, "You" / "Others" by channel; names arrive with the final pass. Opened on
+/// Read-only, "Vous" / "Les autres" by channel; names arrive with the final pass. Opened on
 /// request and excluded from screen sharing, so a shared screen never shows it.
 @MainActor
 final class LiveTranscriptPanel: MeetingFloatingPanel {
@@ -175,7 +180,7 @@ final class LiveTranscriptPanel: MeetingFloatingPanel {
             content: LiveTranscriptView(controller: controller),
             styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel]
         )
-        title = "Live transcript"
+        title = "Transcription en direct"
         sharingType = .none
         setContentSize(NSSize(width: DS.MeetingPanel.transcriptWidth, height: DS.MeetingPanel.transcriptHeight))
         contentMinSize = NSSize(width: DS.MeetingPanel.recorderWidth, height: DS.MeetingPanel.transcriptMinHeight)
@@ -202,15 +207,15 @@ struct LiveTranscriptView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: DS.Space.snug) {
                         if controller.liveSegments.isEmpty {
-                            Text(controller.isRecording ? "Listening…" : "No meeting is being recorded.")
+                            Text(controller.isRecording ? "À l'écoute…" : "Aucune réunion n'est en cours d'enregistrement.")
                                 .font(DS.Font.body)
                                 .foregroundStyle(DS.Color.inkOnDeck)
                         }
                         ForEach(controller.liveSegments) { segment in
                             HStack(alignment: .firstTextBaseline, spacing: DS.Space.snug) {
                                 Silkscreen(
-                                    text: segment.source == .microphone ? "You" : "Others",
-                                    color: DS.Color.inkOnDeck
+                                    text: segment.source == .microphone ? "Vous" : "Les autres",
+                                    color: DS.Color.inkSecondary
                                 )
                                 .frame(width: DS.MeetingPanel.speakerColumn, alignment: .leading)
                                 Text(segment.text)
@@ -243,16 +248,16 @@ struct MeetingMenuItems: View {
     var body: some View {
         switch controller.state {
         case .recording:
-            Button("Stop meeting notes") { controller.stop(reason: .user) }
-            Button("Show live transcript") { controller.showLiveTranscript() }
+            Button("Arrêter la prise de notes") { controller.stop(reason: .user) }
+            Button("Afficher la transcription en direct") { controller.showLiveTranscript() }
         case .processing:
-            Text("Processing meeting…")
+            Text("Traitement de la réunion…")
         case .failed(let message):
             Text(message)
-            Button("Dismiss") { controller.dismissFailure() }
-            Button("Take meeting notes") { controller.takeNotes() }
+            Button("Ignorer") { controller.dismissFailure() }
+            Button("Prendre des notes de réunion") { controller.takeNotes() }
         case .idle, .detected:
-            Button("Take meeting notes") { controller.takeNotes() }
+            Button("Prendre des notes de réunion") { controller.takeNotes() }
         }
     }
 }

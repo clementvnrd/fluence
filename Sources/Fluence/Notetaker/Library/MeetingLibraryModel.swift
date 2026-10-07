@@ -17,11 +17,11 @@ final class MeetingLibraryModel {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .recap: "Recap"
-            case .nextSteps: "Next steps"
-            case .decisions: "Decisions"
-            case .transcript: "Transcript"
-            case .myNotes: "My notes"
+            case .recap: "Résumé"
+            case .nextSteps: "Prochaines étapes"
+            case .decisions: "Décisions"
+            case .transcript: "Transcription"
+            case .myNotes: "Mes notes"
             }
         }
     }
@@ -135,7 +135,7 @@ final class MeetingLibraryModel {
             problem = nil
         } catch {
             meeting = nil
-            problem = "This meeting could not be decrypted."
+            problem = "Cette réunion n'a pas pu être déchiffrée."
         }
     }
 
@@ -197,7 +197,7 @@ final class MeetingLibraryModel {
             meeting = updated
             problem = nil
         } catch {
-            problem = "The change could not be saved."
+            problem = "La modification n'a pas pu être enregistrée."
         }
     }
 

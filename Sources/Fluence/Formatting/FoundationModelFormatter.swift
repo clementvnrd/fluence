@@ -44,13 +44,13 @@ struct FoundationModelFormatter: TextFormatter {
             return nil
         case .unavailable(let reason):
             switch reason {
-            case .deviceNotEligible: return "This Mac doesn't support Apple Intelligence."
-            case .appleIntelligenceNotEnabled: return "Apple Intelligence is turned off in System Settings."
-            case .modelNotReady: return "The on-device model is still downloading."
-            @unknown default: return "The on-device model is unavailable."
+            case .deviceNotEligible: return "Ce Mac ne prend pas en charge Apple Intelligence."
+            case .appleIntelligenceNotEnabled: return "Apple Intelligence est désactivé dans Réglages Système."
+            case .modelNotReady: return "Le modèle local est encore en cours de téléchargement."
+            @unknown default: return "Le modèle local est indisponible."
             }
         @unknown default:
-            return "The on-device model is unavailable."
+            return "Le modèle local est indisponible."
         }
     }
 

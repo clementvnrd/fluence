@@ -25,20 +25,20 @@ struct LearnedWordsStrip: View {
         HStack(alignment: .firstTextBaseline, spacing: DS.Space.snug) {
             Lamp(color: DS.Color.pilot, isLit: true, size: DS.Library.lampSmall)
                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - DS.Library.lampBaselineNudge }
-            Silkscreen(text: "Learned")
+            Silkscreen(text: "Appris")
             Text(description(proposal))
                 .font(DS.Font.label)
                 .foregroundStyle(DS.Color.ink)
                 .lineLimit(1)
             Spacer(minLength: DS.Space.snug)
-            TransportKey(title: "Add", engagedColor: DS.Color.ink) { learned.accept(proposal) }
-            TransportKey(title: "Dismiss") { learned.dismiss(proposal) }
+            TransportKey(title: "Ajouter", engagedColor: DS.Color.ink) { learned.accept(proposal) }
+            TransportKey(title: "Ignorer") { learned.dismiss(proposal) }
         }
     }
 
     private func description(_ proposal: EditLearner.Proposal) -> String {
         proposal.isCorrection
-            ? "You corrected “\(proposal.heard)” to “\(proposal.written)”. Add it to the dictionary?"
-            : "Add “\(proposal.written)” to the dictionary?"
+            ? "Vous avez corrigé « \(proposal.heard) » en « \(proposal.written) ». L'ajouter au dictionnaire ?"
+            : "Ajouter « \(proposal.written) » au dictionnaire ?"
     }
 }

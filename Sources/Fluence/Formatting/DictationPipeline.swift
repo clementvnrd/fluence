@@ -23,14 +23,17 @@ enum DictationPipeline {
 
     /// - Parameters:
     ///   - category: where the text is going; only level High uses it.
+    ///   - bundleID: the app the text is going into, for Clement's developer formatting.
     ///   - formatter: a formatter injected by tests, used instead of the level's own.
     static func process(
         _ raw: String,
         category: AppCategory,
+        bundleID: String? = nil,
         formatter: (any TextFormatter)? = nil
     ) async -> Output {
         let settings = Settings.shared
-        let snippets = SnippetStore.shared.snippets
+        let snippets = SnippetStore.shared.active
+        let developer = settings.appAwareStylesEnabled && DeveloperTools.contains(bundleID: bundleID)
 
         if let whole = SnippetMatcher.wholeUtterance(raw, snippets: snippets) {
             return Output(text: whole.expansion, corrections: [], snippetCount: 1)
@@ -43,8 +46,8 @@ enum DictationPipeline {
             fallback: DictationLanguage(locale: Locale.current) ?? .english
         )
 
-        let level = settings.cleanupLevel
-        let cleaned: String
+        let level = settings.effectiveCleanupLevel
+        var cleaned: String
         if let formatter {
             cleaned = await formatter.format(shielded)
         } else {
@@ -52,7 +55,9 @@ enum DictationPipeline {
             case .none:
                 cleaned = shielded.trimmingCharacters(in: .whitespacesAndNewlines)
             case .light:
-                cleaned = RuleCleanup.apply(shielded, language: language)
+                // Clement's repairs (stutters, "scratch that", self-corrections) around the
+                // tested rules.
+                cleaned = RuleCleanup.apply(SpeechRepairs.before(shielded, language: language), language: language)
             case .medium, .high:
                 let style = level.appliesStyle
                     ? CleanupPrompt.Style(style: settings.style(for: category), category: category)
@@ -63,6 +68,10 @@ enum DictationPipeline {
                     placeholderCount: expansions.count
                 ).format(shielded)
             }
+        }
+
+        if level != .none {
+            cleaned = SpeechRepairs.after(cleaned, language: language, developer: developer)
         }
 
         let corrector = DictionaryStore.shared.corrector

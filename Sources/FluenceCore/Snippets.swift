@@ -7,29 +7,55 @@ public struct Snippet: Identifiable, Codable, Hashable, Sendable {
     public var trigger: String
     /// What gets typed, verbatim — never cleaned up, restyled or dictionary-corrected.
     public var expansion: String
+    /// Switched off in the snippets panel: kept, but never expanded.
+    public var isEnabled: Bool
+    /// When the snippet was made; the panel lists the newest first.
+    public var createdAt: Date?
 
     /// Wispr Flow's limits. A trigger is something you say in one breath; an expansion is a
     /// paragraph or an address, not a document.
     public static let triggerLimit = 60
     public static let expansionLimit = 4_000
 
-    public init(id: UUID = UUID(), trigger: String, expansion: String) {
+    public init(
+        id: UUID = UUID(),
+        trigger: String,
+        expansion: String,
+        isEnabled: Bool = true,
+        createdAt: Date? = nil
+    ) {
         self.id = id
         self.trigger = trigger
         self.expansion = expansion
+        self.isEnabled = isEnabled
+        self.createdAt = createdAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, trigger, expansion, isEnabled, createdAt
+    }
+
+    /// Lenient: snippets sealed before `isEnabled` existed decode as enabled.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        trigger = try container.decode(String.self, forKey: .trigger)
+        expansion = try container.decode(String.self, forKey: .expansion)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
     }
 
     /// Why this snippet can't be saved as it is, or nil.
     public func problem(among others: [Snippet]) -> String? {
         let trigger = trigger.trimmingCharacters(in: .whitespacesAndNewlines)
         let words = SnippetMatcher.words(in: trigger)
-        if words.isEmpty { return "Say something: the trigger needs at least one word." }
-        if trigger.count > Self.triggerLimit { return "Triggers are at most \(Self.triggerLimit) characters." }
-        if expansion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "The text to insert is empty." }
-        if expansion.count > Self.expansionLimit { return "The text is limited to \(Self.expansionLimit) characters." }
+        if words.isEmpty { return "Le déclencheur doit contenir au moins un mot." }
+        if trigger.count > Self.triggerLimit { return "Un déclencheur fait au plus \(Self.triggerLimit) caractères." }
+        if expansion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Le texte à insérer est vide." }
+        if expansion.count > Self.expansionLimit { return "Le texte est limité à \(Self.expansionLimit) caractères." }
         let key = words.map(\.key)
         if others.contains(where: { $0.id != id && SnippetMatcher.words(in: $0.trigger).map(\.key) == key }) {
-            return "Another snippet already uses this trigger."
+            return "Un autre snippet utilise déjà ce déclencheur."
         }
         return nil
     }
@@ -56,11 +82,22 @@ public enum SnippetMatcher {
 
     /// The snippet the whole utterance is, punctuation aside — "My address." is exactly the
     /// trigger "my address", and gets its expansion with nothing around it.
+    ///
+    /// A leading command word is allowed, as in Clement's build: "insert my address",
+    /// "colle ma signature" expand like the bare trigger.
     public static func wholeUtterance(_ text: String, snippets: [Snippet]) -> Snippet? {
         let spoken = words(in: text).map(\.key)
         guard !spoken.isEmpty else { return nil }
-        return snippets.first { words(in: $0.trigger).map(\.key) == spoken }
+        if let exact = snippets.first(where: { words(in: $0.trigger).map(\.key) == spoken }) {
+            return exact
+        }
+        guard spoken.count > 1, commandWords.contains(spoken[0]) else { return nil }
+        let rest = Array(spoken.dropFirst())
+        return snippets.first { words(in: $0.trigger).map(\.key) == rest }
     }
+
+    /// Spoken before a trigger to ask for it, in English and French (folded, like keys).
+    static let commandWords: Set<String> = ["insert", "paste", "add", "type", "insere", "colle"]
 
     /// Every trigger spoken inside `text`, non-overlapping, in text order.
     public static func matches(in text: String, snippets: [Snippet]) -> [Match] {

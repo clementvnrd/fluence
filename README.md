@@ -1,7 +1,9 @@
 # Fluence
 
 Push-to-talk dictation for macOS and Windows. Hold a key, talk, release — cleaned-up text
-lands in whatever text field has focus. A Wispr Flow-shaped app, built native and **fully
+lands in whatever text field has focus. The macOS app is in French, in Clement's own look:
+light canvas, rounded white cards, an aqua-blue accent and the Aqua orb (see the design
+system in [`AGENTS.md`](AGENTS.md)). A Wispr Flow-shaped app, built native and **fully
 on-device**: speech, cleanup and storage never leave the machine.
 
 Windows lives in [`windows/`](windows/README.md). This file is about the macOS app.
@@ -24,7 +26,7 @@ Then grant two permissions — neither is optional, and neither can be requested
 
 | Permission | Where | Needed for |
 |---|---|---|
-| **Accessibility** | System Settings ▸ Privacy & Security ▸ Accessibility | The `CGEventTap` that sees the hotkey, and the AX text insert |
+| **Accessibility** | System Settings ▸ Privacy & Security ▸ Accessibility | The AX text insert and ⌘V paste; the event tap for Esc, ⌃⌘V/⌃⌘C and modifier-only shortcuts |
 | **Microphone** | Prompted on first dictation | Audio capture |
 
 On first launch a **Set up Fluence** window walks through both, plus the two optional grants
@@ -32,27 +34,38 @@ the meeting notes use (System Audio Recording, Calendar): what each is for, a la
 when it is on, one button to the right System Settings pane, and it moves on by itself once a
 grant lands. Reopen it any time from the menu bar: *Set up Fluence…*
 
-The hotkey arms itself as soon as Accessibility is granted — no restart. Then hold
-**Right ⌥** and talk.
+A shortcut with a key (the default **⌥ Espace**) is registered with Carbon and works at once,
+even before Accessibility is granted (the paste then goes through System Events); the event
+tap arms itself as soon as Accessibility is granted — no restart. Hold **⌥ Espace** and talk.
 
 ### Shortcuts
 
 | Press | Does |
 |---|---|
-| Hold the key (Right ⌥ by default) | Dictate; let go to type |
-| Double-tap the key, or key + Space | Hands-free: keeps recording after you let go |
-| Tap the key (or the HUD's Stop) | End hands-free and type |
+| Hold the shortcut (⌥ Espace by default) | Dictate; let go to type |
+| Tap the shortcut | Hands-free: keeps recording until the next press |
+| Press again (or the HUD's ✓) | End hands-free and type |
+| Modifier-only shortcut (e.g. ⌃ ⌥) + Space | Hands-free, from a hold |
 | Esc | Cancel the dictation in progress — nothing is typed |
-| Key + ⌃ (held) | **Command Mode**: say how to change the selected text ("make it shorter", "translate to French"); with nothing selected, the whole field is rewritten |
+| The Command Mode shortcut (⌘ ⌥ by default) | **Command Mode**: say how to change the selected text ("make it shorter", "traduis en anglais"); with nothing selected, the whole field is rewritten |
+| ⌥L | Switch the dictation language (Français ⇄ English, ⇄ Auto with Whisper) |
 | ⌃⌘V / ⌃⌘C | Paste / copy the last transcript |
+
+Both shortcuts are recorded in Réglages ▸ Général and IA & Formatage: any combination of at
+least two keys (a modifier and a key, or two modifiers).
 
 Space and Esc are only swallowed while they act on a dictation; otherwise they reach the app
 as usual. Command Mode rewrites with Apple Intelligence on this Mac — never in the cloud —
 refuses password fields, and replaces nothing if the selection changed while it worked. Its
-modifier (Control, Shift or off) and the ⌃⌘V / ⌃⌘C pair are in Settings ▸ Shortcuts.
+shortcut and the ⌃⌘V / ⌃⌘C pair are in Réglages; Réglages ▸ Raccourcis lists every gesture.
 
-The bundle ID is `io.github.clementvnrd.fluence`. Settings, dictionary and history from the
-app's previous identity (`ai.pivotstudio.murmur-youtube`) migrate on first launch; the
+The bundle ID is `io.github.clementvnrd.fluence`. Settings, dictionary, history and snippets
+from the app's previous identity (`ai.pivotstudio.murmur-youtube`) migrate on first launch,
+**file by file** (FLU-11): `MurmurYouTube/dictionary.txt` is moved into
+`Application Support/Fluence/` or merged entry by entry into the one already there;
+`MurmurYouTube/runs.jsonl` is sealed into the encrypted history and the plaintext removed only
+after the sealed write succeeded; `ai.pivotstudio.murmur-youtube/snippets.json` is sealed into
+`snippets.sealed` the same way; Whisper models already live in `Fluence/WhisperModels/`. The
 permissions have to be granted once more, because macOS keys them to the bundle ID.
 
 ### Why grants survive rebuilds here
@@ -90,14 +103,21 @@ Other targets: `make app` (bundle only), `make run` (run in place), `make clean`
 Everything below runs on the Mac. Settings ▸ Cleanup, Language, Styles, Dictionary; the
 main window's Snippets tab.
 
-**Cleanup levels.** *None* types what the engine heard. *Light* (the default) removes
+**Cleanup levels.** *None* types what the engine heard. *Light* (the default) applies
+Clement's repairs — "scratch that" / "efface tout", self-corrections ("mardi, en fait
+mercredi"), stutters and repeated words, spoken lists ("premièrement…", "tiret") — removes
 fillers, turns spoken punctuation into marks ("new line", "open paren"; in French "à la
 ligne", "virgule", "point d'interrogation", "ouvrez les guillemets"…) and fixes spacing and
 capitals — deterministic, instant. *Medium* adds Apple's on-device model: self-corrections
 ("5 pm, no actually 6 pm" → "6 pm"), lists, numbers as digits. *High* also rewrites in the
 style chosen for the kind of app. Every model pass is checked by `CleanupGuard` and falls
 back to Light when the model answers instead of cleaning, drops words, or times out. The
-old on/off and "smart cleanup" switches migrate to None / Light / Medium.
+old on/off and "smart cleanup" switches migrate to None / Light / Medium, and remain in
+Réglages ▸ IA & Formatage as two switches over the level. With **Whisper**, whose output is
+already punctuated, the model passes are skipped unless *Post-traitement LLM sur Whisper* is
+on. *Formatage code & terminaux* (on by default) turns spoken symbols into code ("double tiret
+amend" → `--amend`, "accolade ouvrante" → `{`) and drops the final full stop of a one-line
+command, in editors and terminals.
 
 **Languages.** Auto, or one of Parakeet v3's 25 European languages. Apple's engine listens
 in that language (Auto: the Mac's language); Parakeet gets it as a script hint. In Auto,
@@ -118,7 +138,8 @@ elsewhere by default.
 **Snippets.** Say a trigger (≤ 60 characters) and get a stored text (≤ 4,000), on its own
 or inside a sentence — matched as whole words, ignoring case and accents, longest trigger
 first. The text is typed exactly as stored: cleanup, style and the dictionary never touch
-it. Sealed on disk like history.
+it. A snippet can be switched off without deleting it, and "insert / colle / insère" before
+a trigger still expands it. Sealed on disk like history.
 
 **Dictionary helpers.** *Boost dictionary words in Parakeet* (off by default) runs
 FluidAudio's CTC keyword spotter over the audio and rescores Parakeet's transcript toward
@@ -126,6 +147,12 @@ your dictionary's words; it downloads a second ~100 MB model once, from Settings
 during a dictation. *Learn from my corrections* (off by default) re-reads the text field for
 20 seconds after typing; when you correct a name Fluence wrote, the main window offers to
 add it. Nothing is added without you, nothing read is kept, password fields are never read.
+*Apprendre les termes fréquents* (off by default) adds a name, acronym or technical term to
+the dictionary once you have dictated it twice — without asking, which is why it is opt-in.
+The *Corriger* button on a transcription (or ⌥⌫ from the menu bar) opens a sheet where you
+fix the text; the changed words become dictionary corrections. *Lexique Tech* seeds the
+dictionary with developer vocabulary and franglais, and *Scanner projet…* reads a project's
+name, dependencies and branch.
 
 ---
 
@@ -134,9 +161,9 @@ add it. Nothing is added without you, nothing read is kept, password fields are 
 - **Bundle ID** — TCC keys Accessibility and Microphone to it, so grants here never affect
   another app.
 - **Executable `Fluence`** — the `Makefile` only ever `pkill -x`es that name.
-- **Hotkey is configurable** (Right ⌥ / fn / Right ⌘). Right ⌥ and Right ⌘ are *consumed*
-  by Fluence's event tap, so a second app bound to the same key may never see it. Give each
-  dictation app its own key.
+- **Shortcuts are configurable.** A shortcut with a key is registered with Carbon, which
+  gives it to the first app that asks: a second dictation app bound to the same combination
+  will not see it. Give each dictation app its own shortcut.
 
 ---
 
@@ -210,21 +237,26 @@ off the main thread.
 Sources/
 ├── Fluence/                 the app
 │   ├── FluenceApp.swift     @main, AppDelegate, menu bar
-│   ├── Core/                DictationController, AudioCapture, HotkeyMonitor, TextInjector,
-│   │                        CommandTarget, EngineComparison, WisprTrigger
-│   ├── Transcription/       TranscriptionEngine, AppleSpeechEngine, ParakeetEngine, WisprReader
+│   ├── Core/                DictationController, AudioCapture, AudioDevices (mic picker),
+│   │                        HotkeyMonitor + CarbonHotkey, TextInjector, CommandTarget,
+│   │                        AutoLearningEngine, EngineComparison, WisprTrigger
+│   ├── Transcription/       TranscriptionEngine, AppleSpeechEngine, WhisperEngine + WhisperModels,
+│   │                        ParakeetEngine, WisprReader
 │   ├── Formatting/          TextFormatter (rules), FoundationModelFormatter, DictationPipeline,
 │   │                        CommandRewriter
-│   ├── Dictionary/          DictionaryStore (file + watcher), EditWatcher (auto-learn)
+│   ├── Dictionary/          DictionaryStore (file + watcher), EditWatcher (auto-learn), TechLexicon
 │   ├── Snippets/            SnippetStore (sealed)
 │   ├── Support/             AppPaths, Vault, HistoryFile, RunLog, Settings, Permissions, Log
-│   └── UI/                  DesignSystem (tokens), Equipment, MainWindow, SettingsWindow,
-│                            DictionaryPanel, ComparisonWindow, HUDPanel, HUDView,
-│                            OnboardingWindow, ShortcutsSettingsSection
+│   ├── Notetaker/           meeting notes: capture, library, settings
+│   └── UI/                  DesignSystem (tokens), Equipment, AquaOrbView, MainWindow,
+│                            SettingsWindow (+ Text/Shortcuts sections), DictionaryPanel,
+│                            SnippetPanel, CorrectionQuickSheet, ComparisonWindow, HUDPanel,
+│                            HUDView, OnboardingWindow
 ├── FluenceCore/             pure logic, unit tested: cleanup guard and rules (EN/FR),
 │                            languages, French typography, model prompts, app categories,
 │                            snippet matching, edit learning, push-to-talk gestures,
-│                            Command Mode checks, speech gate, downmix, sealed history, retention
+│                            Command Mode checks, speech gate, downmix, sealed history, retention,
+│                            Clement's speech repairs, the legacy-data merge
 └── MurmurDictionary/        the correction engine — a cross-platform contract
 ```
 
@@ -232,13 +264,16 @@ Sources/
 
 ## Speech engines
 
-| | Apple SpeechTranscriber | Parakeet v3 (FluidAudio) |
-|---|---|---|
-| Dependency | none (macOS 26) | SwiftPM |
-| Model download | OS-managed | ~470 MB, first use |
-| Live text while speaking | yes | no (on release) |
-| Languages | many — Settings ▸ Language (Auto = the Mac's) | 25 European, auto-detected or hinted |
-| Dictionary biasing | yes (`contextualStrings`) | opt-in CTC rescoring (~100 MB model) |
+| | Apple SpeechTranscriber | Whisper (WhisperKit) | Parakeet v3 (FluidAudio) |
+|---|---|---|---|
+| Dependency | none (macOS 26) | SwiftPM (`argmax-oss-swift`) | SwiftPM |
+| Model download | OS-managed | Base ~140 MB / Small ~480 MB / Large Turbo ~1.5 GB, first use | ~470 MB, first use |
+| Live text while speaking | yes | no (on release) | no (on release) |
+| Languages | many — Réglages (Auto = the Mac's) | French, English, Auto-detect (code-switching) | 25 European, auto-detected or hinted |
+| Dictionary biasing | yes (`contextualStrings`) | prompt with your dictionary and the last sentence | opt-in CTC rescoring (~100 MB model) |
+
+The engine and the Whisper model are chosen in Réglages ▸ Général; the microphone too (any
+input, without changing the Mac's default).
 
 **Compare mode** (menu bar) runs every engine on one recording and shows them side by side
 — and types nothing. If Wispr Flow is installed and its key was held for the same

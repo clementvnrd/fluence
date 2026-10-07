@@ -8,8 +8,8 @@ struct FluenceApp: App {
 
     var body: some Scene {
         // The main window. A `Window` rather than a `WindowGroup`: this app has one front
-        // panel, and letting ⌘N spawn a second copy of a tape deck makes no sense.
-        Window("Fluence", id: "main") {
+        // panel, and letting ⌘N spawn a second copy of it makes no sense.
+        Window(AppDelegate.mainTitle, id: "main") {
             MainWindow(controller: delegate.controller)
         }
         .defaultSize(width: 860, height: 620)
@@ -17,11 +17,18 @@ struct FluenceApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .appInfo) {
-                Button("Reveal Dictionary File") {
+                Button("Afficher le fichier du dictionnaire") {
                     NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
                 }
             }
         }
+
+        // Clement's quick correction window: fix the last dictation and teach the dictionary.
+        Window(AppDelegate.correctionTitle, id: "correction") {
+            CorrectionQuickSheet()
+        }
+        .defaultSize(width: 480, height: 320)
+        .windowResizability(.contentSize)
 
         // Fully qualified: this app has its own `Settings` type, which otherwise shadows
         // SwiftUI's settings scene.
@@ -39,14 +46,14 @@ struct FluenceApp: App {
                 : (delegate.controller.state.isActive ? "waveform.circle.fill" : "waveform"))
         }
 
-        Window("Engine comparison", id: "comparison") {
+        Window(AppDelegate.comparisonTitle, id: "comparison") {
             ComparisonWindow(controller: delegate.controller)
         }
         .defaultSize(width: 640, height: 560)
         .windowResizability(.contentMinSize)
 
         // MARK: Notetaker (library)
-        Window("Meetings", id: MeetingsWindowID.library) {
+        Window("Réunions", id: MeetingsWindowID.library) {
             MeetingsWindow(model: .shared)
         }
         .defaultSize(width: 1_040, height: 720)
@@ -57,6 +64,11 @@ struct FluenceApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Window titles, also used to find the windows from AppKit.
+    static let mainTitle = "Fluence"
+    static let correctionTitle = "Auto-Apprentissage"
+    static let comparisonTitle = "Comparaison des moteurs"
+
     let controller = DictationController()
     private var hud: HUDPanel?
     private var stateObservation: NSObjectProtocol?
@@ -69,12 +81,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         hud = HUDPanel(controller: controller)
 
-        if !controller.activate() {
-            // MARK: FLU-5 input — no bare system prompt here: the onboarding window below
-            // explains Accessibility and raises the prompt from its button. Both at once
-            // would be two dialogs about one thing.
-            // The tap can only be created once the user grants Accessibility, and there's
+        controller.activate()
+        if !Permissions.hasAccessibility {
+            // Carbon shortcuts already work; the event tap (Esc, ⌃⌘V, modifier-only
+            // shortcuts) can only be created once the user grants Accessibility, and there's
             // no notification for that — poll until it takes.
+            // MARK: FLU-5 input — no bare system prompt here: the onboarding window below
+            // explains Accessibility and raises the prompt from its button.
             retryActivation()
         }
         // MARK: FLU-5 input
@@ -87,16 +100,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // first dictation, which would otherwise run without them.
         _ = SnippetStore.shared
 
-        // Parakeet's models take ~20s to load from disk, and that cost lands on whichever
-        // dictation touches them first — so the first hold after every launch would stall
-        // with the HUD showing nothing. Warm them in the background instead, but only when
-        // they're actually going to be used and are already downloaded.
-        let willUseParakeet = Settings.shared.compareMode || Settings.shared.engine == .parakeet
-        if willUseParakeet, ParakeetModels.isDownloaded {
+        // The selected engine's models take seconds to load, and that cost lands on whichever
+        // dictation touches them first. Warm them in the background — only when they're
+        // already downloaded; nothing is downloaded behind the user's back.
+        if Settings.shared.compareMode, ParakeetModels.isDownloaded {
             Task.detached(priority: .utility) {
                 _ = try? await ParakeetModels.shared.manager()
             }
         }
+        Settings.shared.prewarmCurrentEngine()
 
         // Every `make install` relaunches the app and drops its windows. Restoring the
         // window when it was open last time keeps it from vanishing on each rebuild.
@@ -112,36 +124,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // MARK: Notetaker (capture)
         // Watches for calls and offers to take notes; nothing records without the user.
         MeetingController.shared.start()
+        MeetingController.shared.previewRecordingPanelIfRequested()
         // MARK: end Notetaker (capture)
 
         // MARK: Notetaker (library) — notes on `.meetingFinalized`, retention purge.
         NotetakerNotes.launch()
 
-        Log.app.info("Fluence ready — hold \(Settings.shared.pushToTalkKey.displayName) to dictate")
+        Log.app.info("Fluence ready — hold \(Settings.shared.pushToTalkKey.displayName, privacy: .public) to dictate")
+
+        // Clement's build brings the main window forward at launch.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            NSApp.windows.first { $0.title == Self.mainTitle }?.makeKeyAndOrderFront(nil)
+        }
     }
 
-    /// `fluence://show` raises the comparison window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            NSApp.windows.first { $0.title == Self.mainTitle }?.makeKeyAndOrderFront(nil)
+        }
+        return true
+    }
+
+    /// `fluence://show` raises the comparison window; `fluence://correct` the correction
+    /// window.
     ///
     /// Nothing destructive is reachable from here on purpose: any app, and any web page
     /// after one browser prompt, can open a custom-scheme URL. The old `clear` action wiped
     /// the whole history that way, with no confirmation.
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where url.scheme == "fluence" && url.host == "show" {
-            Self.showComparisonWindow()
+        for url in urls where url.scheme == "fluence" {
+            switch url.host {
+            case "show": Self.showComparisonWindow()
+            case "correct": Self.showWindow(titled: Self.correctionTitle)
+            default: break
+            }
         }
     }
 
     /// Raises the comparison window without needing SwiftUI's `openWindow` environment
     /// value — usable from the app delegate and from a URL handler.
     static func showComparisonWindow() {
-        if let existing = NSApp.windows.first(where: { $0.title == "Engine comparison" }) {
-            existing.makeKeyAndOrderFront(nil)
-        }
+        showWindow(titled: comparisonTitle)
+    }
+
+    private static func showWindow(titled title: String) {
+        NSApp.windows.first { $0.title == title }?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        let isOpen = NSApp.windows.contains { $0.title == "Engine comparison" && $0.isVisible }
+        let isOpen = NSApp.windows.contains { $0.title == Self.comparisonTitle && $0.isVisible }
         UserDefaults.standard.set(isOpen, forKey: "comparisonWindowOpen")
         controller.deactivate()
         // Belt and braces: quitting mid-comparison must not leave Wispr Flow's key held down,
@@ -171,8 +204,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             while !Permissions.hasAccessibility {
                 try? await Task.sleep(for: .seconds(1))
             }
-            controller.activate()
-            Log.app.info("Accessibility granted — hotkey armed")
+            controller.reloadHotkey()
+            Log.app.info("Accessibility granted — event tap armed")
         }
     }
 }
@@ -181,13 +214,14 @@ private struct MenuContent: View {
     @Bindable var controller: DictationController
     @State private var settings = Settings.shared
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     @State private var isPreloadingParakeet = false
     @State private var parakeetOnDisk = ParakeetModels.isDownloaded
 
     private var parakeetStatus: String {
-        if isPreloadingParakeet { return "Loading Parakeet models…" }
+        if isPreloadingParakeet { return "Chargement des modèles Parakeet…" }
         // Reflects what's actually on disk, not just what this menu instance has done.
-        return parakeetOnDisk ? "Parakeet models installed ✓" : "Download Parakeet models…"
+        return parakeetOnDisk ? "Modèles Parakeet installés ✓" : "Télécharger les modèles Parakeet…"
     }
 
     private func preloadParakeet() {
@@ -205,26 +239,57 @@ private struct MenuContent: View {
     }
 
     var body: some View {
-        Text("Hold \(settings.pushToTalkKey.displayName) to dictate")
+        Button(controller.state.isActive ? "⏹ Arrêter la dictée" : "Démarrer la dictée") {
+            if controller.state.isActive {
+                controller.stopButtonRecording()
+            } else {
+                controller.startButtonRecording()
+            }
+        }
+
+        Text("Maintenir \(settings.pushToTalkKey.shortName) pour dicter")
 
         Divider()
 
-        Picker("Push-to-talk key", selection: Binding(
+        Picker("Langue", selection: Binding(
+            get: { settings.dictationLanguage },
+            set: { language in
+                settings.dictationLanguage = language
+                settings.prewarmCurrentEngine()
+            }
+        )) {
+            Text("Français").tag(DictationLanguage.french)
+            Text("English").tag(DictationLanguage.english)
+            Text("Auto").tag(DictationLanguage.auto)
+            if ![.french, .english, .auto].contains(settings.dictationLanguage) {
+                Text(settings.dictationLanguage.displayName).tag(settings.dictationLanguage)
+            }
+        }
+
+        Button("Basculer la langue (\(settings.dictationLanguage.shortDisplay))") {
+            settings.toggleLanguage()
+        }
+        .keyboardShortcut("l", modifiers: .option)
+
+        Picker("Raccourci Push-to-talk", selection: Binding(
             get: { settings.pushToTalkKey },
             set: { key in
                 settings.pushToTalkKey = key
                 controller.reloadHotkey()
             }
         )) {
+            if !PushToTalkKey.allCases.contains(settings.pushToTalkKey) {
+                Text(settings.pushToTalkKey.displayName).tag(settings.pushToTalkKey)
+            }
             ForEach(PushToTalkKey.allCases, id: \.self) { key in
                 Text(key.displayName).tag(key)
             }
         }
 
-        Toggle("Compare mode (both engines)", isOn: $settings.compareMode)
+        Toggle("Mode comparaison (tous les moteurs)", isOn: $settings.compareMode)
 
         if !settings.compareMode {
-            Picker("Engine", selection: $settings.engine) {
+            Picker("Moteur", selection: $settings.engine) {
                 ForEach(SpeechEngineChoice.allCases, id: \.self) { choice in
                     Text(choice.displayName).tag(choice)
                 }
@@ -232,7 +297,7 @@ private struct MenuContent: View {
         }
 
         // MARK: FLU-5 text
-        Picker("Cleanup", selection: $settings.cleanupLevel) {
+        Picker("Nettoyage", selection: $settings.cleanupLevel) {
             ForEach(CleanupLevel.allCases, id: \.self) { level in
                 Text(level.title).tag(level)
             }
@@ -242,7 +307,16 @@ private struct MenuContent: View {
         }
         // MARK: end FLU-5 text
 
-        Toggle("Sound", isOn: $settings.soundEnabled)
+        Toggle("Formatage code & terminaux", isOn: $settings.appAwareStylesEnabled)
+        Toggle("Snippets vocaux", isOn: $settings.snippetsEnabled)
+        Toggle("Mode Commande (\(settings.commandModeKey.shortName))", isOn: Binding(
+            get: { settings.commandModeEnabled },
+            set: { on in
+                settings.commandModeEnabled = on
+                controller.reloadHotkey()
+            }
+        ))
+        Toggle("Son", isOn: $settings.soundEnabled)
 
         Divider()
 
@@ -251,7 +325,19 @@ private struct MenuContent: View {
         Divider()
         // MARK: end Notetaker (capture)
 
-        Button("Show comparison window") {
+        Button("Corriger la dernière dictée…") {
+            openWindow(id: "correction")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        .keyboardShortcut(.delete, modifiers: .option)
+
+        Button("Ouvrir la fenêtre principale") {
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        .keyboardShortcut("m")
+
+        Button("Afficher la comparaison des moteurs") {
             openWindow(id: "comparison")
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -267,21 +353,40 @@ private struct MenuContent: View {
                 .disabled(isPreloadingParakeet || parakeetOnDisk)
         }
 
+        if settings.engine == .whisper {
+            let isLoaded = WhisperModels.isDownloaded(variant: settings.whisperModel)
+            Button(isLoaded ? "Modèle Whisper prêt ✓" : "Télécharger le modèle Whisper…") {
+                let model = settings.whisperModel
+                Task.detached(priority: .utility) {
+                    try? await WhisperModels.shared.prepare(variant: model)
+                }
+            }
+            .disabled(isLoaded)
+        }
+
         if let problem = RunStore.shared.problem {
             Text(problem).font(.caption)
         }
 
         // MARK: FLU-5 input
-        Button("Set up Fluence…") { OnboardingWindow.shared.show() }
+        Button("Configurer Fluence…") { OnboardingWindow.shared.show() }
 
         if !Permissions.hasAccessibility {
-            Button("Grant Accessibility…") { Permissions.openAccessibilitySettings() }
+            Button("Autoriser l'Accessibilité…") { Permissions.openAccessibilitySettings() }
         }
         if !Permissions.hasMicrophone {
-            Button("Grant Microphone…") { Permissions.openMicrophoneSettings() }
+            Button("Autoriser le micro…") { Permissions.openMicrophoneSettings() }
         }
 
-        Button("Quit Fluence") { NSApp.terminate(nil) }
+        Divider()
+
+        Button("Réglages…") {
+            openSettings()
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        .keyboardShortcut(",", modifiers: .command)
+
+        Button("Quitter Fluence") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 }
