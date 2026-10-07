@@ -252,6 +252,19 @@ public sealed record MeetingSummary
         HasNotes = meeting.Notes is not null;
     }
 
+    /// <summary>Rebuilds a summary from the stored index.</summary>
+    [JsonConstructor]
+    public MeetingSummary(Guid id, string title, DateTimeOffset startedAt, TimeSpan duration,
+        IReadOnlyList<string> speakerNames, bool hasNotes)
+    {
+        Id = id;
+        Title = title;
+        StartedAt = startedAt;
+        Duration = duration;
+        SpeakerNames = speakerNames ?? [];
+        HasNotes = hasNotes;
+    }
+
     /// <summary>The meeting's id.</summary>
     public Guid Id { get; }
 
@@ -276,4 +289,5 @@ public sealed record MeetingSummary
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(MeetingRecord))]
 [JsonSerializable(typeof(List<MeetingRecord>))]
+[JsonSerializable(typeof(List<MeetingSummary>))]
 public sealed partial class MeetingJsonContext : JsonSerializerContext;
