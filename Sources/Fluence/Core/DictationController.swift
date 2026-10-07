@@ -788,8 +788,13 @@ extension DictationController {
     fileprivate func cancelFromEscape() -> Bool {
         guard session != nil, state.isActive else { return false }
         cancelDictation(reason: "Esc")
+        // FLU-12: the capsule says so for a moment, in its place, instead of vanishing.
+        showNotice(Self.cancelledNotice)
         return true
     }
+
+    /// The notice an Esc cancel leaves on the HUD; the HUD draws it as its "Annulé" state.
+    static let cancelledNotice = "Annulé"
 
     /// ⌃⌘V types the last transcript again; ⌃⌘C puts it on the pasteboard.
     fileprivate func handleLastTranscript(_ action: LastTranscriptAction) {

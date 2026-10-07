@@ -129,19 +129,27 @@ final class LearnedWords {
 
     private(set) var proposals: [EditLearner.Proposal] = []
 
+    /// The proposal shown on the HUD capsule right after the correction (FLU-12), for
+    /// `DS.HUD.offerDuration`. It stays in the main window's list after that.
+    private(set) var spotlight: EditLearner.Proposal?
+
     /// Dismissed this session, so the same correction isn't offered twice.
     @ObservationIgnored private var dismissed: Set<String> = []
+    @ObservationIgnored private var spotlightTask: Task<Void, Never>?
 
     private init() {}
 
     func offer(_ new: [EditLearner.Proposal]) {
         let known = Set(DictionaryStore.shared.entries.map { $0.write.lowercased() })
+        var added: [EditLearner.Proposal] = []
         for proposal in new
         where !known.contains(proposal.written.lowercased())
             && !dismissed.contains(proposal.id)
             && !proposals.contains(proposal) {
             proposals.append(proposal)
+            added.append(proposal)
         }
+        if let first = added.first { show(first) }
     }
 
     func accept(_ proposal: EditLearner.Proposal) {
@@ -150,10 +158,23 @@ final class LearnedWords {
             : .term(proposal.written)
         DictionaryStore.shared.add(entry)
         proposals.removeAll { $0 == proposal }
+        if spotlight == proposal { spotlight = nil }
     }
 
     func dismiss(_ proposal: EditLearner.Proposal) {
         dismissed.insert(proposal.id)
         proposals.removeAll { $0 == proposal }
+        if spotlight == proposal { spotlight = nil }
+    }
+
+    /// Puts a proposal on the capsule for a while.
+    func show(_ proposal: EditLearner.Proposal) {
+        spotlight = proposal
+        spotlightTask?.cancel()
+        spotlightTask = Task { [weak self] in
+            try? await Task.sleep(for: DS.HUD.offerDuration)
+            guard !Task.isCancelled, let self, self.spotlight == proposal else { return }
+            self.spotlight = nil
+        }
     }
 }
