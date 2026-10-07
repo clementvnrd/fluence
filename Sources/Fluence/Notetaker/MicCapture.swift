@@ -82,7 +82,8 @@ final class MicCapture: @unchecked Sendable {
         observer = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
         ) { [weak self] _ in
-            self?.queue.async { self?.restart() }
+            guard let self else { return }
+            self.queue.async { [weak self] in self?.restart() }
         }
 
         engine.prepare()
