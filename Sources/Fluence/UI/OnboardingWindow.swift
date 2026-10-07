@@ -79,9 +79,12 @@ final class OnboardingModel {
     private(set) var statuses: [Step: Status] = [:]
 
     init() {
-        statuses = Self.readStatuses()
+        // A local first: under @Observable the closure would otherwise capture `self`
+        // before `step` is initialized.
+        let initial = Self.readStatuses()
+        statuses = initial
         // Start where the work is: the first grant still missing, or the end.
-        step = Step.allCases.first { statuses[$0] == .missing } ?? .ready
+        step = Step.allCases.first { initial[$0] == .missing } ?? .ready
     }
 
     func status(of step: Step) -> Status? { statuses[step] }

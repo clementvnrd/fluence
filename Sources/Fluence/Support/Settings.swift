@@ -152,11 +152,14 @@ final class Settings {
         if let level = CleanupLevel(rawValue: defaults.string(forKey: Keys.cleanupLevel) ?? "") {
             cleanupLevel = level
         } else {
-            cleanupLevel = CleanupLevel.migrated(
+            // Through a local: reading the @Observable property back would touch `self`
+            // before every stored property is set.
+            let migrated = CleanupLevel.migrated(
                 cleanupEnabled: defaults.object(forKey: Keys.cleanupEnabled) as? Bool,
                 smartCleanup: defaults.object(forKey: Keys.smartCleanup) as? Bool
             )
-            defaults.set(cleanupLevel.rawValue, forKey: Keys.cleanupLevel)
+            cleanupLevel = migrated
+            defaults.set(migrated.rawValue, forKey: Keys.cleanupLevel)
         }
         dictationLanguage = DictationLanguage(rawValue: defaults.string(forKey: Keys.dictationLanguage) ?? "") ?? .auto
         var styles: [AppCategory: WritingStyle] = [:]
