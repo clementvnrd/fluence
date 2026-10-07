@@ -106,3 +106,55 @@ public sealed class FakeMeetingSignals : IMeetingSignals
     public IReadOnlyList<ProcessStart> ProcessesNamed(string processName) =>
         Processes.TryGetValue(processName, out var list) ? [.. list] : [];
 }
+
+/// <summary>A timed transcriber that answers every utterance with the same words, spread evenly.</summary>
+public sealed class FakeTimedTranscriber : ITimedTranscriber
+{
+    private readonly Func<int, string> _text;
+
+    /// <summary>Creates the fake.</summary>
+    /// <param name="text">The text for the n-th call (0-based).</param>
+    public FakeTimedTranscriber(Func<int, string> text) => _text = text;
+
+    /// <summary>Lengths of the audio passed in, in samples.</summary>
+    public List<int> Calls { get; } = [];
+
+    /// <summary>Thrown instead of answering, when set.</summary>
+    public Exception? Failure { get; set; }
+
+    /// <inheritdoc />
+    public bool IsReady => true;
+
+    /// <inheritdoc />
+    public ValueTask<TimedTranscript> TranscribeTimedAsync(ReadOnlyMemory<float> samples, CancellationToken cancellationToken)
+    {
+        if (Failure is not null) throw Failure;
+        var text = _text(Calls.Count);
+        Calls.Add(samples.Length);
+
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var seconds = (double)samples.Length / AudioChunk.SampleRate;
+        var step = words.Length == 0 ? 0 : Math.Min(0.3, seconds / words.Length);
+        var tokens = words.Select((w, i) => new RecognizedToken("▁" + w, i * step, (i + 1) * step)).ToList();
+        return ValueTask.FromResult(new TimedTranscript(text, tokens));
+    }
+}
+
+/// <summary>A voice detector that throws on demand, to exercise the fallback.</summary>
+public sealed class ThrowingVoiceActivity : IVoiceActivityDetector
+{
+    /// <inheritdoc />
+    public int HopSamples => 512;
+
+    /// <inheritdoc />
+    public string Kind => "broken";
+
+    /// <summary>Whether <see cref="Dispose"/> ran.</summary>
+    public bool Disposed { get; private set; }
+
+    /// <inheritdoc />
+    public float Push(ReadOnlySpan<float> hop) => throw new InvalidOperationException("native VAD failed");
+
+    /// <inheritdoc />
+    public void Dispose() => Disposed = true;
+}

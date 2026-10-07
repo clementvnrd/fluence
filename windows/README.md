@@ -71,7 +71,7 @@ install a toolkit. On CPU with int8 weights, transcription runs ~40× faster tha
 |---|---|---|
 | `NAudio` | **2.3.0** | 3.x is a new major version (3.1 replaces the loopback API the planned Notetaker needs); moving is a port that needs real-hardware testing, not a version bump. The old reason given here — "targets .NET 9+, will not restore" — was wrong |
 | `Avalonia.Headless.XUnit` | **11.3.20** | 12.x requires xUnit **v3**, a different package line |
-| `org.k2fsa.sherpa.onnx` | 1.13.5 | Bundles ONNX Runtime; never also reference `Microsoft.ML.OnnxRuntime` |
+| `org.k2fsa.sherpa.onnx` | **1.13.8** | Bundles ONNX Runtime; never also reference `Microsoft.ML.OnnxRuntime`. Moved from 1.13.5 for the Notetaker (FLU-10): same package layout — the `win-x64` runtime still ships `onnxruntime.dll` beside `sherpa-onnx-c-api.dll` — and the VAD, speaker-diarization and speaker-embedding types the meeting pipeline uses. The three `org.k2fsa.sherpa.onnx*` pins move together |
 
 ---
 
