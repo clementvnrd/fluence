@@ -18,10 +18,20 @@ let package = Package(
             path: "Sources/MurmurDictionary",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Notetaker (capture): the platform-neutral meeting logic — model, merge, echo dedupe,
+        // word→speaker, naming, VAD segmentation. No AppKit or AVFoundation, so it is tested
+        // directly, and its behaviour is shared with the Windows port through
+        // shared/meeting-test-vectors.json.
+        .target(
+            name: "FluenceMeetingCore",
+            path: "Sources/FluenceMeetingCore",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .executableTarget(
             name: "Fluence",
             dependencies: [
                 "MurmurDictionary",
+                "FluenceMeetingCore",
                 .product(name: "FluidAudio", package: "FluidAudio"),
             ],
             path: "Sources/Fluence",
@@ -34,6 +44,13 @@ let package = Package(
             dependencies: ["MurmurDictionary"],
             path: "Tests/MurmurDictionaryTests",
             resources: [.copy("dictionary-test-vectors.json")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "FluenceMeetingCoreTests",
+            dependencies: ["FluenceMeetingCore"],
+            path: "Tests/FluenceMeetingCoreTests",
+            resources: [.copy("meeting-test-vectors.json")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
