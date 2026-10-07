@@ -32,7 +32,10 @@ struct FluenceApp: App {
         MenuBarExtra {
             MenuContent(controller: delegate.controller)
         } label: {
-            Image(systemName: delegate.controller.state.isActive ? "waveform.circle.fill" : "waveform")
+            // MARK: Notetaker (capture) — the icon shows a meeting is being recorded.
+            Image(systemName: MeetingController.shared.isRecording
+                ? "record.circle"
+                : (delegate.controller.state.isActive ? "waveform.circle.fill" : "waveform"))
         }
 
         Window("Engine comparison", id: "comparison") {
@@ -89,6 +92,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         observeState()
+
+        // MARK: Notetaker (capture)
+        // Watches for calls and offers to take notes; nothing records without the user.
+        MeetingController.shared.start()
+        // MARK: end Notetaker (capture)
+
         Log.app.info("Fluence ready — hold \(Settings.shared.pushToTalkKey.displayName) to dictate")
     }
 
@@ -214,6 +223,11 @@ private struct MenuContent: View {
         Toggle("Sound", isOn: $settings.soundEnabled)
 
         Divider()
+
+        // MARK: Notetaker (capture)
+        MeetingMenuItems(controller: MeetingController.shared)
+        Divider()
+        // MARK: end Notetaker (capture)
 
         Button("Show comparison window") {
             RunStore.shared.reload()

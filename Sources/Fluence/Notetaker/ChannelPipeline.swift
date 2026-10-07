@@ -102,6 +102,9 @@ actor ChannelPipeline {
     private var vadFailed = false
     private var segmenter = UtteranceSegmenter()
     private var transcriptions: [Task<Void, Never>] = []
+    /// Every segment this channel produced, returned by `finish()` so the caller does not
+    /// depend on the order in which the live callbacks land.
+    private var produced: [TranscriptSegment] = []
 
     init(
         source: AudioSource,
@@ -133,8 +136,9 @@ actor ChannelPipeline {
     }
 
     /// Flushes everything still buffered, transcribes the last utterance, waits for every
-    /// transcription in flight and closes the spool.
-    func finish() async {
+    /// transcription in flight and closes the spool. Returns every segment produced.
+    @discardableResult
+    func finish() async -> [TranscriptSegment] {
         if source == .microphone, !rawBlock.isEmpty {
             rawBlock += [Float](repeating: 0, count: Self.hop - rawBlock.count)
             await runEchoStage()
@@ -156,6 +160,7 @@ actor ChannelPipeline {
         } catch {
             Log.audio.error("spool close failed: \(error.localizedDescription, privacy: .public)")
         }
+        return produced
     }
 
     private func accept(_ samples: [Float]) async {
@@ -289,7 +294,6 @@ actor ChannelPipeline {
     private func startTranscription(_ utterance: Utterance) {
         let samples = history.samples(from: utterance.startSample, to: utterance.endSample)
         guard !samples.isEmpty else { return }
-        transcriptions.removeAll { $0.isCancelled }
         transcriptions.append(Task { await self.transcribe(samples, startSample: utterance.startSample) })
     }
 
@@ -319,6 +323,7 @@ actor ChannelPipeline {
                 text: corrector.apply(to: text).text,
                 words: words
             )
+            produced.append(segment)
             callbacks.segment(segment)
         } catch {
             Log.speech.error("meeting utterance not transcribed: \(error.localizedDescription, privacy: .public)")
