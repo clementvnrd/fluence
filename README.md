@@ -27,8 +27,29 @@ Then grant two permissions — neither is optional, and neither can be requested
 | **Accessibility** | System Settings ▸ Privacy & Security ▸ Accessibility | The `CGEventTap` that sees the hotkey, and the AX text insert |
 | **Microphone** | Prompted on first dictation | Audio capture |
 
+On first launch a **Set up Fluence** window walks through both, plus the two optional grants
+the meeting notes use (System Audio Recording, Calendar): what each is for, a lamp that lights
+when it is on, one button to the right System Settings pane, and it moves on by itself once a
+grant lands. Reopen it any time from the menu bar: *Set up Fluence…*
+
 The hotkey arms itself as soon as Accessibility is granted — no restart. Then hold
 **Right ⌥** and talk.
+
+### Shortcuts
+
+| Press | Does |
+|---|---|
+| Hold the key (Right ⌥ by default) | Dictate; let go to type |
+| Double-tap the key, or key + Space | Hands-free: keeps recording after you let go |
+| Tap the key (or the HUD's Stop) | End hands-free and type |
+| Esc | Cancel the dictation in progress — nothing is typed |
+| Key + ⌃ (held) | **Command Mode**: say how to change the selected text ("make it shorter", "translate to French"); with nothing selected, the whole field is rewritten |
+| ⌃⌘V / ⌃⌘C | Paste / copy the last transcript |
+
+Space and Esc are only swallowed while they act on a dictation; otherwise they reach the app
+as usual. Command Mode rewrites with Apple Intelligence on this Mac — never in the cloud —
+refuses password fields, and replaces nothing if the selection changed while it worked. Its
+modifier (Control, Shift or off) and the ⌃⌘V / ⌃⌘C pair are in Settings ▸ Shortcuts.
 
 The bundle ID is `io.github.clementvnrd.fluence`. Settings, dictionary and history from the
 app's previous identity (`ai.pivotstudio.murmur-youtube`) migrate on first launch; the
@@ -85,6 +106,7 @@ Other targets: `make app` (bundle only), `make run` (run in place), `make clean`
 | Logs | unified log, subsystem `io.github.clementvnrd.fluence` | Counts and timings only — never transcript text. |
 | Clipboard | only when AX insertion fails | Marked transient + concealed (clipboard managers skip it), kept off Universal Clipboard, previous contents restored. |
 | HUD | | Excluded from screen sharing and recordings. |
+| Last transcript (⌃⌘V / ⌃⌘C) | memory only | Gone at quit; never written to disk, whatever the history setting. ⌃⌘C copies to this Mac only. |
 
 Network: none, except the one-time Parakeet model download from Hugging Face when that
 engine is chosen.
@@ -142,15 +164,17 @@ Sources/
 ├── Fluence/                 the app
 │   ├── FluenceApp.swift     @main, AppDelegate, menu bar
 │   ├── Core/                DictationController, AudioCapture, HotkeyMonitor, TextInjector,
-│   │                        EngineComparison, WisprTrigger
+│   │                        CommandTarget, EngineComparison, WisprTrigger
 │   ├── Transcription/       TranscriptionEngine, AppleSpeechEngine, ParakeetEngine, WisprReader
-│   ├── Formatting/          TextFormatter (rules), FoundationModelFormatter
+│   ├── Formatting/          TextFormatter (rules), FoundationModelFormatter, CommandRewriter
 │   ├── Dictionary/          DictionaryStore (file + watcher)
 │   ├── Support/             AppPaths, Vault, HistoryFile, RunLog, Settings, Permissions, Log
 │   └── UI/                  DesignSystem (tokens), Equipment, MainWindow, SettingsWindow,
-│                            DictionaryPanel, ComparisonWindow, HUDPanel, HUDView
+│                            DictionaryPanel, ComparisonWindow, HUDPanel, HUDView,
+│                            OnboardingWindow, ShortcutsSettingsSection
 ├── FluenceCore/             pure logic, unit tested: cleanup guard, speech gate, downmix,
-│                            sealed history lines, retention
+│                            sealed history lines, retention, push-to-talk gestures,
+│                            Command Mode prompt and output checks
 └── MurmurDictionary/        the correction engine — a cross-platform contract
 ```
 
@@ -188,7 +212,6 @@ target on each pull request.
 
 Tracked in Linear (team FLU):
 
-1. **Wispr Flow parity** — hands-free mode, styles per app, snippets, Command Mode, French
-   cleanup prompt, Parakeet biasing.
-2. **Onboarding** — a first-run window for the permissions.
-3. **Notarization**, for distribution beyond this machine.
+1. **Wispr Flow parity** — styles per app, snippets, French cleanup prompt, Parakeet
+   biasing.
+2. **Notarization**, for distribution beyond this machine.
