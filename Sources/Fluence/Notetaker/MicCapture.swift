@@ -33,6 +33,10 @@ final class MicCapture: @unchecked Sendable {
     private var onFailure: (@Sendable (Error) -> Void)?
     private var isRunning = false
     private var restartAttempts = 0
+    /// Bumped by every restart and stop; a delayed rebuild from an older one does nothing.
+    /// Bluetooth headsets post the configuration change twice in a row, and two rebuilds
+    /// would leave a second engine running with its tap (FLU-15).
+    private var generation = 0
 
     /// Starts capturing. `onAudio` is called on the audio thread.
     func start(
@@ -52,6 +56,7 @@ final class MicCapture: @unchecked Sendable {
     func stop() {
         queue.sync {
             isRunning = false
+            generation += 1
             tearDown()
             onAudio = nil
             onFailure = nil
@@ -61,6 +66,7 @@ final class MicCapture: @unchecked Sendable {
     // MARK: - Engine (on `queue`)
 
     private func startEngine() throws {
+        tearDown()  // never two engines: a rebuild replaces whatever is still there
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
@@ -112,9 +118,11 @@ final class MicCapture: @unchecked Sendable {
     /// about ten seconds before giving up (a USB mic unplugged with no fallback device).
     private func restart() {
         guard isRunning else { return }
+        generation += 1
+        let current = generation
         tearDown()
         queue.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            guard let self, self.isRunning else { return }
+            guard let self, self.isRunning, self.generation == current else { return }
             do {
                 try self.startEngine()
                 Log.audio.info("meeting mic rebuilt after a device change")
