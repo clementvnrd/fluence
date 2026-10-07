@@ -26,7 +26,7 @@ namespace Murmur.Speech;
 /// Windows. That pass was always the guarantee and biasing only ever the nudge.
 /// </para>
 /// </remarks>
-public sealed class ParakeetTranscriber : ITranscriber
+public sealed class ParakeetTranscriber : ITranscriber, ITimedTranscriber
 {
     /// <summary>Threads for inference. Four measured fastest; eight measured slower.</summary>
     private const int Threads = 4;
@@ -194,6 +194,37 @@ public sealed class ParakeetTranscriber : ITranscriber
             _recognizer.Decode(stream);
 
             return ValueTask.FromResult(stream.Result.Text?.Trim() ?? string.Empty);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The same decode as <see cref="TranscribeAsync"/>, reading sherpa-onnx's per-token
+    /// <c>Tokens</c> and <c>Timestamps</c>; see <see cref="SherpaTokens.Timed"/> for how ends
+    /// are derived. Checked against Parakeet TDT 0.6B v2 on real speech (macOS, same library).
+    /// </remarks>
+    public ValueTask<TimedTranscript> TranscribeTimedAsync(ReadOnlyMemory<float> samples, CancellationToken cancellationToken)
+    {
+        if (samples.Length == 0) return ValueTask.FromResult(new TimedTranscript(string.Empty, []));
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_recognizer is null)
+            {
+                throw new InvalidOperationException("The speech model is not loaded.");
+            }
+
+            using var stream = _recognizer.CreateStream();
+            stream.AcceptWaveform(AudioChunk.SampleRate, samples.ToArray());
+            _recognizer.Decode(stream);
+
+            var result = stream.Result;
+            var seconds = (double)samples.Length / AudioChunk.SampleRate;
+            return ValueTask.FromResult(new TimedTranscript(
+                result.Text?.Trim() ?? string.Empty,
+                SherpaTokens.Timed(result.Tokens, result.Timestamps, seconds)));
         }
     }
 

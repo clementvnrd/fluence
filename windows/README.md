@@ -69,9 +69,9 @@ install a toolkit. On CPU with int8 weights, transcription runs ~40× faster tha
 
 | Package | Pinned | Why |
 |---|---|---|
-| `NAudio` | **2.3.0** | 3.x is a new major version (3.1 replaces the loopback API the planned Notetaker needs); moving is a port that needs real-hardware testing, not a version bump. The old reason given here — "targets .NET 9+, will not restore" — was wrong |
+| `NAudio` | **2.3.0** | Kept for the Notetaker (FLU-10): 2.3 already exposes `IAudioClient`, `AudioClient(IAudioClient)` and `AudioCaptureClient.GetBuffer` with QPC timestamps, so process loopback needs one P/Invoke (`ActivateAudioInterfaceAsync`), not 3.x. 3.x is a new major version whose `NAudio.Core` pulls `System.Numerics.Tensors`, which the `NAudio*.dll` publish glob would silently drop, and moving would also touch the dictation microphone path |
 | `Avalonia.Headless.XUnit` | **11.3.20** | 12.x requires xUnit **v3**, a different package line |
-| `org.k2fsa.sherpa.onnx` | 1.13.5 | Bundles ONNX Runtime; never also reference `Microsoft.ML.OnnxRuntime` |
+| `org.k2fsa.sherpa.onnx` | **1.13.8** | Bundles ONNX Runtime; never also reference `Microsoft.ML.OnnxRuntime`. Moved from 1.13.5 for the Notetaker (FLU-10): same package layout — the `win-x64` runtime still ships `onnxruntime.dll` beside `sherpa-onnx-c-api.dll` — and the VAD, speaker-diarization and speaker-embedding types the meeting pipeline uses. The three `org.k2fsa.sherpa.onnx*` pins move together |
 
 ---
 
@@ -84,17 +84,20 @@ windows/
 ├─ global.json                    SDK pin
 ├─ src/
 │  ├─ Murmur.Dictionary/          corrections + biasing                      net10.0
+│  ├─ Murmur.Meeting/             Notetaker logic ported from macOS, notes   net10.0
 │  ├─ Murmur.Abstractions/        platform interfaces, key policy, log API   net10.0
-│  ├─ Murmur.Core/                engine, segmenter, sealed history, paths   net10.0
+│  ├─ Murmur.Core/                engine, segmenter, sealed history, paths,  net10.0
+│  │                              meeting pipeline, store and controller
 │  ├─ Murmur.Speech/              Parakeet via sherpa-onnx, model verifier   net10.0
 │  ├─ Murmur.Testing/             fakes for the interfaces                   net10.0
 │  ├─ Murmur.App/                 Avalonia UI → Fluence.exe                  net10.0
 │  └─ Murmur.Platform.Windows/    the ONLY Win32 code                        net10.0-windows
 └─ tests/
    ├─ Murmur.Dictionary.Tests/    the shared vectors                          24 tests
-   ├─ Murmur.Core.Tests/          engine, segmenter, storage, crypto, log     94 tests
-   ├─ Murmur.Speech.Tests/        model search/verification, native load      12 tests
-   └─ Murmur.App.Tests/           headless Avalonia UI                        19 tests
+   ├─ Murmur.Meeting.Tests/       the shared meeting vectors, notes core      58 tests
+   ├─ Murmur.Core.Tests/          engine, storage, crypto, meetings, log     156 tests
+   ├─ Murmur.Speech.Tests/        model search/verification, native load      18 tests
+   └─ Murmur.App.Tests/           headless Avalonia UI                        23 tests
 ```
 
 **Only one project targets `-windows`.** Everything else is platform-neutral, so `CA1416`
@@ -193,7 +196,7 @@ dotnet test  Murmur.sln -c Release
 ```bash
 cd windows
 dotnet build Murmur.sln -c Release --no-incremental -warnaserror -p:EnableWindowsTargeting=true
-dotnet test  Murmur.CrossPlatform.slnf -c Release     # ~2 s, 149 tests
+dotnet test  Murmur.CrossPlatform.slnf -c Release     # ~5 s, 279 tests
 ```
 
 Without `-p:EnableWindowsTargeting=true`, `dotnet build Murmur.sln` fails off Windows with
@@ -207,17 +210,21 @@ incremental build, so `-warnaserror` would pass on cached results and prove noth
 
 ## <a id="honesty"></a>Honesty about what is verified
 
-**Verified, on Windows, every push:** 149 tests — 24 dictionary (the shared vectors), 94 core
-(the dictation state machine with its timing rules, watchdog and error paths; chunking and
-seam joining; sealed history, migration and retention; the dictionary file; logging), 12
-speech (model search, verification, a real native call into sherpa-onnx), 19 headless
-Avalonia UI. CI then publishes a self-contained single-file `Fluence.exe`, checks the loose
+**Verified, on Windows, every push:** 279 tests — 24 dictionary (the shared vectors), 58
+meeting (the shared meeting vectors and the notes core, ported from macOS), 156 core (the
+dictation state machine with its timing rules, watchdog and error paths; chunking and seam
+joining; sealed history, migration and retention; the dictionary file; logging; the meeting
+capture, pipeline, detector, final pass, store, spool and controller on fakes), 18 speech
+(model search, verification, real native calls into sherpa-onnx), 23 headless Avalonia UI. CI then publishes a self-contained single-file `Fluence.exe`, checks the loose
 platform DLLs are present (and that SystemEvents is the real implementation, not the stub),
 **runs it with `--selftest`**, and the binary reports back: the dictionary works, history
 seals and round-trips, the sherpa-onnx native library loads from the bundle, the platform
-layer loads, NAudio enumerates capture devices, DPAPI round-trips, session events subscribe.
+layer loads, NAudio enumerates capture devices, DPAPI round-trips, session events subscribe,
+and for the Notetaker: the meeting store and spool round-trip sealed, the sherpa-onnx VAD and
+diarization types load, process loopback activates and capture sessions enumerate (the last
+two warn rather than fail on a runner with no audio device).
 
-**Verified on macOS:** the same 149 tests, and the platform layer compiles with every
+**Verified on macOS:** the same 279 tests, and the platform layer compiles with every
 analyzer. The self-test runs too, minus the platform checks.
 
 **Known divergences between the two regex engines**, measured across 30 cases — 9 differed.
@@ -241,6 +248,12 @@ that are *not* fixable are simply avoided: ICU folds `ß` to `ss` and .NET does 
 - DPAPI across a password change or profile reset (the code sets the old history aside
   rather than deleting it).
 - Parakeet transcribing real speech, and whether the ~2 GB working set is tolerable.
+- The meeting Notetaker (`docs/NOTETAKER.md` §3): process-loopback activation and the formats
+  Windows accepts, capture-session enumeration and the process names real Teams/Zoom builds
+  use, real call window titles, microphone/loopback clock drift over an hour, the panel's
+  placement and focus. Silero VAD, Parakeet timings and diarization were checked on macOS
+  with the real sherpa-onnx library and models; the diarization threshold was tuned on one
+  clip.
 
 Everything those feed into is behind an interface and exercised with fakes. **A first
 real-hardware run should start with `Fluence.exe --selftest` in a console, then a single

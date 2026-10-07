@@ -30,9 +30,11 @@ public sealed class Composition : IAsyncDisposable
         DictationEngine? engine,
         ITextInjector? injector,
         TranscriberHost model,
-        bool platformAvailable)
+        bool platformAvailable,
+        MeetingParts meetings)
     {
         Model = model;
+        Meetings = meetings;
         Settings = settings;
         Dictionary = dictionary;
         Transcripts = transcripts;
@@ -65,6 +67,9 @@ public sealed class Composition : IAsyncDisposable
     /// <summary>The speech model: where it is, and whether it actually loaded.</summary>
     public TranscriberHost Model { get; }
 
+    /// <summary>The meeting Notetaker: controller, store, voice prints, or why they are missing.</summary>
+    public MeetingParts Meetings { get; }
+
     /// <summary>Builds the object graph.</summary>
     /// <param name="log">Where failures are recorded. Never receives transcript text.</param>
     public static Composition Create(IDiagnosticLog log)
@@ -95,6 +100,8 @@ public sealed class Composition : IAsyncDisposable
         var model = new TranscriberHost(
             modelDirectory is null ? null : new ParakeetTranscriber(modelDirectory), modelDirectory, log);
 
+        var sessionMonitor = available ? PlatformFactory.CreateSessionMonitor() : null;
+
         if (available)
         {
             // Load now, in the background, rather than on the first key press: the first
@@ -110,7 +117,7 @@ public sealed class Composition : IAsyncDisposable
                     // Read per dictation, so the Settings checkbox applies immediately.
                     InjectText = () => settings.Data.InjectText,
                     MaxRecording = TimeSpan.FromMinutes(Math.Clamp(settings.Data.MaxRecordingMinutes, 1, 60)),
-                    Session = PlatformFactory.CreateSessionMonitor(),
+                    Session = sessionMonitor,
                     Log = log,
                 });
 
@@ -135,12 +142,17 @@ public sealed class Composition : IAsyncDisposable
             };
         }
 
-        return new Composition(settings, dictionary, transcripts, engine, injector, model, available);
+        var meetings = MeetingComposition.Create(settings, dictionary, model, sessionMonitor, available, log);
+
+        return new Composition(settings, dictionary, transcripts, engine, injector, model, available, meetings);
     }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
+        // A recording in progress is stopped and finalised before the model goes away.
+        if (Meetings.Controller is { } meetings) await meetings.DisposeAsync().ConfigureAwait(false);
+
         // The engine disposes the model it was given; without one, dispose it here.
         if (Engine is not null) await Engine.DisposeAsync().ConfigureAwait(false);
         else await Model.DisposeAsync().ConfigureAwait(false);

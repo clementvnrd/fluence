@@ -86,15 +86,24 @@ public static class ModelVerifier
     public const string StampFileName = ".fluence-verified";
 
     /// <summary>Checks <paramref name="directory"/>.</summary>
-    public static ModelCheck Verify(string directory, IReadOnlyList<string> requiredFiles, CancellationToken cancellationToken)
+    public static ModelCheck Verify(string directory, IReadOnlyList<string> requiredFiles, CancellationToken cancellationToken) =>
+        Verify(directory, requiredFiles, null, cancellationToken);
+
+    /// <summary>
+    /// Checks <paramref name="directory"/> against <paramref name="manifestIfNoChecksums"/> when the folder has no
+    /// <c>SHA256SUMS</c> of its own; with none given, recognises a Parakeet variant.
+    /// </summary>
+    public static ModelCheck Verify(
+        string directory, IReadOnlyList<string> requiredFiles, ModelManifest? manifestIfNoChecksums, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(requiredFiles);
         var missing = requiredFiles.Where(f => !File.Exists(Path.Combine(directory, f))).ToList();
         if (missing.Count > 0)
         {
             return new ModelCheck(false, $"Missing from {directory}: {string.Join(", ", missing)}.", null, false);
         }
 
-        var manifest = ReadChecksumFile(directory) ?? Recognise(directory);
+        var manifest = ReadChecksumFile(directory) ?? manifestIfNoChecksums ?? Recognise(directory);
         if (manifest is null) return new ModelCheck(true, null, null, false);
 
         var stamp = ReadStamp(directory);
