@@ -3,7 +3,7 @@ import OSLog
 enum Log {
     /// The bundle identifier, so the subsystem follows the app's identity rather than a
     /// literal that silently goes stale on a rename. `log show --predicate 'subsystem ==
-    /// "uk.co.delff.fluence"'`.
+    /// "io.github.clementvnrd.fluence"'`.
     private static let subsystem = Bundle.main.bundleIdentifier ?? "fluence"
 
     static let audio = Logger(subsystem: subsystem, category: "audio")

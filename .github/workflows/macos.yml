@@ -1,66 +1,68 @@
 name: macOS
 
-# Runs the shared dictionary contract against the Swift implementation. The Windows
-# workflow runs the identical vectors against the C# one. Both must be green for the two
-# implementations to be considered in agreement — that pairing is the whole point.
+# Builds the whole app and runs every Swift test target, including the shared contracts
+# (dictionary vectors, meeting vectors) that the Windows app runs too.
+#
+# Pull requests and manual runs only: on a private repository a macOS minute costs ten
+# included minutes, and a merge to main has already passed this on its pull request.
 
 on:
-  push:
-    branches: [main]
-    paths: ['Sources/**', 'Tests/**', 'shared/**', 'Package.swift', '.github/workflows/macos.yml']
   pull_request:
-    paths: ['Sources/**', 'Tests/**', 'shared/**', 'Package.swift', '.github/workflows/macos.yml']
+    paths: ['Sources/**', 'Tests/**', 'shared/**', 'Resources/**', 'Package.swift', 'Package.resolved', '.github/workflows/macos.yml']
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  dictionary-contract:
-    name: Dictionary contract
+  build-test:
+    name: Build app & test
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
 
-      # Package.swift declares swift-tools-version 6.2, but the runner defaults to an
-      # older Xcode (Swift 6.1) and fails to even parse the manifest. Select the newest
-      # Xcode present rather than pinning a version that will age out of the image.
+      # The app needs the macOS 26 SDK (SpeechAnalyzer, Foundation Models, process taps),
+      # which ships with Xcode 26. Select the newest Xcode present rather than pinning a
+      # version that will age out of the image.
       - name: Select the newest Xcode
         run: |
           latest=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
           echo "Using $latest"
           sudo xcode-select -s "$latest/Contents/Developer"
+          swift --version
+          xcrun --show-sdk-version
 
-      - name: Swift version
-        run: swift --version
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
 
-      # The app target needs macOS 26 and the Speech framework, which the runner image
-      # does not have. The dictionary target is deliberately platform-neutral, so it — and
-      # the contract that matters here — builds and tests anywhere.
-      - name: Test the dictionary target
-        run: swift test --filter VectorTests
+      # The whole app, not just the libraries: CI is the only place the SwiftUI views are
+      # compiled when a contributor's Mac has only the Command Line Tools.
+      - name: Build the app
+        run: swift build --product Fluence
 
-      - name: Confirm the vectors on both sides are identical
+      - name: Test
+        run: swift test
+
+      - name: Confirm the shared vectors and their test copies are identical
         run: |
-          if ! diff -q shared/dictionary-test-vectors.json Tests/MurmurDictionaryTests/dictionary-test-vectors.json; then
-            echo "::error::The Swift test copy of the vectors has drifted from shared/."
-            echo "Run: cp shared/dictionary-test-vectors.json Tests/MurmurDictionaryTests/"
-            exit 1
-          fi
-          echo "Vectors match."
-
-      # Notetaker: the platform-neutral meeting logic (merge, echo dedupe, word→speaker,
-      # naming) has its own shared contract, reused by the Windows port.
-      - name: Test the meeting core
-        run: swift test --filter FluenceMeetingCoreTests
-
-      - name: Confirm the meeting vectors on both sides are identical
-        run: |
-          if ! diff -q shared/meeting-test-vectors.json Tests/FluenceMeetingCoreTests/meeting-test-vectors.json; then
-            echo "::error::The Swift test copy of the meeting vectors has drifted from shared/."
-            echo "Run: cp shared/meeting-test-vectors.json Tests/FluenceMeetingCoreTests/"
-            exit 1
-          fi
-          echo "Meeting vectors match."
+          status=0
+          for pair in \
+            "shared/dictionary-test-vectors.json Tests/MurmurDictionaryTests/dictionary-test-vectors.json" \
+            "shared/meeting-test-vectors.json Tests/FluenceMeetingCoreTests/meeting-test-vectors.json"; do
+            set -- $pair
+            [ -f "$1" ] || continue
+            if ! diff -q "$1" "$2"; then
+              echo "::error::$2 has drifted from $1. Run: cp $1 $2"
+              status=1
+            fi
+          done
+          exit $status

@@ -1,3 +1,4 @@
+import FluenceCore
 import SwiftUI
 
 /// Settings — hotkey and model, per the brief. Opens on ⌘, via the standard `Settings` scene,
@@ -5,6 +6,7 @@ import SwiftUI
 struct SettingsWindow: View {
     @Bindable var controller: DictationController
     @State private var settings = Settings.shared
+    @State private var history = RunStore.shared
 
     var body: some View {
         ZStack {
@@ -65,6 +67,56 @@ struct SettingsWindow: View {
                         .toggleStyle(.switch)
                         note("Strips fillers, fixes spacing and punctuation. The dictionary's "
                             + "corrections run either way.")
+                    }
+
+                    panel(label: "Recording limit") {
+                        HStack(spacing: DS.Space.snug) {
+                            ForEach(Settings.recordingLimitChoices, id: \.self) { minutes in
+                                TransportKey(
+                                    title: "\(minutes) min",
+                                    isEngaged: settings.maxRecordingMinutes == minutes,
+                                    engagedColor: DS.Color.ink
+                                ) {
+                                    settings.maxRecordingMinutes = minutes
+                                }
+                                .background {
+                                    if settings.maxRecordingMinutes == minutes {
+                                        RoundedRectangle(cornerRadius: DS.Radius.control)
+                                            .fill(DS.Color.selection)
+                                    }
+                                }
+                            }
+                        }
+                        note("A dictation still running after this long is finished and typed, "
+                            + "in case the key's release was missed.")
+                    }
+
+                    panel(label: "History") {
+                        HStack(spacing: DS.Space.snug) {
+                            ForEach(HistoryRetention.allCases, id: \.self) { retention in
+                                TransportKey(
+                                    title: retention.displayName,
+                                    isEngaged: settings.historyRetention == retention,
+                                    engagedColor: DS.Color.ink
+                                ) {
+                                    settings.historyRetention = retention
+                                    RunLog.applyRetention()
+                                }
+                                .background {
+                                    if settings.historyRetention == retention {
+                                        RoundedRectangle(cornerRadius: DS.Radius.control)
+                                            .fill(DS.Color.selection)
+                                    }
+                                }
+                            }
+                        }
+                        note(settings.historyRetention == .never
+                            ? "Nothing is written to disk. This session's transcripts stay listed until you quit."
+                            : "Encrypted on this Mac, never backed up. Older transcripts are deleted as soon "
+                                + "as you change this.")
+                        if let problem = history.problem {
+                            note(problem)
+                        }
                     }
 
                     // MARK: Notetaker (library)

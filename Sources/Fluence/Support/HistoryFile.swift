@@ -1,0 +1,219 @@
+import CryptoKit
+import FluenceCore
+import Foundation
+
+/// The history on disk: `history.sealed`, one AES-GCM-sealed JSON run per line.
+///
+/// Every operation runs on one serial queue, in the order it was submitted, so an append can
+/// never overtake the rewrite a delete queued just before it. Rewrites read the *file*, not
+/// the in-memory list, which is what keeps the two from disagreeing about what exists.
+///
+/// The one rule that matters: **if the Vault can't produce a key, nothing is written.** A
+/// Keychain refusal skips the save and reports it; it never falls back to plaintext, and it
+/// never rewrites the file with what little it could read.
+final class HistoryFile: @unchecked Sendable {
+    static let shared = HistoryFile()
+
+    enum LoadResult: Sendable {
+        case success([DictationRun])
+        case failure(String)
+    }
+
+    /// Hands a result back on the main actor.
+    typealias Report = @MainActor @Sendable (String?) -> Void
+
+    private let queue = DispatchQueue(label: "history-file", qos: .utility)
+
+    private var directory: URL { AppPaths.support }
+    private var url: URL { directory.appendingPathComponent("history.sealed") }
+
+    /// The plaintext files of earlier versions — removed once their contents are sealed.
+    private var legacyRuns: URL { directory.appendingPathComponent("runs.jsonl") }
+    private var legacyDashboard: URL { directory.appendingPathComponent("dashboard.html") }
+
+    private init() {}
+
+    // MARK: - Operations
+
+    func load(then completion: @escaping @MainActor @Sendable (LoadResult) -> Void) {
+        queue.async {
+            let result: LoadResult
+            do {
+                try self.migrateLegacyFile()
+                let key = try Vault.masterKey()
+                result = .success(try self.read(with: key).runs)
+            } catch {
+                result = .failure("History couldn't be opened: \(Self.describe(error))")
+            }
+            Task { @MainActor in completion(result) }
+        }
+    }
+
+    func append(_ run: DictationRun, then report: @escaping Report) {
+        withKey { key in
+            let line = try SealedLines.line(for: try Self.encode(run)) { try Vault.seal($0, with: key) }
+            try self.appendLine(line)
+        } then: { report($0.map { "History isn't being saved: \($0)" }) }
+    }
+
+    func remove(where predicate: @escaping @Sendable (DictationRun) -> Bool, then report: @escaping Report) {
+        withKey { key in
+            let current = try self.read(with: key)
+            let kept = current.runs.filter { !predicate($0) }
+            guard kept.count != current.runs.count else { return }
+            try self.rewrite(kept, preserving: current.unreadable, with: key)
+        } then: { report($0.map { "History couldn't be updated: \($0)" }) }
+    }
+
+    func purge(_ retention: HistoryRetention, now: Date, then report: @escaping Report) {
+        guard retention.persists else {
+            clear(then: report)
+            return
+        }
+        guard retention.cutoff(now: now) != nil else { return }
+        remove(where: { !retention.keeps($0.date, now: now) }, then: report)
+    }
+
+    /// Needs no key: removing the file is always possible, and must stay possible when the
+    /// Keychain is the thing that's broken.
+    func clear(then report: @escaping Report) {
+        queue.async {
+            var problem: String?
+            for file in [self.url, self.legacyRuns, self.legacyDashboard] {
+                do {
+                    try FileManager.default.removeItem(at: file)
+                } catch CocoaError.fileNoSuchFile {
+                    continue
+                } catch {
+                    problem = "History couldn't be deleted: \(Self.describe(error))"
+                }
+            }
+            Task { @MainActor in report(problem) }
+        }
+    }
+
+    // MARK: - Queue plumbing
+
+    /// Runs `work` on the queue with the master key, reporting the outcome on the main actor.
+    /// Without a key, `work` never runs.
+    private func withKey(
+        _ work: @escaping @Sendable (SymmetricKey) throws -> Void,
+        then report: @escaping @MainActor @Sendable (String?) -> Void
+    ) {
+        queue.async {
+            var problem: String?
+            do {
+                try work(try Vault.masterKey())
+            } catch {
+                problem = Self.describe(error)
+            }
+            Task { @MainActor in report(problem) }
+        }
+    }
+
+    // MARK: - File access (queue only)
+
+    private struct Contents {
+        var runs: [DictationRun] = []
+        /// Lines this key couldn't open, carried through rewrites untouched.
+        var unreadable: [Data] = []
+    }
+
+    private func read(with key: SymmetricKey) throws -> Contents {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch CocoaError.fileReadNoSuchFile {
+            return Contents()
+        }
+
+        let decoded = SealedLines.decode(data) { try Vault.open($0, with: key) }
+        var contents = Contents(unreadable: decoded.unreadable)
+        for record in decoded.records {
+            // Sealed but not a run this version understands: keep the bytes rather than
+            // dropping them on the next rewrite.
+            if let run = try? Self.decoder().decode(DictationRun.self, from: record) {
+                contents.runs.append(run)
+            } else {
+                let resealed = try SealedLines.line(for: record) { try Vault.seal($0, with: key) }
+                contents.unreadable.append(resealed.dropLast()) // without its newline
+            }
+        }
+        if !contents.unreadable.isEmpty {
+            Log.app.error("history: \(contents.unreadable.count, privacy: .public) line(s) could not be opened and were kept as-is")
+        }
+        return contents
+    }
+
+    private func rewrite(_ runs: [DictationRun], preserving unreadable: [Data], with key: SymmetricKey) throws {
+        let records = try runs.map(Self.encode)
+        let file = try SealedLines.file(records: records, preserving: unreadable) {
+            try Vault.seal($0, with: key)
+        }
+        // Atomic: a torn rewrite would lose history the user didn't ask to delete.
+        try file.write(to: url, options: [.atomic])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private func appendLine(_ line: Data) throws {
+        let manager = FileManager.default
+        if !manager.fileExists(atPath: url.path) {
+            guard manager.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: line)
+    }
+
+    /// One-time move from the plaintext `runs.jsonl` (and the HTML copy rendered beside it)
+    /// to the sealed file.
+    ///
+    /// The plaintext is deleted only after its runs are safely sealed. If the Keychain
+    /// refuses, it stays exactly where it was and the move is retried on the next launch —
+    /// never half-done, and never by writing anything new in plaintext.
+    private func migrateLegacyFile() throws {
+        let manager = FileManager.default
+        // The dashboard is a rendered copy of runs.jsonl, never a source: always safe to drop.
+        try? manager.removeItem(at: legacyDashboard)
+
+        guard let legacy = try? Data(contentsOf: legacyRuns) else { return }
+        let key = try Vault.masterKey()
+
+        let decoder = Self.decoder()
+        let legacyRuns = legacy.split(separator: 0x0A).compactMap {
+            try? decoder.decode(DictationRun.self, from: Data($0))
+        }
+
+        // A previous attempt may have sealed these and then failed to delete the plaintext;
+        // matching on date and text keeps that from duplicating them.
+        let existing = try read(with: key)
+        let alreadySealed = Set(existing.runs.map { "\($0.date.timeIntervalSince1970)|\($0.text)" })
+        let fresh = legacyRuns.filter { !alreadySealed.contains("\($0.date.timeIntervalSince1970)|\($0.text)") }
+
+        try rewrite(fresh + existing.runs, preserving: existing.unreadable, with: key)
+        try manager.removeItem(at: self.legacyRuns)
+        Log.app.info("history: sealed \(fresh.count, privacy: .public) run(s) from runs.jsonl and removed the plaintext")
+    }
+
+    // MARK: - Coding
+
+    private static func encode(_ run: DictationRun) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(run)
+    }
+
+    private static func decoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+
+    private static func describe(_ error: Error) -> String {
+        if let failure = error as? Vault.Failure { return failure.description }
+        return error.localizedDescription
+    }
+}

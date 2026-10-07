@@ -11,9 +11,9 @@
 	<key>CFBundleExecutable</key>
 	<string>Fluence</string>
 	<!-- TCC keys every grant (Microphone, Accessibility, System Audio Recording) to this
-	     identifier. Changing it means granting everything again — FLU-9 decision 6/10. -->
+	     identifier. Changing it means granting everything again — FLU-9 decisions 6 and 10. -->
 	<key>CFBundleIdentifier</key>
-	<string>uk.co.delff.fluence</string>
+	<string>io.github.clementvnrd.fluence</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -28,7 +28,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>uk.co.delff.fluence</string>
+			<string>io.github.clementvnrd.fluence</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>fluence</string>

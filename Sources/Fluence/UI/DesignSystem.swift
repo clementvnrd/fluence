@@ -75,6 +75,14 @@ enum DS {
         /// Row under the pointer, before selection.
         static let hover = face(light: 0xC2BDB6, dark: 0x343130)
 
+        // Status that isn't recording. Neither of these is a hue: red is taken, and amber
+        // and green belong to the meters.
+        /// A plain pilot lamp — on or off, "this is enabled" — the way a power lamp is.
+        static let pilot = swatch(0xE9E1CC)
+        /// Fault text on a dark readout. Carried by full brightness and a "Fault" label
+        /// rather than by color.
+        static let fault = swatch(0xF6F1E4)
+
         // Instrumentation only. Never use these for UI chrome.
         /// Classic cream VU face.
         static let meterFace = swatch(0xD8CFB4)
@@ -196,6 +204,40 @@ enum DS {
         }
     }
 
+    // MARK: - Windows
+
+    /// Fixed and minimum window sizes. A window is a unit's faceplate: it has a size, not a
+    /// layout that happens to come out at some size.
+    enum Window {
+        static let mainMinimum = CGSize(width: 720, height: 520)
+        static let comparisonMinimum = CGSize(width: 560, height: 420)
+        static let settings = CGSize(width: 520, height: 720)
+    }
+
+    // MARK: - HUD
+
+    /// The floating readout shown while dictating. A small deck window, not a glass pill:
+    /// flat, hard-edged, no blur and no shadow.
+    enum HUD {
+        static let size = CGSize(width: 340, height: 76)
+        /// Distance above the Dock (the bottom of the visible frame).
+        static let bottomOffset: CGFloat = 96
+        /// Fade in and out. Quick enough to stay out of the way of the first word.
+        static let fade: TimeInterval = 0.16
+
+        // Level bars — instrumentation, so they may use the meter colors.
+        static let meterSize = CGSize(width: 76, height: 26)
+        static let barCount = 12
+        static let barWidth: CGFloat = 3
+        static let barGap: CGFloat = 3
+        /// A silent bar's height: present, like an unlit segment.
+        static let barFloor: CGFloat = 3
+        /// How far a bar travels above the floor at full level.
+        static let barTravel: CGFloat = 23
+        /// Bars redraw at most this often.
+        static let meterFrameRate: Double = 30
+    }
+
     // MARK: - Spacing
 
     /// A 4pt grid. Panels are laid out on it; nothing sits between steps.
@@ -270,6 +312,8 @@ enum DS {
         static let panel = Animation.easeInOut(duration: 0.18)
         /// The record lamp coming on — instant, like a filament.
         static let lamp = Animation.easeOut(duration: 0.08)
+        /// A readout's text changing as the transcript is revised.
+        static let readout = Animation.easeOut(duration: 0.12)
 
         /// VU ballistics. A real VU meter reaches 99% of a step in ~300ms and overshoots
         /// slightly; that lag *is* the instrument's character, so the needle is damped

@@ -1,5 +1,7 @@
+import FluenceCore
 import MurmurDictionary
 import Foundation
+import Observation
 
 /// One completed dictation.
 struct DictationRun: Codable, Sendable, Identifiable {
@@ -16,9 +18,13 @@ struct DictationRun: Codable, Sendable, Identifiable {
     let audioSeconds: Double
     /// Release → final text ready. This is the latency you actually feel.
     let processSeconds: Double
+    /// What was typed: after cleanup and the dictionary.
     let text: String
-    /// Shared by every engine that processed the same recording, so the dashboard can
-    /// present them as one side-by-side comparison instead of unrelated rows.
+    /// What the engine heard, before cleanup. Kept only when cleanup changed it, so that a
+    /// cleanup pass that drops a sentence never costs the user the words they spoke.
+    var rawText: String?
+    /// Shared by every engine that processed the same recording, so the comparison window
+    /// can present them as one side-by-side comparison instead of unrelated rows.
     var group: String?
 
     /// Dictionary corrections that fired on this transcript. Recorded so history can show
@@ -38,6 +44,7 @@ struct DictationRun: Codable, Sendable, Identifiable {
         audioSeconds: Double,
         processSeconds: Double,
         text: String,
+        rawText: String? = nil,
         group: String? = nil,
         corrections: [AppliedCorrection]? = nil
     ) {
@@ -47,6 +54,7 @@ struct DictationRun: Codable, Sendable, Identifiable {
         self.audioSeconds = audioSeconds
         self.processSeconds = processSeconds
         self.text = text
+        self.rawText = rawText
         self.group = group
         self.corrections = corrections
     }
@@ -59,68 +67,94 @@ struct DictationRun: Codable, Sendable, Identifiable {
         audioSeconds = try container.decode(Double.self, forKey: .audioSeconds)
         processSeconds = try container.decode(Double.self, forKey: .processSeconds)
         text = try container.decode(String.self, forKey: .text)
+        rawText = try container.decodeIfPresent(String.self, forKey: .rawText)
         group = try container.decodeIfPresent(String.self, forKey: .group)
         corrections = try container.decodeIfPresent([AppliedCorrection].self, forKey: .corrections)
     }
 }
 
-/// Appends every dictation to a JSONL file and regenerates a dashboard beside it.
+/// The history as the windows see it: in memory, always current, never waiting on disk.
+@MainActor
+@Observable
+final class RunStore {
+    static let shared = RunStore()
+
+    private(set) var runs: [DictationRun] = []
+
+    /// Why history isn't being read or saved, when it isn't — typically the Keychain refusing
+    /// the encryption key. Shown in the window, the menu and Settings, because the
+    /// alternative failure mode is history that looks merely empty.
+    fileprivate(set) var problem: String?
+
+    private var hasLoaded = false
+
+    private init() {}
+
+    /// Recordings grouped by comparison, newest first.
+    var comparisons: [[DictationRun]] {
+        Dictionary(grouping: runs.filter { $0.group != nil }, by: { $0.group! })
+            .values
+            .sorted { ($0.first?.date ?? .distantPast) > ($1.first?.date ?? .distantPast) }
+    }
+
+    var singles: [DictationRun] {
+        runs.filter { $0.group == nil }.reversed()
+    }
+
+    fileprivate func loaded(_ stored: [DictationRun]) {
+        // Anything recorded while the file was still being read is newer than all of it.
+        runs = hasLoaded ? runs : stored + runs
+        hasLoaded = true
+    }
+
+    fileprivate func append(_ run: DictationRun) { runs.append(run) }
+    fileprivate func removeAll(where predicate: (DictationRun) -> Bool) { runs.removeAll(where: predicate) }
+}
+
+/// Files finished dictations: into `RunStore` immediately, and onto disk — encrypted — in
+/// the background.
 ///
-/// The dashboard is a plain file with a meta-refresh rather than a served page: `file://`
-/// can't fetch its own data directory without tripping CORS, so instead of the page pulling
-/// data, the app pushes a freshly rendered page after each run and the browser just reloads.
+/// Nothing here blocks the dictation path. Sealing, the Keychain round trip and any rewrite
+/// run on `HistoryFile`'s own queue, after the text has already been typed.
 @MainActor
 enum RunLog {
-    static var directory: URL {
-        AppPaths.support
-    }
+    private static var retention: HistoryRetention { Settings.shared.historyRetention }
 
-    static var dashboardURL: URL { directory.appendingPathComponent("dashboard.html") }
-    private static var runsURL: URL { directory.appendingPathComponent("runs.jsonl") }
+    /// Reads the history at launch, migrating the old plaintext files on the way, then
+    /// applies the retention setting.
+    static func start() {
+        HistoryFile.shared.load { result in
+            switch result {
+            case .success(let runs):
+                RunStore.shared.loaded(runs)
+                applyRetention()
+            case .failure(let message):
+                RunStore.shared.loaded([])
+                report(message)
+            }
+        }
+    }
 
     static func record(_ run: DictationRun) {
-        append(run)
-        regenerate()
-        RunStore.shared.reload()
-    }
-
-    static func record(_ runs: [DictationRun]) {
-        runs.forEach(append)
-        regenerate()
-        RunStore.shared.reload()
-    }
-
-    private static func append(_ run: DictationRun) {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        guard var line = try? encoder.encode(run) else { return }
-        line.append(0x0A) // newline
-
-        if let handle = try? FileHandle(forWritingTo: runsURL) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: line)
-        } else {
-            try? line.write(to: runsURL)
+        RunStore.shared.append(run)
+        if retention.persists {
+            HistoryFile.shared.append(run, then: report)
         }
+        applyRetention()
     }
 
-    static func load() -> [DictationRun] {
-        guard let data = try? Data(contentsOf: runsURL) else { return [] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return data.split(separator: 0x0A).compactMap { line in
-            try? decoder.decode(DictationRun.self, from: Data(line))
+    /// Drops whatever the retention setting no longer allows, in memory and on disk.
+    ///
+    /// "Don't keep" leaves this session's runs in memory — the windows would otherwise go
+    /// blank mid-session and compare mode would have nowhere to show its results — but
+    /// removes the file outright.
+    static func applyRetention() {
+        let retention = self.retention
+        let now = Date()
+        if retention.persists {
+            RunStore.shared.removeAll { !retention.keeps($0.date, now: now) }
         }
-    }
-
-    static func regenerate() {
-        let runs = load()
-        try? DashboardHTML.render(
-            runs: runs,
-            compareMode: Settings.shared.compareMode,
-            key: Settings.shared.pushToTalkKey.displayName
-        ).write(to: dashboardURL, atomically: true, encoding: .utf8)
+        HistoryFile.shared.purge(retention, now: now, then: report)
     }
 
     /// Deletes one run.
@@ -131,35 +165,23 @@ enum RunLog {
     /// Deletes every run in a comparison group — the engines all transcribed one utterance,
     /// so removing that utterance means removing all of its rows.
     static func deleteGroup(_ group: String) {
-        rewrite(load().filter { $0.group != group })
+        RunStore.shared.removeAll { $0.group == group }
+        HistoryFile.shared.remove(where: { $0.group == group }, then: report)
     }
 
     static func delete(ids: Set<UUID>) {
-        rewrite(load().filter { !ids.contains($0.id) })
+        RunStore.shared.removeAll { ids.contains($0.id) }
+        HistoryFile.shared.remove(where: { ids.contains($0.id) }, then: report)
     }
 
     static func clear() {
-        try? FileManager.default.removeItem(at: runsURL)
-        regenerate()
-        RunStore.shared.reload()
+        RunStore.shared.removeAll { _ in true }
+        HistoryFile.shared.clear(then: report)
     }
 
-    /// Replaces the whole file. Deleting can't be an append, and rewriting also persists the
-    /// ids that older runs were assigned on load.
-    private static func rewrite(_ runs: [DictationRun]) {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-
-        let body = runs.compactMap { run -> String? in
-            guard let data = try? encoder.encode(run) else { return nil }
-            return String(data: data, encoding: .utf8)
-        }.joined(separator: "\n")
-
-        // Atomic: a partial write here would lose history that the user didn't ask to delete.
-        try? (body.isEmpty ? "" : body + "\n")
-            .write(to: runsURL, atomically: true, encoding: .utf8)
-
-        regenerate()
-        RunStore.shared.reload()
+    /// nil clears a previous problem: the last disk operation succeeded.
+    private static func report(_ problem: String?) {
+        if let problem { Log.app.error("history: \(problem)") }
+        RunStore.shared.problem = problem
     }
 }

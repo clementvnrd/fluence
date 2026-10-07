@@ -10,7 +10,7 @@ import SwiftUI
 final class HUDPanel: NSPanel {
     init(controller: DictationController) {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 340, height: 76),
+            contentRect: NSRect(origin: .zero, size: DS.HUD.size),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -27,8 +27,16 @@ final class HUDPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = false
 
+        // The HUD shows the live transcript. Excluded from screen sharing, recording and
+        // screenshots, so dictating during a call doesn't broadcast what you're writing.
+        sharingType = .none
+
         contentView = NSHostingView(rootView: HUDView(controller: controller))
     }
+
+    /// Bumped on every present, so a fade-out that finishes after the HUD was shown again
+    /// knows it's stale.
+    private var presentation = 0
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -48,7 +56,7 @@ final class HUDPanel: NSPanel {
         setFrameOrigin(
             NSPoint(
                 x: visible.midX - size.width / 2,
-                y: visible.minY + 96
+                y: visible.minY + DS.HUD.bottomOffset
             )
         )
     }
@@ -59,22 +67,29 @@ final class HUDPanel: NSPanel {
         // reads as a flicker mid-utterance.
         guard !isVisible || alphaValue < 1 else { return }
 
+        presentation += 1
         reposition()
         alphaValue = 0
         orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
+            context.duration = DS.HUD.fade
             animator().alphaValue = 1
         }
     }
 
     func dismiss() {
+        let presentation = self.presentation
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
+            context.duration = DS.HUD.fade
             animator().alphaValue = 0
         } completionHandler: { [weak self] in
-            // AppKit always calls this on the main thread.
-            MainActor.assumeIsolated { self?.orderOut(nil) }
+            // Hopped rather than asserted: see AGENTS.md on `MainActor.assumeIsolated`.
+            Task { @MainActor in
+                // A fast re-press presented the HUD again while this fade was running;
+                // hiding it now would leave the user dictating with no HUD.
+                guard let self, self.presentation == presentation else { return }
+                self.orderOut(nil)
+            }
         }
     }
 }

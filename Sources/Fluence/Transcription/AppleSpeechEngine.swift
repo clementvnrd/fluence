@@ -108,6 +108,15 @@ actor AppleSpeechEngine: TranscriptionEngine {
         resultsTask = nil
     }
 
+    func cancel() async {
+        inputContinuation?.finish()
+        inputContinuation = nil
+        await analyzer?.cancelAndFinishNow()
+        analyzer = nil
+        transcriber = nil
+        resultsTask = nil
+    }
+
     // MARK: - Result accumulation
 
     /// Folds one result into the running transcript and returns the full text to display.
