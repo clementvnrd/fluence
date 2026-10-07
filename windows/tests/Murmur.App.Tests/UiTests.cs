@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Headless.XUnit;
 using Avalonia.Themes.Fluent;
 using Murmur.App.Controls;
@@ -186,5 +187,103 @@ public sealed class DesignSystemTests
         Tokens.Motion.NeedleAttackSeconds.ShouldBe(0.30);
         Tokens.Motion.NeedleReleaseSeconds.ShouldBeGreaterThan(Tokens.Motion.NeedleAttackSeconds);
         Tokens.Motion.NeedleOvershoot.ShouldBeGreaterThan(0);
+    }
+}
+
+/// <summary>The settings window.</summary>
+public sealed class SettingsWindowTests : IDisposable
+{
+    private readonly string _path = Path.Combine(Path.GetTempPath(), $"fluence-ui-set-{Guid.NewGuid():N}.json");
+
+    public void Dispose()
+    {
+        if (File.Exists(_path)) File.Delete(_path);
+    }
+
+    [AvaloniaFact]
+    public void Retention_buttons_save_the_choice()
+    {
+        var settings = new Murmur.Core.AppSettings(_path);
+        var window = new SettingsWindow(settings);
+        window.Show();
+
+        window.SelectedRetention.ShouldBe(Murmur.Core.HistoryRetention.ThirtyDays);
+
+        window.SelectRetention(Murmur.Core.HistoryRetention.OneDay);
+
+        new Murmur.Core.AppSettings(_path).Data.HistoryRetention.ShouldBe(Murmur.Core.HistoryRetention.OneDay);
+    }
+}
+
+/// <summary>How the model's real state is put into words.</summary>
+public sealed class ModelStatusTests
+{
+    [AvaloniaFact]
+    public void Ready_only_when_actually_loaded()
+    {
+        ModelStatus.Describe(Murmur.Core.ModelState.NotLoaded, null, "/m", []).IsReady.ShouldBeFalse();
+        ModelStatus.Describe(Murmur.Core.ModelState.Loading, null, "/m", []).IsReady.ShouldBeFalse();
+        ModelStatus.Describe(Murmur.Core.ModelState.Ready, null, "/m", []).IsReady.ShouldBeTrue();
+    }
+
+    [AvaloniaFact]
+    public void A_failure_shows_the_reason_and_asks_for_attention()
+    {
+        var status = ModelStatus.Describe(Murmur.Core.ModelState.Failed, "encoder.int8.onnx is truncated", "/m", []);
+
+        status.NeedsAttention.ShouldBeTrue();
+        status.Detail.ShouldContain("encoder.int8.onnx is truncated");
+    }
+
+    [AvaloniaFact]
+    public void Not_installed_lists_every_folder_checked()
+    {
+        var status = ModelStatus.Describe(Murmur.Core.ModelState.NotInstalled, null, null, ["/a/parakeet-v3", "/a/parakeet-v2"]);
+
+        status.Detail.ShouldContain("/a/parakeet-v3");
+        status.Detail.ShouldContain("/a/parakeet-v2");
+    }
+
+    [AvaloniaFact]
+    public async Task Settings_follows_the_model_state_live()
+    {
+        var inner = new Murmur.Testing.FakeTranscriber("x") { LoadError = new InvalidDataException("broken") };
+        await using var host = new Murmur.Core.TranscriberHost(inner, "/m");
+        var path = Path.Combine(Path.GetTempPath(), $"fluence-ui-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            var window = new SettingsWindow(new Murmur.Core.AppSettings(path), model: host);
+            window.Show();
+            window.ShownModelStatus!.Headline.ShouldBe("Parakeet found, not loaded yet");
+
+            await host.LoadAsync(CancellationToken.None);
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+            window.ShownModelStatus!.Headline.ShouldBe("Parakeet failed to load");
+            window.ShownModelStatus.Detail.ShouldContain("broken");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+}
+
+/// <summary>The clipboard item the app writes.</summary>
+public sealed class ClipboardTests
+{
+    [AvaloniaFact]
+    public void Private_text_carries_the_text_and_every_privacy_format()
+    {
+        var transfer = Murmur.App.App.PrivateText("dictated", Murmur.Core.ClipboardPrivacy.ForTransientPaste());
+
+        var item = transfer.Items.ShouldHaveSingleItem();
+        item.TryGetText().ShouldBe("dictated");
+
+        foreach (var (format, data) in Murmur.Core.ClipboardPrivacy.ForTransientPaste())
+        {
+            item.TryGetValue(Avalonia.Input.DataFormat.CreateBytesPlatformFormat(format)).ShouldBe(data);
+        }
     }
 }

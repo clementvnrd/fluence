@@ -10,7 +10,8 @@
       "src\\Murmur.Testing\\Murmur.Testing.csproj",
       "tests\\Murmur.App.Tests\\Murmur.App.Tests.csproj",
       "tests\\Murmur.Core.Tests\\Murmur.Core.Tests.csproj",
-      "tests\\Murmur.Dictionary.Tests\\Murmur.Dictionary.Tests.csproj"
+      "tests\\Murmur.Dictionary.Tests\\Murmur.Dictionary.Tests.csproj",
+      "tests\\Murmur.Speech.Tests\\Murmur.Speech.Tests.csproj"
     ]
   }
 }

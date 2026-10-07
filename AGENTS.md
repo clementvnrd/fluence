@@ -8,8 +8,9 @@ fine and will bite you.
 
 ## What this is
 
-Push-to-talk dictation. Hold a key, talk, release, and cleaned-up text is typed into
-whatever had focus. Two independent implementations:
+**Fluence** — push-to-talk dictation, and (in progress) local meeting notes. Hold a key,
+talk, release, and cleaned-up text is typed into whatever had focus. Everything runs
+on-device. Two independent implementations:
 
 | | macOS | Windows |
 |---|---|---|
@@ -18,13 +19,18 @@ whatever had focus. Two independent implementations:
 | Speech | Apple `SpeechAnalyzer`, or Parakeet via FluidAudio | Parakeet via sherpa-onnx |
 | Location | repo root | `windows/` |
 
-**The macOS app works and is in daily use.**
+**The macOS app works and was in daily use** under its previous name, "Murmur YouTube".
+The October 2026 hardening (`docs/AUDIT-2026-10.md`) is typechecked and unit tested but not
+yet exercised by hand.
 
-**The Windows app is complete but has never run on real hardware.** Every layer exists;
-CI builds it, runs 63 tests, publishes a single-file executable, launches it on Windows and
-confirms the platform layer loads and constructs. What has never happened is a person
-holding the key and speaking into a microphone. Describe it that way — not as "working",
-not as "unfinished".
+**The Windows app has run on real hardware once, by an outside contributor** (upstream
+pull request #1 on `per-simmons/murmur-youtube`): it did not transcribe at all until their
+five fixes, which are merged here. The later audit fixes have not been on hardware yet.
+Describe it that way — not as "working", not as "unfinished".
+
+The repository is `clementvnrd/fluence` (private). It started as a copy of the public
+`per-simmons/murmur-youtube`, which has **no licence**; ask its author for one before
+distributing Fluence.
 
 ---
 
@@ -51,12 +57,44 @@ cp shared/dictionary-test-vectors.json Tests/MurmurDictionaryTests/
 
 ---
 
+## Data protection rules
+
+These are product requirements, not style:
+
+- **Never log transcript text, meeting text, names or e-mails.** Counts, lengths, timings.
+- **Never write personal data in plaintext.** Use `Vault` (`Support/Vault.swift`): AES-256-GCM
+  under a Keychain master key, per-item wrapped keys for meetings. If the Vault fails, do not
+  fall back to plaintext — skip the write and show the fault.
+- **Personal files live under `AppPaths.support`**, which is owner-only, out of Time Machine
+  and out of Spotlight.
+- **Clipboard writes we did not get asked for** are transient + concealed and
+  `.currentHostOnly`, and are cleaned up afterwards.
+- **Nothing destructive behind a URL scheme.** Any app or web page can open `fluence://`.
+
+---
+
+## Verifying without Xcode
+
+The Command Line Tools cannot expand SwiftUI's `@State` macro, so `make` fails on a Mac
+without Xcode. CI builds the whole app on every pull request. Locally:
+
+- Pure logic lives in plain targets (`MurmurDictionary`, `FluenceCore`, and the Notetaker's
+  `FluenceMeetingCore` / `FluenceNotesCore`) that build and `swift test` with the Command Line
+  Tools. Swift Testing needs `-Xswiftc -plugin-path -Xswiftc
+  /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing` on `swift build`;
+  without it an incremental build silently runs a stale test binary.
+- The app can be typechecked by swapping `@State` for a stand-in property wrapper in a copy of
+  the sources. A plain `swiftc -typecheck` is **not** enough: after the macro failure it stops
+  reporting real errors.
+
+---
+
 ## Things that look like bugs and are not
 
-**`dotnet build Murmur.sln` fails on macOS** with `NETSDK1073`. Expected —
-`Murmur.Platform.Windows` targets `net10.0-windows`. Use `Murmur.CrossPlatform.slnf`, which
-omits it; everything else, including the whole UI suite, builds and tests on macOS in about
-half a second.
+**`dotnet build Murmur.sln` fails on macOS** with `NETSDK1073` — unless you pass
+`-p:EnableWindowsTargeting=true`, which compiles `Murmur.Platform.Windows` (and runs its
+analyzers) on a Mac too. `Murmur.CrossPlatform.slnf` omits it and holds every test (149);
+the whole UI suite runs headless on macOS in about a second.
 
 **`swift build` fails with "input file was modified during the build."** The repo lives in an
 iCloud-synced folder and the sync engine touches files mid-compile. **Always build with
@@ -112,7 +150,7 @@ shows as **on** while the app is untrusted. The `Makefile` auto-detects a Develo
 If a grant does get wedged, reset that one row — never toggle, and never omit the bundle ID:
 
 ```bash
-tccutil reset Accessibility ai.pivotstudio.murmur-youtube
+tccutil reset Accessibility io.github.clementvnrd.fluence
 ```
 
 A bare `tccutil reset Accessibility` wipes every app on the machine. Then quit System
@@ -134,7 +172,7 @@ them as load-bearing. Full detail in `windows/README.md` and `docs/PARAKEET-WIND
 
 | Package | Pin | Why |
 |---|---|---|
-| `NAudio` | 2.3.0 | 3.x targets .NET 9+ and will not restore |
+| `NAudio` | 2.3.0 | 3.x is a new major version — moving is a port that needs real-hardware testing. 3.1 is needed later for the Notetaker's process loopback (FLU-10) |
 | `Avalonia.Headless.XUnit` | 11.3.20 | 12.x requires xUnit **v3**, a different package line |
 | `org.k2fsa.sherpa.onnx` | 1.13.5 | Bundles ONNX Runtime — never also reference `Microsoft.ML.OnnxRuntime` |
 
@@ -184,7 +222,8 @@ lookahead, `\p{L}`, and `$1`–`$9` in replacements. Nothing else.
 
 ## What isn't built
 
-1. **Command Mode** — select text, hold a second key, "make this more formal."
+1. **Wispr Flow parity** (Linear FLU-5) — hands-free mode, styles per app, snippets,
+   **Command Mode** (select text, hold a second key, "make this more formal"), French cleanup.
 2. **Onboarding** — a first-run window walking through the macOS permissions.
 3. **Notarization** (macOS) and **code signing** (Windows). Both apps are unsigned for
    distribution, so Windows users will meet SmartScreen.

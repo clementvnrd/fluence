@@ -2,6 +2,7 @@ using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input.Platform;
+using Avalonia.Threading;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Murmur.App.Controls;
@@ -48,7 +49,10 @@ public sealed class TranscriptionsView : UserControl
             },
         };
 
-        _store.Changed += (_, _) => Refresh();
+        // Marshalled: Add() is raised from the dictation engine's background thread, and a
+        // straight Refresh() there makes Avalonia throw "Call from invalid thread" — which
+        // travels back through Completed and kills the dictation before injection runs.
+        _store.Changed += (_, _) => Dispatcher.UIThread.Post(Refresh);
         Refresh();
     }
 
@@ -75,8 +79,14 @@ public sealed class TranscriptionsView : UserControl
         var copy = Panels.DeckButton("COPY");
         copy.Click += async (_, _) =>
         {
+            // An explicit copy may show up in Win+V history — the user asked for it — but a
+            // dictation is never uploaded to Cloud Clipboard.
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-            if (clipboard is not null) await clipboard.SetTextAsync(record.Text).ConfigureAwait(true);
+            if (clipboard is not null)
+            {
+                await clipboard.SetDataAsync(App.PrivateText(record.Text, ClipboardPrivacy.ForUserCopy()))
+                    .ConfigureAwait(true);
+            }
 
             copy.Content = "COPIED";
             await Task.Delay(TimeSpan.FromSeconds(1.4)).ConfigureAwait(true);

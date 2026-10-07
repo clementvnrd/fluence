@@ -39,8 +39,9 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
 
+    <!-- User-facing name. Projects and namespaces keep Murmur.* (see Murmur.App.csproj). -->
     <Company>Pivot Studio</Company>
-    <Product>Murmur</Product>
+    <Product>Fluence</Product>
     <Copyright>Copyright © Pat Simmons</Copyright>
   </PropertyGroup>
 </Project>

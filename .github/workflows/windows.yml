@@ -69,9 +69,12 @@ jobs:
           --results-directory artifacts/test-results
 
       # The published exe is the only artifact CI can actually run, and a runner cannot
-      # show a window — so --selftest exercises startup, native library resolution out of
-      # the self-extracted bundle, and model discovery, then exits. That is the class of
-      # failure that appears only after publishing.
+      # show a window — so --selftest exercises startup, the reflection-loaded platform
+      # layer and every dependency it pulls in (a WASAPI enumeration through NAudio, a DPAPI
+      # round trip, a SystemEvents subscription), a real P/Invoke into the sherpa-onnx native
+      # library extracted from the bundle, sealed-history round trips and model discovery,
+      # then exits non-zero on any failure. That is the class of failure that appears only
+      # after publishing.
       - name: Publish and smoke-test the real exe
         shell: pwsh
         run: |
@@ -79,7 +82,7 @@ jobs:
             --configuration Release --runtime win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             --output artifacts/publish
-          $exe = 'artifacts/publish/Murmur.App.exe'
+          $exe = 'artifacts/publish/Fluence.exe'
           if (-not (Test-Path $exe)) { throw "Published exe not found at $exe" }
           $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
           Write-Host "published: $size MB"
@@ -88,13 +91,29 @@ jobs:
           $run = Start-Process -FilePath $exe -ArgumentList '--selftest' -Wait -PassThru -NoNewWindow
           if ($run.ExitCode -ne 0) { throw "self-test failed with exit code $($run.ExitCode)" }
 
-      - name: Upload the exe
+          # What actually ships, for the log. Whether the platform layer and its dependencies
+          # end up loose beside the exe or inside the single-file bundle is the SDK's call;
+          # the self-test above is the real gate — it loads the layer by reflection, enumerates
+          # WASAPI through NAudio, round-trips DPAPI and subscribes to session events from
+          # this very folder, exactly as a user's double-click would.
+          #
+          # One thing the self-test cannot see: Microsoft.Win32.SystemEvents ships a ~27 KB
+          # PlatformNotSupported stub in lib/, the real implementation (~80 KB) is under
+          # runtimes/win. If a loose copy is present, make sure it is the real one.
+          $events = 'artifacts/publish/Microsoft.Win32.SystemEvents.dll'
+          if ((Test-Path $events) -and (Get-Item $events).Length -lt 50KB) {
+            throw 'publish folder has the SystemEvents stub, not the Windows implementation'
+          }
+          Get-ChildItem artifacts/publish | Select-Object Name, @{n='KB';e={[math]::Round($_.Length/1KB)}}
+
+      # The whole publish folder, which upload-artifact delivers as one zip — never the exe
+      # alone, in case the SDK leaves any dependency loose beside it.
+      - name: Upload the app
         uses: actions/upload-artifact@v4
         with:
-          name: Murmur-win-x64
-          path: windows/artifacts/publish/Murmur.App.exe
+          name: Fluence-win-x64
+          path: windows/artifacts/publish/
           if-no-files-found: error
-          compression-level: 0
 
       - name: Upload test results
         if: always()

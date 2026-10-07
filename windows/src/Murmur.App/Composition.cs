@@ -28,14 +28,24 @@ public sealed class Composition : IAsyncDisposable
         DictionaryFile dictionary,
         TranscriptStore transcripts,
         DictationEngine? engine,
+        ITextInjector? injector,
+        TranscriberHost model,
         bool platformAvailable)
     {
+        Model = model;
         Settings = settings;
         Dictionary = dictionary;
         Transcripts = transcripts;
         Engine = engine;
+        Injector = injector;
         IsPlatformAvailable = platformAvailable;
     }
+
+    /// <summary>
+    /// The text injector, exposed so the app can wire the clipboard-paste path into it
+    /// once a window (and therefore a clipboard) exists.
+    /// </summary>
+    public ITextInjector? Injector { get; }
 
     /// <summary>User preferences.</summary>
     public AppSettings Settings { get; }
@@ -52,15 +62,26 @@ public sealed class Composition : IAsyncDisposable
     /// <summary>Whether real audio and hotkey support were found.</summary>
     public bool IsPlatformAvailable { get; }
 
-    /// <summary>Whether the speech model is present on disk.</summary>
-    public static bool IsModelInstalled => ParakeetTranscriber.Locate() is not null;
+    /// <summary>The speech model: where it is, and whether it actually loaded.</summary>
+    public TranscriberHost Model { get; }
 
     /// <summary>Builds the object graph.</summary>
-    public static Composition Create()
+    /// <param name="log">Where failures are recorded. Never receives transcript text.</param>
+    public static Composition Create(IDiagnosticLog log)
     {
         var settings = new AppSettings(AppSettings.DefaultPath);
-        var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
-        var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);
+        var dictionary = new DictionaryFile(DictionaryFile.DefaultPath, log);
+        dictionary.StartWatching();
+
+        // Sealed under a DPAPI-wrapped key. With no platform layer there is no protector and
+        // the history stays in memory — never a plaintext fallback.
+        var transcripts = new TranscriptStore(
+            TranscriptStore.DefaultPath, PlatformFactory.CreateSecretProtector(), log);
+
+        // Purge on start, whenever the setting changes, and after every dictation (below).
+        transcripts.ApplyRetention(settings.Data.HistoryRetention, DateTimeOffset.Now);
+        settings.Changed += (_, _) =>
+            transcripts.ApplyRetention(settings.Data.HistoryRetention, DateTimeOffset.Now);
 
         var capture = PlatformFactory.CreateAudioCapture();
         var hotkey = PlatformFactory.CreateHotkeySource(settings.Data.PushToTalkKey);
@@ -69,60 +90,61 @@ public sealed class Composition : IAsyncDisposable
         DictationEngine? engine = null;
         var available = capture is not null && hotkey is not null && injector is not null;
 
+        // ModelDirectory from settings.json, when set, is the only place looked at.
+        var modelDirectory = ParakeetTranscriber.Locate(settings.Data.ModelDirectory, AppPaths.ModelsDirectory);
+        var model = new TranscriberHost(
+            modelDirectory is null ? null : new ParakeetTranscriber(modelDirectory), modelDirectory, log);
+
         if (available)
         {
-            var modelDirectory = settings.Data.ModelDirectory ?? ParakeetTranscriber.Locate();
-
-            ITranscriber transcriber = modelDirectory is not null
-                ? new ParakeetTranscriber(modelDirectory)
-                : new UnavailableTranscriber();
+            // Load now, in the background, rather than on the first key press: the first
+            // dictation is not delayed, and a corrupt or missing file is reported in the
+            // window straight away instead of when the user first speaks.
+            _ = model.LoadAsync(CancellationToken.None).AsTask();
 
             engine = new DictationEngine(
-                capture!, hotkey!, transcriber, injector!,
-                () => dictionary.Entries);
+                capture!, hotkey!, model, injector!,
+                () => dictionary.Entries,
+                options: new DictationOptions
+                {
+                    // Read per dictation, so the Settings checkbox applies immediately.
+                    InjectText = () => settings.Data.InjectText,
+                    MaxRecording = TimeSpan.FromMinutes(Math.Clamp(settings.Data.MaxRecordingMinutes, 1, 60)),
+                    Session = PlatformFactory.CreateSessionMonitor(),
+                    Log = log,
+                });
 
             engine.Completed += (_, result) =>
             {
-                if (!settings.Data.KeepHistory) return;
+                var retention = settings.Data.HistoryRetention;
 
-                transcripts.Add(new TranscriptRecord
+                if (retention != HistoryRetention.Never)
                 {
-                    At = result.At,
-                    AudioSeconds = result.AudioDuration.TotalSeconds,
-                    ProcessingSeconds = result.ProcessingTime.TotalSeconds,
-                    Text = result.Text,
-                    Corrections = result.Corrections.Count > 0 ? result.Corrections : null,
-                });
+                    transcripts.Add(new TranscriptRecord
+                    {
+                        At = result.At,
+                        AudioSeconds = result.AudioDuration.TotalSeconds,
+                        ProcessingSeconds = result.ProcessingTime.TotalSeconds,
+                        Text = result.Text,
+                        RawText = result.RawText == result.Text ? null : result.RawText,
+                        Corrections = result.Corrections.Count > 0 ? result.Corrections : null,
+                    });
+                }
+
+                transcripts.ApplyRetention(retention, DateTimeOffset.Now);
             };
         }
 
-        return new Composition(settings, dictionary, transcripts, engine, available);
+        return new Composition(settings, dictionary, transcripts, engine, injector, model, available);
     }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
+        // The engine disposes the model it was given; without one, dispose it here.
         if (Engine is not null) await Engine.DisposeAsync().ConfigureAwait(false);
+        else await Model.DisposeAsync().ConfigureAwait(false);
+        Transcripts.Dispose();
+        Dictionary.Dispose();
     }
-}
-
-/// <summary>
-/// A transcriber that reports the model is missing rather than throwing.
-/// </summary>
-/// <remarks>
-/// A fresh Windows install has no model, and that has to be a readable message in Settings
-/// rather than a crash on first press.
-/// </remarks>
-internal sealed class UnavailableTranscriber : ITranscriber
-{
-    public bool IsReady => false;
-
-    public ValueTask<bool> LoadAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
-
-    public ValueTask<string> TranscribeAsync(
-        ReadOnlyMemory<float> samples,
-        IReadOnlyList<string> biasPhrases,
-        CancellationToken cancellationToken) => ValueTask.FromResult(string.Empty);
-
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
