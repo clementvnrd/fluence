@@ -20,13 +20,30 @@ struct HUDView: View {
                 Silkscreen(text: "Fault", color: DS.Color.fault)
             }
 
-            Text(label)
-                .font(DS.Font.bodyEmphasis)
-                .foregroundStyle(isError ? DS.Color.fault : DS.Color.inkOnDeck)
-                .lineLimit(2)
-                .truncationMode(.head)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .animation(DS.Motion.readout, value: controller.transcript)
+            // MARK: FLU-5 input — which mode the key is in, printed like a mode label on a
+            // deck, above the readout rather than in a colour.
+            VStack(alignment: .leading, spacing: DS.Space.hair) {
+                if let modeLabel {
+                    Silkscreen(text: modeLabel, color: DS.Color.inkOnDeck)
+                        .lineLimit(1)
+                }
+                Text(label)
+                    .font(DS.Font.bodyEmphasis)
+                    .foregroundStyle(isError ? DS.Color.fault : DS.Color.inkOnDeck)
+                    .lineLimit(modeLabel == nil ? 2 : 1)
+                    // A live transcript keeps its newest words; a message keeps its start.
+                    .truncationMode(isMessage ? .tail : .head)
+                    .animation(DS.Motion.readout, value: controller.transcript)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // A hands-free dictation has no key to let go of: Stop is how the mouse ends it.
+            // The panel takes clicks only while this key is showing, and still never focus.
+            if controller.isHandsFree, isRecording {
+                TransportKey(title: "Stop", systemImage: "stop.fill", isEngaged: true) {
+                    controller.stopHandsFree()
+                }
+            }
         }
         .padding(.horizontal, DS.Space.roomy)
         .padding(.vertical, DS.Space.base)
@@ -47,14 +64,33 @@ struct HUDView: View {
         return false
     }
 
+    // MARK: FLU-5 input
+    private var isMessage: Bool {
+        switch controller.state {
+        case .error, .notice: true
+        default: false
+        }
+    }
+
+    private var modeLabel: String? {
+        guard controller.state.isActive else { return nil }
+        // Short: the readout beside it is narrow, and the Stop key says how to end it.
+        if controller.isCommand { return "Command" }
+        return controller.isHandsFree ? "Hands-free" : nil
+    }
+
     private var label: String {
         switch controller.state {
+        case .starting where controller.isCommand,
+             .listening where controller.isCommand && controller.transcript.isEmpty:
+            "Say what to change…"
         case .starting: "Listening…"
         case .listening: controller.transcript.isEmpty ? "Listening…" : controller.transcript
         // Parakeet transcribes in one pass on release, so there's nothing to show until
         // it lands — say what's happening instead of leaving an empty pill.
         case .finishing: controller.transcript.isEmpty ? "Transcribing…" : controller.transcript
         case .error(let message): message
+        case .notice(let message): message
         case .idle: ""
         }
     }

@@ -259,7 +259,8 @@ enum TextInjector {
     /// also gets "Dvorak – QWERTY ⌘" right, where shortcuts deliberately keep QWERTY
     /// positions. Layouts that type no Latin letters (Russian, Greek…) fall back to the
     /// ASCII-capable layout macOS itself uses for shortcuts.
-    private static func keyCode(producing character: Character) -> CGKeyCode? {
+    /// Also used by `HotkeyMonitor` to recognise ⌃⌘V and ⌃⌘C on any layout.
+    static func keyCode(producing character: Character) -> CGKeyCode? {
         let sources = [
             TISCopyCurrentKeyboardLayoutInputSource(),
             TISCopyCurrentASCIICapableKeyboardLayoutInputSource(),
