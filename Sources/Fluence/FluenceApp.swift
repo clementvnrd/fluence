@@ -32,7 +32,10 @@ struct FluenceApp: App {
         MenuBarExtra {
             MenuContent(controller: delegate.controller)
         } label: {
-            Image(systemName: delegate.controller.state.isActive ? "waveform.circle.fill" : "waveform")
+            // MARK: Notetaker (capture) — the icon shows a meeting is being recorded.
+            Image(systemName: MeetingController.shared.isRecording
+                ? "record.circle"
+                : (delegate.controller.state.isActive ? "waveform.circle.fill" : "waveform"))
         }
 
         Window("Engine comparison", id: "comparison") {
@@ -40,6 +43,14 @@ struct FluenceApp: App {
         }
         .defaultSize(width: 640, height: 560)
         .windowResizability(.contentMinSize)
+
+        // MARK: Notetaker (library)
+        Window("Meetings", id: MeetingsWindowID.library) {
+            MeetingsWindow(model: .shared)
+        }
+        .defaultSize(width: 1_040, height: 720)
+        .windowResizability(.contentMinSize)
+        .commands { MeetingsCommands() }
     }
 }
 
@@ -89,6 +100,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         observeState()
+
+        // MARK: Notetaker (capture)
+        // Watches for calls and offers to take notes; nothing records without the user.
+        MeetingController.shared.start()
+        // MARK: end Notetaker (capture)
+
+        // MARK: Notetaker (library) — notes on `.meetingFinalized`, retention purge.
+        NotetakerNotes.launch()
+
         Log.app.info("Fluence ready — hold \(Settings.shared.pushToTalkKey.displayName) to dictate")
     }
 
@@ -217,11 +237,19 @@ private struct MenuContent: View {
 
         Divider()
 
+        // MARK: Notetaker (capture)
+        MeetingMenuItems(controller: MeetingController.shared)
+        Divider()
+        // MARK: end Notetaker (capture)
+
         Button("Show comparison window") {
             openWindow(id: "comparison")
             NSApp.activate(ignoringOtherApps: true)
         }
         .keyboardShortcut("d")
+
+        // MARK: Notetaker (library)
+        MeetingsMenuButton()
 
         // Downloading ~470 MB on the first hold would look like a hang, so offer to do it
         // deliberately instead.
