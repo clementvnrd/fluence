@@ -43,7 +43,7 @@ struct MainWindow: View {
             }
             .padding(DS.Space.roomy)
         }
-        .frame(minWidth: 720, minHeight: 520)
+        .frame(minWidth: DS.Window.mainMinimum.width, minHeight: DS.Window.mainMinimum.height)
     }
 
     private var sectionKeys: some View {
@@ -339,7 +339,7 @@ private struct CorrectionBadges: View {
 
     var body: some View {
         HStack(spacing: DS.Space.snug) {
-            Silkscreen(text: "Corrected", color: DS.Color.meterAmber)
+            Silkscreen(text: "Corrected", color: DS.Color.inkOnDeck.opacity(0.7))
             ForEach(corrections, id: \.self) { correction in
                 HStack(spacing: DS.Space.tight) {
                     Text(correction.from)
@@ -360,7 +360,7 @@ private struct CorrectionBadges: View {
                 .padding(.vertical, DS.Space.hair)
                 .overlay(
                     RoundedRectangle(cornerRadius: DS.Radius.chip)
-                        .strokeBorder(DS.Color.meterAmber.opacity(0.35), lineWidth: DS.Border.hairline)
+                        .strokeBorder(DS.Color.inkOnDeck.opacity(0.3), lineWidth: DS.Border.hairline)
                 )
             }
             Spacer()

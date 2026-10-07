@@ -122,7 +122,7 @@ struct SettingsWindow: View {
             }
             .padding(DS.Space.panel)
         }
-        .frame(width: 520, height: 720)
+        .frame(width: DS.Window.settings.width, height: DS.Window.settings.height)
     }
 
     private func panel<Content: View>(

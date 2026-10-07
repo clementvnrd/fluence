@@ -10,7 +10,7 @@ import SwiftUI
 final class HUDPanel: NSPanel {
     init(controller: DictationController) {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 340, height: 76),
+            contentRect: NSRect(origin: .zero, size: DS.HUD.size),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -56,7 +56,7 @@ final class HUDPanel: NSPanel {
         setFrameOrigin(
             NSPoint(
                 x: visible.midX - size.width / 2,
-                y: visible.minY + 96
+                y: visible.minY + DS.HUD.bottomOffset
             )
         )
     }
@@ -72,7 +72,7 @@ final class HUDPanel: NSPanel {
         alphaValue = 0
         orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
+            context.duration = DS.HUD.fade
             animator().alphaValue = 1
         }
     }
@@ -80,7 +80,7 @@ final class HUDPanel: NSPanel {
     func dismiss() {
         let presentation = self.presentation
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
+            context.duration = DS.HUD.fade
             animator().alphaValue = 0
         } completionHandler: { [weak self] in
             // Hopped rather than asserted: see AGENTS.md on `MainActor.assumeIsolated`.
