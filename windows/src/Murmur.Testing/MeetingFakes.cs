@@ -80,3 +80,29 @@ public sealed class FakeHostClock : IHostClock
     /// <summary>Moves the clock forward by <paramref name="seconds"/>.</summary>
     public void Advance(double seconds) => Now += (long)(seconds * 10_000_000);
 }
+
+/// <summary>Meeting-detection signals a test scripts.</summary>
+public sealed class FakeMeetingSignals : IMeetingSignals
+{
+    /// <summary>What <see cref="CaptureSessions"/> returns.</summary>
+    public List<AudioSessionInfo> Sessions { get; } = [];
+
+    /// <summary>What <see cref="VisibleWindows"/> returns.</summary>
+    public List<WindowInfo> Windows { get; } = [];
+
+    /// <summary>What <see cref="ProcessesNamed"/> returns, by name.</summary>
+    public Dictionary<string, List<ProcessStart>> Processes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Thrown by <see cref="CaptureSessions"/> when set.</summary>
+    public Exception? Failure { get; set; }
+
+    /// <inheritdoc />
+    public IReadOnlyList<AudioSessionInfo> CaptureSessions() => Failure is null ? [.. Sessions] : throw Failure;
+
+    /// <inheritdoc />
+    public IReadOnlyList<WindowInfo> VisibleWindows() => [.. Windows];
+
+    /// <inheritdoc />
+    public IReadOnlyList<ProcessStart> ProcessesNamed(string processName) =>
+        Processes.TryGetValue(processName, out var list) ? [.. list] : [];
+}

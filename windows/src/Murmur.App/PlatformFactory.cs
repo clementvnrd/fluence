@@ -86,6 +86,10 @@ internal static class PlatformFactory
     /// <returns>Null off Windows. Throws whatever the platform layer threw, unwrapped.</returns>
     public static string? ProbeLoopback() => InvokeStatic("LoopbackAudioCapture", "Probe");
 
+    /// <summary>Creates the meeting-detection enumeration (audio sessions, window titles), or null off Windows.</summary>
+    public static IMeetingSignals? CreateMeetingSignals() =>
+        Create<IMeetingSignals>("WindowsMeetingSignals", []);
+
     /// <summary>Creates the low-level keyboard hook, or null off Windows.</summary>
     [UnconditionalSuppressMessage(
         "Trimming",
