@@ -194,6 +194,10 @@ corrupt the signature. `make install` puts the running copy in `/Applications`.
 The specifics below were expensive to establish and several were found the hard way. Treat
 them as load-bearing. Full detail in `windows/README.md` and `docs/PARAKEET-WINDOWS.md`.
 
+**The look stays as it is for now** (FLU-14, Clement, 2026-10-08: « 3 B »): the Windows app
+keeps its dark field-recorder look; the macOS design (FLU-12, FLU-19) is not ported until he
+asks for it.
+
 **Three pinned versions that break silently at "latest":**
 
 | Package | Pin | Why |
