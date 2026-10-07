@@ -169,7 +169,12 @@ enum TextInjector {
                 Log.inject.error("pasteboard changed before ⌘V — paste skipped")
                 return
             }
-            postCommandV()
+            guard postCommandV() else {
+                // No paste is possible, so the dictation stays on the pasteboard (still
+                // concealed and transient) for the user's own ⌘V instead of being restored away.
+                Log.inject.error("no Accessibility grant — transcript left on the pasteboard")
+                return
+            }
             Log.inject.info("pasted (\(text.count) chars)")
 
             await waitForPaste(on: pasteboard, generation: ours, caretBefore: caretBefore)
@@ -235,23 +240,18 @@ enum TextInjector {
         return selectedRange(of: unsafeDowncast(focused as AnyObject, to: AXUIElement.self))
     }
 
-    private static func postCommandV() {
-        // Clement's fallback: without the Accessibility grant a posted ⌘V is silently
-        // dropped, while System Events can still type it (it asks for Automation once).
-        // Carbon shortcuts work without the grant, so this keeps dictation usable before it.
-        guard AXIsProcessTrusted() else {
-            var error: NSDictionary?
-            NSAppleScript(source: "tell application \"System Events\" to keystroke \"v\" using command down")?
-                .executeAndReturnError(&error)
-            if error != nil { Log.inject.error("paste via System Events failed") }
-            return
-        }
-        guard let source = CGEventSource(stateID: .privateState) else { return }
+    /// Posts ⌘V. Returns false when it cannot land: without the Accessibility grant a posted
+    /// event is silently dropped. System Events is no way around it — GUI scripting needs the
+    /// same grant, plus an Apple Events entitlement the app deliberately doesn't carry.
+    @discardableResult
+    private static func postCommandV() -> Bool {
+        guard AXIsProcessTrusted() else { return false }
+        guard let source = CGEventSource(stateID: .privateState) else { return false }
         let vKey = keyCode(producing: "v") ?? CGKeyCode(kVK_ANSI_V)
 
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false)
-        else { return }
+        else { return false }
 
         // Set explicitly rather than inheriting live hardware modifier state — the user may
         // still be resting a finger on something.
@@ -260,6 +260,7 @@ enum TextInjector {
 
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)
+        return true
     }
 
     /// The physical key that types `character` with ⌘ held, on the current layout.
