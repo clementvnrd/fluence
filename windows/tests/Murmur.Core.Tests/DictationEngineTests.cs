@@ -331,10 +331,11 @@ public sealed class DictationEngineTests
         await WaitFor(() => engine.Level > 0, "audio should arrive");
         hotkey.Release();
 
+        // Wait for the next chunk rather than a fixed delay: a busy CI runner can take longer
+        // than any fixed sleep to deliver it, which made this test flaky on Windows.
         var atRelease = capture.SamplesDelivered;
-        await Task.Delay(100);
+        await WaitFor(() => capture.SamplesDelivered > atRelease, "audio keeps arriving after release");
         capture.ChunksAfterStop.ShouldBe(0, "stop is not requested during the post-roll");
-        capture.SamplesDelivered.ShouldBeGreaterThan(atRelease);
     }
 
     // ---- W3, B8: where the text goes --------------------------------------------------------
