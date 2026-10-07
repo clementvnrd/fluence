@@ -89,6 +89,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         observeState()
+
+        // MARK: Notetaker (library) — notes on `.meetingFinalized`, retention purge.
+        NotetakerNotes.launch()
+
         Log.app.info("Fluence ready — hold \(Settings.shared.pushToTalkKey.displayName) to dictate")
     }
 

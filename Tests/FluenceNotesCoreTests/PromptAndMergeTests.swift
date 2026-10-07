@@ -172,6 +172,46 @@ struct MergeTests {
         #expect(groups.allSatisfy { $0.count == 1 || TokenEstimate.tokens(in: NotesMerger.render(NotesMerger.merge($0))) <= 60 })
     }
 
+    @Test func consolidationCannotDropCommitmentsOrInventOwners() {
+        let source = PartialNotes(
+            recap: ["Budget"],
+            actionItems: [ActionDraft(text: "Send the quote", owner: "Marie"), ActionDraft(text: "Book the room", owner: "You")],
+            decisions: ["Ship on Friday"],
+            quotes: [QuoteDraft(timestamp: "00:12", speaker: "Marie", text: "We ship Friday")]
+        )
+        let consolidated = PartialNotes(
+            recap: ["Budget and shipping"],
+            actionItems: [ActionDraft(text: "Send the quote", owner: "Bob")],
+            decisions: [],
+            quotes: [QuoteDraft(timestamp: "00:01", speaker: "X", text: "Invented words here")]
+        )
+        let cleaned = NotesMerger.cleanConsolidated(consolidated, source: source, knownNames: ["You", "Marie"])
+        #expect(cleaned.recap == ["Budget and shipping"])
+        #expect(cleaned.actionItems == [
+            ActionDraft(text: "Send the quote", owner: nil),
+            ActionDraft(text: "Book the room", owner: "You"),
+        ])
+        #expect(cleaned.decisions == ["Ship on Friday"])
+        #expect(cleaned.quotes == source.quotes)
+    }
+
+    @Test func trimDropsLeastImportantFirst() {
+        let partial = PartialNotes(
+            recap: (0..<20).map { "Recap point \($0) with several words in it" },
+            actionItems: [ActionDraft(text: "Send the quote", owner: "Marie")],
+            decisions: ["Ship on Friday"],
+            openQuestions: ["Who hosts?"],
+            quotes: [QuoteDraft(timestamp: "00:12", speaker: "Marie", text: "We ship Friday")]
+        )
+        let trimmed = NotesMerger.trim(partial, toFit: 80)
+        #expect(TokenEstimate.tokens(in: NotesMerger.render(trimmed)) <= 80)
+        #expect(trimmed.quotes.isEmpty)
+        #expect(trimmed.actionItems == partial.actionItems)
+        #expect(trimmed.decisions == partial.decisions)
+        #expect(trimmed.recap.first == partial.recap.first)
+        #expect(NotesMerger.trim(partial, toFit: 10_000) == partial)
+    }
+
     @Test func finalCleanGroundsOwners() {
         let draft = FinalNotesDraft(
             recap: "  Le budget est validé.  ",

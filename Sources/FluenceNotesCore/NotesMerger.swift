@@ -48,6 +48,45 @@ public enum NotesMerger {
         )
     }
 
+    /// A model consolidation of several extractions. The consolidation reads only earlier
+    /// extractions, so it can add nothing true: its owners must come from the meeting, and
+    /// its quotes are ignored in favour of the original, transcript-checked ones.
+    public static func cleanConsolidated(_ partial: PartialNotes, source: PartialNotes, knownNames: [String]) -> PartialNotes {
+        let sourceText = render(source)
+        let sourceWords = Set(words(sourceText))
+        let known = knownNames + source.actionItems.compactMap(\.owner)
+        var actions = dedupeActions(partial.actionItems.compactMap {
+            action($0, knownNames: known, sourceWords: sourceWords)
+        })
+        // An action item the consolidation dropped is still a commitment someone made.
+        for original in source.actionItems where !actions.contains(where: { isNearDuplicate($0.text, original.text) }) {
+            actions.append(original)
+        }
+        return PartialNotes(
+            recap: dedupe(partial.recap.compactMap(item)),
+            actionItems: actions,
+            decisions: dedupe(partial.decisions.compactMap(item) + source.decisions),
+            openQuestions: dedupe(partial.openQuestions.compactMap(item)),
+            quotes: source.quotes
+        )
+    }
+
+    /// Last resort for a meeting so long that even consolidated extractions do not fit:
+    /// drops the least important items first — quotes, then recap points from the end, then
+    /// open questions — and never action items or decisions.
+    public static func trim(
+        _ partial: PartialNotes,
+        toFit budget: Int,
+        measure: (String) -> Int = TokenEstimate.tokens
+    ) -> PartialNotes {
+        var result = partial
+        func fits() -> Bool { measure(render(result)) <= budget }
+        while !fits(), !result.quotes.isEmpty { result.quotes.removeLast() }
+        while !fits(), result.recap.count > 1 { result.recap.removeLast() }
+        while !fits(), !result.openQuestions.isEmpty { result.openQuestions.removeLast() }
+        return result
+    }
+
     // MARK: - Merging chunks
 
     /// One extraction for the whole meeting, in meeting order, near-duplicates removed.
