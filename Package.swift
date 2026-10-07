@@ -22,12 +22,26 @@ let package = Package(
             name: "Fluence",
             dependencies: [
                 "MurmurDictionary",
+                "FluenceNotesCore",
                 .product(name: "FluidAudio", package: "FluidAudio"),
             ],
             path: "Sources/Fluence",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
+        ),
+        // The Notetaker's notes logic (chunking, prompts, merging, Markdown, retention),
+        // kept free of the app and of Foundation Models so it runs under `swift test`.
+        .target(
+            name: "FluenceNotesCore",
+            path: "Sources/FluenceNotesCore",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "FluenceNotesCoreTests",
+            dependencies: ["FluenceNotesCore"],
+            path: "Tests/FluenceNotesCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "MurmurDictionaryTests",
