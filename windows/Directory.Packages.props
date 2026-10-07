@@ -18,7 +18,8 @@
          restore" on .NET 9+; that was wrong — this project is net10.0.) 3.x is a new major
          version (the October 2026 audit notes 3.1 replaces the loopback API the planned
          Notetaker needs); moving is a port that needs real-hardware testing, not a bump. -->
-    <PackageVersion Include="NAudio" Version="2.3.0" />
+    <PackageVersion Include="NAudio.Core" Version="2.3.0" />
+    <PackageVersion Include="NAudio.Wasapi" Version="2.3.0" />
 
     <!-- Windows platform layer only. DPAPI wraps the key that seals the transcript history.
          Ships as a loose DLL beside Fluence.exe (see Murmur.App.csproj). -->

@@ -15,7 +15,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="NAudio" />
+    <!-- NAudio.Core + NAudio.Wasapi, NOT the "NAudio" meta-package: it drags in
+         NAudio.WinForms, whose FrameworkReference to Microsoft.WindowsDesktop.App makes the
+         SDK on Windows treat ProtectedData and SystemEvents as framework-provided and stop
+         copying them — but Fluence.exe runs on Microsoft.NETCore.App alone, so they would be
+         missing at runtime. Only WASAPI capture and the wave/sample-provider types are used. -->
+    <PackageReference Include="NAudio.Core" />
+    <PackageReference Include="NAudio.Wasapi" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
     <PackageReference Include="Microsoft.Win32.SystemEvents" />
   </ItemGroup>
