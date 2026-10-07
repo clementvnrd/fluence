@@ -223,7 +223,7 @@ private struct DictionaryEditor: View {
                 HStack(alignment: .top, spacing: DS.Space.snug) {
                     Lamp(color: DS.Color.pilot, isLit: true, size: 6)
                         .padding(.top, 3)
-                    Text(warning.message)
+                    Text(warning.french)
                         .font(DS.Font.label)
                         .foregroundStyle(DS.Color.ink)
                         .fixedSize(horizontal: false, vertical: true)
@@ -285,6 +285,22 @@ private struct DictionaryEditor: View {
                     RoundedRectangle(cornerRadius: DS.Radius.chip)
                         .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
                 )
+        }
+    }
+}
+
+extension DictionaryWarning {
+    /// The warning in French; MurmurDictionary's `message` is the English (FLU-12).
+    var french: String {
+        let trigger = FrenchFormat.quoted(self.trigger)
+        switch kind {
+        case .ordinaryWord:
+            return "\(trigger) est un mot courant (en anglais). Chacune de ses occurrences sera réécrite, "
+                + "pas seulement celles que vous visez. Préférez une expression plus longue."
+        case .veryShort:
+            return "\(trigger) est très court et se retrouvera souvent. Préférez une expression plus longue."
+        case .rewritesToItself:
+            return "Cette entrée remplace \(trigger) par lui-même : elle ne changera jamais rien."
         }
     }
 }

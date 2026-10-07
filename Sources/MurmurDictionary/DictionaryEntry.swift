@@ -57,8 +57,18 @@ public struct DictionaryEntry: Identifiable, Codable, Hashable, Sendable {
 /// it would match something common". Never blocks; you may genuinely want to rewrite a
 /// common word, and it's your dictionary.
 public struct DictionaryWarning: Identifiable, Sendable {
+    /// What is wrong, so a UI can say it in its own language; `message` is the English.
+    public enum Kind: Sendable {
+        case ordinaryWord
+        case veryShort
+        case rewritesToItself
+    }
+
     public var id: String { message }
     public let message: String
+    public var kind: Kind
+    /// The trigger the warning is about, as typed.
+    public var trigger: String
 
     /// Ordinary English words that would fire constantly if used as a whole trigger.
     /// Deliberately short — this catches the obvious foot-guns, not every possible one.
@@ -95,11 +105,15 @@ public struct DictionaryWarning: Identifiable, Sendable {
             if common.contains(String(only)) {
                 warnings.append(DictionaryWarning(
                     message: "“\(trigger)” is an ordinary word. This will rewrite every use of it, "
-                        + "not just the ones you mean. Consider a longer phrase."
+                        + "not just the ones you mean. Consider a longer phrase.",
+                    kind: .ordinaryWord,
+                    trigger: trigger
                 ))
             } else if only.count <= 3 {
                 warnings.append(DictionaryWarning(
-                    message: "“\(trigger)” is very short and will match often. Consider a longer phrase."
+                    message: "“\(trigger)” is very short and will match often. Consider a longer phrase.",
+                    kind: .veryShort,
+                    trigger: trigger
                 ))
             }
         }
@@ -107,7 +121,9 @@ public struct DictionaryWarning: Identifiable, Sendable {
         if entry.write.trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare(trigger) == .orderedSame {
             warnings.append(DictionaryWarning(
-                message: "This rewrites “\(trigger)” to itself, so it will never change anything."
+                message: "This rewrites “\(trigger)” to itself, so it will never change anything.",
+                kind: .rewritesToItself,
+                trigger: trigger
             ))
         }
 

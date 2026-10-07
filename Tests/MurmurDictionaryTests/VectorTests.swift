@@ -100,6 +100,13 @@ struct VectorTests {
         #expect(DictionaryWarning.check(entry).isEmpty == false)
     }
 
+    @Test("each warning says what kind it is and about which trigger, for a localised UI")
+    func warningKinds() {
+        #expect(DictionaryWarning.check(.correction(hear: "cloud", write: "Claude")).map(\.kind) == [.ordinaryWord])
+        #expect(DictionaryWarning.check(.correction(hear: "qx", write: "QX")).map(\.kind) == [.veryShort, .rewritesToItself])
+        #expect(DictionaryWarning.check(.correction(hear: "cloud", write: "Claude")).first?.trigger == "cloud")
+    }
+
     @Test("a distinctive phrase is not flagged")
     func doesNotWarnOnDistinctivePhrase() {
         let entry = DictionaryEntry.correction(hear: "clawed code", write: "Claude Code")

@@ -659,9 +659,10 @@ private struct ActionRow: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: DS.Space.base)
             if let owner = step.owner, !owner.isEmpty {
+                let shown = SpeakerLabel.french(displayName: owner)
                 HStack(spacing: 5) {
-                    Avatar(name: owner, size: 16, isMe: isMe(owner))
-                    Text(owner).font(.system(size: 11, weight: .medium)).foregroundStyle(DS.Color.ink)
+                    Avatar(name: shown, size: 16, isMe: isMe(owner))
+                    Text(shown).font(.system(size: 11, weight: .medium)).foregroundStyle(DS.Color.ink)
                 }
                 .padding(.leading, 2).padding(.trailing, 8)
                 .frame(height: 20)
@@ -715,7 +716,7 @@ private struct NotesProvenance: View {
 
     var body: some View {
         HStack(spacing: DS.Space.snug) {
-            Text("Rédigé sur ce Mac par \(notes.model), \(FrenchDates.relativeDayTime(notes.generatedAt, now: Date(), calendar: FrenchDates.calendar).lowercasedFirst).")
+            Text("Rédigé sur ce Mac par \(notes.modelDisplayName), \(FrenchDates.relativeDayTime(notes.generatedAt, now: Date(), calendar: FrenchDates.calendar).lowercasedFirst).")
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.Color.silkscreen)
             Spacer()

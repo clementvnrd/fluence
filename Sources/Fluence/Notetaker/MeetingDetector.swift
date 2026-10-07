@@ -11,7 +11,7 @@ struct DetectedMeeting: Sendable, Equatable {
     /// Pid of the app the user sees (for Accessibility).
     var pid: pid_t?
 
-    var displayName: String { app.isBrowser ? "\(service) in \(app.name)" : service }
+    var displayName: String { app.isBrowser ? "\(service) dans \(app.name)" : service }
 }
 
 /// Watches for calls the way the orange mic dot does.
