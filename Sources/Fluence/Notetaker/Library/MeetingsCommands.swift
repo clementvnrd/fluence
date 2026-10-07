@@ -1,20 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// Scene identifier of the meetings library window.
-enum MeetingsWindowID {
-    static let library = "meetings"
-}
-
-/// "Réunions" in the Window menu, ⇧⌘M.
+/// "Réunions" in the Window menu, ⇧⌘M: the main window's meetings (FLU-12 — the library
+/// is no longer a window of its own).
 struct MeetingsCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(after: .windowArrangement) {
             Button("Réunions") {
-                openWindow(id: MeetingsWindowID.library)
-                NSApp.activate(ignoringOtherApps: true)
+                MainNavigation.shared.show(.meetings, openWindow: openWindow)
             }
             .keyboardShortcut("m", modifiers: [.command, .shift])
         }
@@ -27,8 +22,7 @@ struct MeetingsMenuButton: View {
 
     var body: some View {
         Button("Réunions…") {
-            openWindow(id: MeetingsWindowID.library)
-            NSApp.activate(ignoringOtherApps: true)
+            MainNavigation.shared.show(.meetings, openWindow: openWindow)
         }
     }
 }

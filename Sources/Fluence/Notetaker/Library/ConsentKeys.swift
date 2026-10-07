@@ -9,28 +9,17 @@ struct ConsentKeys: View {
 
     var body: some View {
         HStack(spacing: DS.Space.snug) {
-            key(.french, title: "Consentement FR")
-            key(.english, title: "Consentement EN")
+            key(.french, title: "Copier FR")
+            key(.english, title: "Copier EN")
         }
     }
 
     private func key(_ language: NotesLanguage, title: String) -> some View {
         let token = "consent-" + language.rawValue
-        return TransportKey(title: flash == token ? "Copié !" : title, systemImage: "text.bubble") {
+        return CapButton(title: flash == token ? "Copié !" : title, systemImage: "doc.on.clipboard", height: 26) {
             NotetakerConsent.copyNotice(language)
             onCopied(token)
         }
         .help(NotetakerConsent.text(language))
-    }
-}
-
-/// Library header: the consent keys, under a small label.
-struct LibraryHeaderAccessories: View {
-    @Bindable var model: MeetingLibraryModel
-
-    var body: some View {
-        LabeledFact(label: "Prévenir les participants — copier un avis pour le chat") {
-            ConsentKeys(flash: model.flash) { model.showFlash($0) }
-        }
     }
 }

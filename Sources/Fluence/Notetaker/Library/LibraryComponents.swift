@@ -1,63 +1,6 @@
 import SwiftUI
 
-// Small pieces shared by the meetings library and the Meetings settings.
-
-/// A small pill key — the Copier / Supprimer chips of the transcription list, as a
-/// component.
-struct DeckKey: View {
-    let title: String
-    var systemImage: String?
-    var isEnabled = true
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: DS.Space.tight) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: DS.Library.glyphLarge, weight: .medium))
-                }
-                Text(title)
-                    .font(DS.Font.label)
-            }
-            .foregroundStyle(DS.Color.ink)
-            .padding(.horizontal, DS.Space.snug)
-            .padding(.vertical, DS.Space.tight)
-            .background(DS.Color.cap, in: Capsule())
-            .overlay(
-                Capsule()
-                    .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
-            )
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : DS.Library.inkFaint)
-    }
-}
-
-/// A row of transport keys where exactly one is selected — the pattern the settings
-/// window uses for the push-to-talk key and the model.
-struct SelectorKeys<Value: Hashable>: View {
-    let options: [Value]
-    let title: (Value) -> String
-    let selection: Value?
-    let onSelect: (Value) -> Void
-
-    var body: some View {
-        HStack(spacing: DS.Space.snug) {
-            ForEach(options, id: \.self) { option in
-                // Engaged: the accent on the selection tint, drawn by the key itself.
-                TransportKey(
-                    title: title(option),
-                    isEngaged: selection == option
-                ) {
-                    onSelect(option)
-                }
-            }
-        }
-    }
-}
+// Shared by the main window's pages: the amber problem banner.
 
 /// Something went wrong that the user must know about. An amber card with a warning
 /// sign, like the main window's Accessibility banner — never red, which means recording.
@@ -96,18 +39,5 @@ struct ProblemBanner: View {
                         .strokeBorder(DS.Color.meterAmber.opacity(DS.Library.edgeFaint), lineWidth: DS.Border.seam)
                 )
         )
-    }
-}
-
-/// A small label over a value, as beside a control on a card.
-struct LabeledFact<Content: View>: View {
-    let label: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.hair) {
-            Silkscreen(text: label)
-            content
-        }
     }
 }

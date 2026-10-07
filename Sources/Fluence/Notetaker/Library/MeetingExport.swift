@@ -29,37 +29,3 @@ enum MeetingExport {
         return true
     }
 }
-
-/// "Copier en Markdown" and "Exporter en Markdown…" for the selected meeting.
-struct MeetingExportKeys: View {
-    @Bindable var model: MeetingLibraryModel
-    let meeting: Meeting
-
-    var body: some View {
-        HStack(spacing: DS.Space.snug) {
-            TransportKey(
-                title: model.flash == Self.copied ? Self.copied : "Copier en Markdown",
-                systemImage: "doc.on.doc"
-            ) {
-                MeetingExport.copyMarkdown(meeting)
-                model.showFlash(Self.copied)
-            }
-            .help("Copier les notes, vos notes et la transcription en Markdown")
-
-            TransportKey(
-                title: model.flash == Self.exported ? Self.exported : "Exporter en Markdown…",
-                systemImage: "square.and.arrow.up"
-            ) {
-                do {
-                    if try MeetingExport.saveMarkdown(meeting) { model.showFlash(Self.exported) }
-                } catch {
-                    model.report("Le fichier Markdown n'a pas pu être écrit.")
-                }
-            }
-            .help("Enregistrer la réunion dans un fichier Markdown")
-        }
-    }
-
-    private static let copied = "Copié !"
-    private static let exported = "Exporté"
-}

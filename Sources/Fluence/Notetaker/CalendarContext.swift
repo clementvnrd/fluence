@@ -14,6 +14,16 @@ struct CalendarMeeting: Sendable {
     var end: Date
 }
 
+/// A call coming up in the calendar.
+struct UpcomingCall: Identifiable, Sendable, Equatable {
+    let id: String
+    var title: String
+    var start: Date
+    var end: Date
+    var service: String
+    var attendees: [String]
+}
+
 @MainActor
 final class CalendarContext {
     static let shared = CalendarContext()
@@ -69,6 +79,36 @@ final class CalendarContext {
             service: Self.service(of: event),
             end: event.endDate
         )
+    }
+
+    /// Calls in the calendar over the next `days`: events with a conferencing link, not
+    /// all-day, not already over. Read only while `useCalendar` is on and access is granted;
+    /// for the "À venir" list (FLU-12), never stored.
+    func upcomingCalls(now: Date = Date(), days: Int = 7) -> [UpcomingCall] {
+        guard NotetakerSettings.shared.useCalendar, hasAccess else { return [] }
+        let predicate = store.predicateForEvents(
+            withStart: now,
+            end: now.addingTimeInterval(Double(days) * 86_400),
+            calendars: nil
+        )
+        return store.events(matching: predicate)
+            .filter { !$0.isAllDay && $0.endDate > now }
+            .compactMap { event -> UpcomingCall? in
+                guard let service = Self.service(of: event) else { return nil }
+                let attendees = (event.attendees ?? [])
+                    .filter { !$0.isCurrentUser && $0.participantType != .room && $0.participantType != .resource }
+                    .compactMap(Self.name)
+                return UpcomingCall(
+                    id: (event.calendarItemExternalIdentifier ?? event.eventIdentifier ?? UUID().uuidString)
+                        + "@\(event.startDate.timeIntervalSince1970)",
+                    title: event.title ?? "Réunion",
+                    start: event.startDate,
+                    end: event.endDate,
+                    service: service,
+                    attendees: attendees
+                )
+            }
+            .sorted { $0.start < $1.start }
     }
 
     private static func service(of event: EKEvent) -> String? {

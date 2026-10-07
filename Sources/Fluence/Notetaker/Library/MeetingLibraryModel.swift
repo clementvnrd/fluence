@@ -2,7 +2,8 @@ import FluenceNotesCore
 import Foundation
 import Observation
 
-/// State and actions of the meetings library window.
+/// State and actions of the meetings library: the list and a meeting's page, in the main
+/// window since FLU-12.
 ///
 /// The views hold this through `@Bindable` instead of keeping their own `@State`: the
 /// library is one window, its state outlives any view, and keeping it here lets the whole UI
@@ -12,18 +13,35 @@ import Observation
 final class MeetingLibraryModel {
     static let shared = MeetingLibraryModel()
 
+    /// The meeting page's tabs (FLU-12, mock-ups 04 and 05).
     enum Tab: String, CaseIterable, Identifiable {
-        case recap, nextSteps, decisions, transcript, myNotes
+        case notes, transcript, myNotes
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .recap: "Résumé"
-            case .nextSteps: "Prochaines étapes"
-            case .decisions: "Décisions"
+            case .notes: "Notes"
             case .transcript: "Transcription"
             case .myNotes: "Mes notes"
             }
         }
+        var symbol: String {
+            switch self {
+            case .notes: "list.bullet.rectangle"
+            case .transcript: "text.quote"
+            case .myNotes: "square.and.pencil"
+            }
+        }
+    }
+
+    /// What a list row shows beyond the index's basics. Read from the summary, or — for an
+    /// index entry written before FLU-12 — from the meeting itself, once, kept in memory.
+    struct RowInfo: Equatable {
+        var appBundleID: String?
+        var recapLine: String?
+        var keepAudio: Bool
+        var speakers: [Speaker]
+
+        var appName: String? { appBundleID.flatMap { MeetingApps.identify($0)?.name } }
     }
 
     let store: MeetingStore
@@ -37,11 +55,71 @@ final class MeetingLibraryModel {
     /// IDs matching the query; nil when there is no query.
     private(set) var searchHits: Set<UUID>?
 
-    /// Newest first, filtered by the search.
+    /// Bundle ID of the app the list is filtered to ("Toutes les apps" when nil).
+    var appFilter: String?
+
+    /// Newest first, filtered by the search and the app.
     var visible: [MeetingSummary] {
-        guard let searchHits else { return store.summaries }
-        return store.summaries.filter { searchHits.contains($0.id) }
+        var list = store.summaries
+        if let searchHits { list = list.filter { searchHits.contains($0.id) } }
+        if let appFilter { list = list.filter { rowInfo($0).appBundleID == appFilter } }
+        return list
     }
+
+    /// The apps meetings were recorded in, for the filter; empty when there is only one.
+    var apps: [(bundleID: String, name: String)] {
+        var seen: [String: String] = [:]
+        for summary in store.summaries {
+            let info = rowInfo(summary)
+            if let id = info.appBundleID, let name = info.appName { seen[id] = name }
+        }
+        guard seen.count > 1 else { return [] }
+        return seen.map { ($0.key, $0.value) }.sorted { $0.name < $1.name }
+    }
+
+    @ObservationIgnored private var rowInfoCache: [UUID: RowInfo] = [:]
+
+    func rowInfo(_ summary: MeetingSummary) -> RowInfo {
+        if let speakers = summary.speakers {
+            return RowInfo(
+                appBundleID: summary.appBundleID,
+                recapLine: summary.recapLine,
+                keepAudio: summary.keepAudio ?? false,
+                speakers: speakers
+            )
+        }
+        if let cached = rowInfoCache[summary.id] { return cached }
+        let info: RowInfo
+        if let meeting = try? store.load(summary.id) {
+            let fresh = MeetingSummary(meeting)
+            info = RowInfo(appBundleID: fresh.appBundleID, recapLine: fresh.recapLine, keepAudio: meeting.keepAudio, speakers: meeting.speakers)
+        } else {
+            info = RowInfo(appBundleID: nil, recapLine: nil, keepAudio: false, speakers: [])
+        }
+        rowInfoCache[summary.id] = info
+        return info
+    }
+
+    // MARK: Page
+
+    /// The selected meeting is shown on its own page instead of the list.
+    private(set) var isPageOpen = false
+
+    func openPage(_ id: UUID) {
+        select(id)
+        tab = .notes
+        isPageOpen = meeting != nil
+    }
+
+    func closePage() {
+        isPageOpen = false
+        isEditingTitle = false
+        renaming = nil
+        transcriptQuery = ""
+    }
+
+    /// The transcript tab's own search.
+    var transcriptQuery = ""
 
     // MARK: Selection
 
@@ -51,7 +129,7 @@ final class MeetingLibraryModel {
     /// The decrypted selected meeting.
     private(set) var meeting: Meeting?
     private(set) var template: NotesTemplate = .general
-    var tab: Tab = .recap
+    var tab: Tab = .notes
 
     // MARK: Editing
 
@@ -140,6 +218,7 @@ final class MeetingLibraryModel {
     }
 
     private func notesUpdated(_ id: UUID) {
+        rowInfoCache[id] = nil
         guard id == selectedID, let fresh = try? store.load(id) else { return }
         // Keep unsaved "My notes" typing; take everything else from disk.
         let draft = notesDraft
@@ -174,6 +253,18 @@ final class MeetingLibraryModel {
         save(meeting)
     }
 
+    /// Calendar invitees not yet given to a speaker: the rename popover's suggestions.
+    var renameSuggestions: [String] {
+        guard let meeting else { return [] }
+        let used = Set(meeting.speakers.compactMap(\.name).map { $0.lowercased() })
+        return meeting.attendees.filter { !used.contains($0.lowercased()) }
+    }
+
+    /// How many times a speaker spoke in the open meeting.
+    func interventions(of speakerID: String) -> Int {
+        meeting?.segments.count { $0.speakerID == speakerID } ?? 0
+    }
+
     var hasUnsavedNotes: Bool {
         guard let meeting else { return false }
         return notesDraft != meeting.userNotes
@@ -192,6 +283,7 @@ final class MeetingLibraryModel {
     }
 
     private func save(_ updated: Meeting) {
+        rowInfoCache[updated.id] = nil
         do {
             try store.save(updated)
             meeting = updated
@@ -232,7 +324,9 @@ final class MeetingLibraryModel {
         store.delete(id)
         NotesTemplateChoice.forget(id)
         searchHits?.remove(id)
-        selectedID = visible.first?.id
+        rowInfoCache[id] = nil
+        selectedID = nil
+        closePage()
     }
 
     /// After meetings were deleted elsewhere (retention, "Delete all"): drops a selection
@@ -241,8 +335,10 @@ final class MeetingLibraryModel {
         let ids = Set(store.summaries.map(\.id))
         if let hits = searchHits { searchHits = hits.intersection(ids) }
         if let selectedID, !ids.contains(selectedID) {
-            self.selectedID = visible.first?.id
+            self.selectedID = nil
+            closePage()
         }
+        rowInfoCache = rowInfoCache.filter { ids.contains($0.key) }
     }
 
     // MARK: - Feedback

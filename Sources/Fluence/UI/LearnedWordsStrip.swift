@@ -1,44 +1,49 @@
 import FluenceCore
 import SwiftUI
 
-/// "Add 'Claude' to the dictionary?" — the auto-learn proposals (FLU-5), one line each,
-/// above the main window's well. Quiet on purpose: it appears only when there is something
-/// to decide, and nothing happens until the user presses Add.
+/// "Ajouter « Claude » au dictionnaire ?" — the auto-learn proposals (FLU-5), one line each,
+/// above the main window's content. Quiet on purpose: it appears only when there is
+/// something to decide, and nothing happens until the user presses Ajouter. The newest is
+/// also offered on the HUD capsule for a moment (FLU-12).
 struct LearnedWordsStrip: View {
     @State private var learned = LearnedWords.shared
 
     var body: some View {
         if !learned.proposals.isEmpty {
-            VStack(alignment: .leading, spacing: DS.Space.tight) {
+            VStack(alignment: .leading, spacing: DS.Space.snug) {
                 ForEach(learned.proposals) { proposal in
                     row(proposal)
                 }
             }
-            .padding(.horizontal, DS.Space.base)
-            .padding(.vertical, DS.Space.snug)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(BrushedPanel())
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(DS.Color.selection.opacity(0.5))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(DS.Color.selectionEdge.opacity(0.5), lineWidth: 1))
+            )
         }
     }
 
     private func row(_ proposal: EditLearner.Proposal) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: DS.Space.snug) {
-            Lamp(color: DS.Color.pilot, isLit: true, size: DS.Library.lampSmall)
-                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - DS.Library.lampBaselineNudge }
-            Silkscreen(text: "Appris")
-            Text(description(proposal))
-                .font(DS.Font.label)
-                .foregroundStyle(DS.Color.ink)
-                .lineLimit(1)
+        HStack(spacing: DS.Space.snug) {
+            Image(systemName: "book.closed").font(.system(size: 12, weight: .medium)).foregroundStyle(DS.Color.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Ajouter \(FrenchFormat.quoted(proposal.written)) au dictionnaire ?")
+                    .font(DS.Font.label)
+                    .foregroundStyle(DS.Color.ink)
+                    .lineLimit(1)
+                if proposal.isCorrection {
+                    Text("Vous avez corrigé \(FrenchFormat.quoted(proposal.heard))")
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Color.inkSecondary)
+                        .lineLimit(1)
+                }
+            }
             Spacer(minLength: DS.Space.snug)
-            TransportKey(title: "Ajouter", engagedColor: DS.Color.ink) { learned.accept(proposal) }
-            TransportKey(title: "Ignorer") { learned.dismiss(proposal) }
+            CapButton(title: "Ignorer", height: 24) { learned.dismiss(proposal) }
+            PrimaryButton(title: "Ajouter", height: 24) { learned.accept(proposal) }
         }
-    }
-
-    private func description(_ proposal: EditLearner.Proposal) -> String {
-        proposal.isCorrection
-            ? "Vous avez corrigé « \(proposal.heard) » en « \(proposal.written) ». L'ajouter au dictionnaire ?"
-            : "Ajouter « \(proposal.written) » au dictionnaire ?"
     }
 }
