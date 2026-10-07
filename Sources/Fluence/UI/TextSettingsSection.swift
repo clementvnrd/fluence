@@ -11,7 +11,7 @@ struct TextSettingsSection: View {
 
     var body: some View {
         SectionCard {
-            SettingsRow(systemImage: "sparkles", title: "Niveau de nettoyage", subtitle: "Exemple pour la même phrase dictée :") {
+            SettingsRow(systemImage: "sparkles", title: "Niveau de nettoyage", info: cleanupInfo) {
                 PillTabs(options: CleanupLevel.allCases, title: \.title, selection: settings.cleanupLevel, small: true) {
                     settings.cleanupLevel = $0
                 }
@@ -19,20 +19,22 @@ struct TextSettingsSection: View {
             CleanupExamples(selection: settings.cleanupLevel) { settings.cleanupLevel = $0 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 10)
-            RowNote(text: cleanupNote)
+            if let cleanupCaveat {
+                RowNote(text: cleanupCaveat, color: DS.Color.meterAmber)
+            }
         }
 
         SectionCard {
-            SettingsRow(systemImage: "textformat", title: "Styles par app", subtitle: "Le ton s'adapte à l'app où vous dictez.") {
-                Text(WritingStyle.allCases.map(\.displayName).joined(separator: " · "))
-                    .font(DS.Font.caption)
-                    .foregroundStyle(DS.Color.silkscreen)
-            }
-            StyleTiles()
-                .padding(.horizontal, 14)
-                .padding(.bottom, 14)
-            if settings.cleanupLevel != .high {
-                RowNote(text: "Les styles ne s'appliquent qu'au niveau Élevé.")
+            // The cards live on the Styles page; here, one row that leads there (FLU-19:
+            // the same cards twice was the same text twice).
+            SettingsRow(
+                systemImage: "textformat",
+                title: "Styles par app",
+                subtitle: settings.cleanupLevel == .high ? nil : "Inactifs sous le niveau Élevé"
+            ) {
+                CapButton(title: "Ouvrir", systemImage: "chevron.right", height: 28) {
+                    MainNavigation.shared.show(.styles, openWindow: openWindow)
+                }
             }
         }
 
@@ -40,8 +42,8 @@ struct TextSettingsSection: View {
             SettingsRow(
                 systemImage: "text.badge.plus",
                 title: "Snippets",
-                subtitle: FrenchFormat.count(snippets.entries.count, "raccourci vocal", "raccourcis vocaux")
-                    + " · ex. \(FrenchFormat.quoted("mon adresse")) → votre adresse complète"
+                subtitle: FrenchFormat.count(snippets.entries.count, "raccourci vocal", "raccourcis vocaux"),
+                info: "Dites une courte phrase, Fluence écrit le texte complet : par exemple \(FrenchFormat.quoted("mon adresse")) → votre adresse."
             ) {
                 HStack(spacing: DS.Space.snug) {
                     CapButton(title: "Gérer les snippets", systemImage: "chevron.right", height: 28) {
@@ -54,7 +56,7 @@ struct TextSettingsSection: View {
             SettingsRow(
                 systemImage: "chevron.left.forwardslash.chevron.right",
                 title: "Formatage code & terminaux",
-                subtitle: "Dans les éditeurs et les terminaux : symboles dictés, options de commande, pas de point final."
+                info: "Dans les éditeurs et les terminaux : symboles dictés, options de commande, pas de point final."
             ) {
                 RowToggle(isOn: $settings.appAwareStylesEnabled)
             }
@@ -62,31 +64,34 @@ struct TextSettingsSection: View {
             SettingsRow(
                 systemImage: "brain",
                 title: "Apprentissage automatique",
-                subtitle: settings.learnFromEdits ? "Activé · rien n'est ajouté sans votre accord" : "Désactivé · rien n'est ajouté sans votre accord"
+                info: "Quand vous corrigez un nom juste après une dictée (par ex. \(FrenchFormat.quoted("Cubernetes")) → \(FrenchFormat.quoted("Kubernetes"))), Fluence vous propose de l'ajouter au dictionnaire. Vous acceptez ou ignorez, au cas par cas. Pendant 20 secondes, Fluence relit le champ ; rien de ce qui est lu n'est gardé, et les champs de mot de passe ne sont jamais lus."
             ) {
                 RowToggle(isOn: $settings.learnFromEdits)
             }
-            RowNote(text: "Quand vous corrigez un nom juste après une dictée (par ex. \(FrenchFormat.quoted("Cubernetes")) → \(FrenchFormat.quoted("Kubernetes"))), Fluence vous propose de l'ajouter au dictionnaire. Vous acceptez ou ignorez, au cas par cas. Pendant 20 secondes, Fluence relit le champ ; rien de ce qui est lu n'est gardé, et les champs de mot de passe ne sont jamais lus.")
             RowDivider()
             SettingsRow(
                 systemImage: "text.append",
                 title: "Apprendre les termes fréquents",
-                subtitle: settings.learnFrequentTerms ? "Activé" : "Désactivé"
+                info: "Un nom propre, un sigle ou un terme technique dicté deux fois est ajouté au dictionnaire sans vous le demander."
             ) {
                 RowToggle(isOn: $settings.learnFrequentTerms)
             }
-            RowNote(text: "Un nom propre, un sigle ou un terme technique dicté deux fois est ajouté au dictionnaire sans vous le demander.")
         }
     }
 
-    private var cleanupNote: String {
-        var note = settings.cleanupLevel.explanation + " Les corrections du dictionnaire et vos snippets s'appliquent à tous les niveaux."
+    private var cleanupInfo: String {
+        settings.cleanupLevel.explanation + " Les corrections du dictionnaire et vos snippets s'appliquent à tous les niveaux."
+    }
+
+    /// Only when the chosen level cannot run as described: that stays on the page.
+    private var cleanupCaveat: String? {
         if settings.cleanupLevel.usesModel, let reason = FoundationModelFormatter.unavailableReason {
-            note += " \(reason) En attendant, ce niveau nettoie avec les règles du niveau Léger."
-        } else if settings.engine == .whisper, !settings.smartCleanupOnWhisper, settings.cleanupLevel.usesModel {
-            note += " Avec Whisper, le modèle n'est utilisé que si « Nettoyage par le modèle avec Whisper » est activé (Transcription) ; sinon ce niveau nettoie avec les règles."
+            return "\(reason) En attendant, ce niveau nettoie avec les règles du niveau Léger."
         }
-        return note
+        if settings.engine == .whisper, !settings.smartCleanupOnWhisper, settings.cleanupLevel.usesModel {
+            return "Avec Whisper, ce niveau n'utilise le modèle que si « Nettoyage par le modèle avec Whisper » est activé (Transcription)."
+        }
+        return nil
     }
 }
 

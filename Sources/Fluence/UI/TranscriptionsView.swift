@@ -21,11 +21,9 @@ struct TranscriptionsView: View {
         return all.filter { $0.text.localizedStandardContains(trimmed) || ($0.rawText ?? "").localizedStandardContains(trimmed) }
     }
 
+    /// The count only; how to dictate is on the empty page and in Réglages (FLU-19).
     private var subtitle: String {
-        var text = FrenchFormat.count(store.runs.count, "enregistrement")
-            + " · maintenez \(ShortcutLabel.display(settings.pushToTalkKey.shortName)) pour dicter"
-        if settings.lastTranscriptShortcuts { text += ", ⌃⌘V recolle la dernière" }
-        return text
+        FrenchFormat.count(store.runs.count, "dictée")
     }
 
     var body: some View {
@@ -80,7 +78,7 @@ struct TranscriptionsView: View {
                 }
             }
 
-            ListFooter(text: FrenchFormat.count(store.runs.count, "enregistrement")) {
+            ListFooter(text: FrenchFormat.count(store.runs.count, "dictée")) {
                 Button { isConfirmingClear = true } label: {
                     Text("Tout effacer").font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary)
                 }
@@ -115,60 +113,62 @@ private struct TranscriptionCard: View {
 
     private var shownText: String { showsRaw ? run.rawText ?? run.text : run.text }
 
+    /// Shown while the pointer is over the card (FLU-19): every card no longer carries four
+    /// buttons.
+    private var actions: some View {
+        HStack(spacing: 8) {
+            ChipButton(title: "Corriger", systemImage: "brain", accent: true) { isShowingCorrection = true }
+                .help("Corriger cette dictée pour que Fluence apprenne")
+                .sheet(isPresented: $isShowingCorrection) {
+                    CorrectionQuickSheet(initialText: run.text)
+                }
+
+            if run.rawText != nil {
+                ChipButton(title: showsRaw ? "Nettoyé" : "Brut", accent: showsRaw) { showsRaw.toggle() }
+                    .help(showsRaw ? "Afficher le texte nettoyé" : "Afficher ce qui a été entendu, avant le nettoyage")
+            }
+
+            ChipButton(
+                title: didCopy ? "Copié !" : "Copier",
+                systemImage: didCopy ? "checkmark" : "doc.on.doc",
+                tint: didCopy ? DS.Color.meterGreen : nil
+            ) {
+                // Asked for, so an ordinary copy — but this Mac only: Universal Clipboard
+                // would hand the dictation to every device on the account.
+                let pasteboard = NSPasteboard.general
+                pasteboard.prepareForNewContents(with: .currentHostOnly)
+                pasteboard.setString(shownText, forType: .string)
+                didCopy = true
+                Task {
+                    try? await Task.sleep(for: .seconds(1.4))
+                    didCopy = false
+                }
+            }
+
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .font(.system(size: 10))
+                    .foregroundStyle(DS.Color.inkSecondary)
+                    .padding(4)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .opacity(0.8)
+            .help("Supprimer cette dictée")
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                AccentChip(text: run.engine)
-                Text(FrenchFormat.seconds(run.processSeconds))
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(DS.Color.inkSecondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(DS.Color.well, in: Capsule())
-                    .help("Temps entre le relâchement de la touche et le texte prêt")
-                Spacer()
+                // The engine and how long it took are details: on hover of the time (FLU-19).
                 Text(FrenchDates.time(run.date, calendar: FrenchDates.calendar))
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Color.inkSecondary)
-
-                ChipButton(title: "Corriger", systemImage: "brain", accent: true) { isShowingCorrection = true }
-                    .help("Corriger cette dictée pour que Fluence apprenne")
-                    .sheet(isPresented: $isShowingCorrection) {
-                        CorrectionQuickSheet(initialText: run.text)
-                    }
-
-                if run.rawText != nil {
-                    ChipButton(title: showsRaw ? "Nettoyé" : "Brut", accent: showsRaw) { showsRaw.toggle() }
-                        .help(showsRaw ? "Afficher le texte nettoyé" : "Afficher ce qui a été entendu, avant le nettoyage")
-                }
-
-                ChipButton(
-                    title: didCopy ? "Copié !" : "Copier",
-                    systemImage: didCopy ? "checkmark" : "doc.on.doc",
-                    tint: didCopy ? DS.Color.meterGreen : nil
-                ) {
-                    // Asked for, so an ordinary copy — but this Mac only: Universal Clipboard
-                    // would hand the dictation to every device on the account.
-                    let pasteboard = NSPasteboard.general
-                    pasteboard.prepareForNewContents(with: .currentHostOnly)
-                    pasteboard.setString(shownText, forType: .string)
-                    didCopy = true
-                    Task {
-                        try? await Task.sleep(for: .seconds(1.4))
-                        didCopy = false
-                    }
-                }
-
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 10))
-                        .foregroundStyle(DS.Color.inkSecondary)
-                        .padding(4)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .opacity(isHovering ? 0.8 : 0.25)
-                .help("Supprimer cet enregistrement")
+                    .help("\(run.engine) · texte prêt en \(FrenchFormat.seconds(run.processSeconds))")
+                Spacer()
+                actions
+                    .opacity(isHovering || isShowingCorrection ? 1 : 0)
             }
 
             Text(shownText)

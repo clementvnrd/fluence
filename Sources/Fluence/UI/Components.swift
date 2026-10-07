@@ -599,6 +599,8 @@ struct SettingsRow<Control: View>: View {
     let systemImage: String
     let title: String
     var subtitle: String?
+    /// The explanation, behind an ⓘ next to the title rather than under it (FLU-19).
+    var info: String?
     var iconTint: Color = DS.Color.accent
     @ViewBuilder var control: Control
 
@@ -609,7 +611,10 @@ struct SettingsRow<Control: View>: View {
                 .foregroundStyle(iconTint)
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(DS.Font.label).foregroundStyle(DS.Color.ink).lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(title).font(DS.Font.label).foregroundStyle(DS.Color.ink).lineLimit(1)
+                    if let info { InfoButton(text: info) }
+                }
                 if let subtitle {
                     Text(subtitle).font(.system(size: 11)).foregroundStyle(DS.Color.inkSecondary).lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -625,6 +630,33 @@ struct SettingsRow<Control: View>: View {
 }
 
 /// An explanation under a row, aligned with its title.
+/// An ⓘ that explains on demand: its text on hover, in a popover on click (FLU-19 —
+/// explanations stay available without being printed on every page).
+struct InfoButton: View {
+    let text: String
+    @State private var isShowing = false
+
+    var body: some View {
+        Button { isShowing.toggle() } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(DS.Color.silkscreen)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .help(text)
+        .popover(isPresented: $isShowing, arrowEdge: .bottom) {
+            Text(text)
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Color.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: 280, alignment: .leading)
+                .padding(12)
+        }
+    }
+}
+
 struct RowNote: View {
     let text: String
     var color: Color = DS.Color.inkSecondary

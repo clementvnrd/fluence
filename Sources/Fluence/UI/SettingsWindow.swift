@@ -35,7 +35,7 @@ struct SettingsWindow: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.base) {
-                    ContentTitle(title: selection.title, subtitle: selection.subtitle)
+                    ContentTitle(title: selection.title)  // the title says it; no sentence under it (FLU-19)
                         .padding(.bottom, DS.Space.snug)
                     switch selection {
                     case .dictation: DictationSettingsSection(controller: controller)
