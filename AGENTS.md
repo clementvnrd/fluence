@@ -16,7 +16,7 @@ on-device. Two independent implementations:
 |---|---|---|
 | Language | Swift 6 | C# / .NET 10 |
 | UI | SwiftUI | Avalonia |
-| Speech | Apple `SpeechAnalyzer`, or Parakeet via FluidAudio | Parakeet via sherpa-onnx |
+| Speech | Apple `SpeechAnalyzer`, Whisper via WhisperKit, or Parakeet via FluidAudio | Parakeet via sherpa-onnx |
 | Location | repo root | `windows/` |
 
 **The macOS app works and was in daily use** under its previous name, "Murmur YouTube".
@@ -115,27 +115,34 @@ as one ranking.
 asserts it. Use `await MainActor.run` from any non-main-actor context. This took the app
 down once already.
 
-**Mutating `@State` inside a `Canvas` draw closure floods the log and corrupts state.** The
-VU meter keeps its needle physics in a plain reference type the view merely holds, which is
-invisible to SwiftUI's state graph. Don't "clean that up" into `@State`.
-
 ---
 
 ## Design system
 
-`Sources/MurmurYouTube/UI/DesignSystem.swift` defines every colour, size, radius, duration
-and material token. **Views must not contain literal values.** If a component needs a number
-that isn't a token, add the token rather than inlining it.
+`Sources/Fluence/UI/DesignSystem.swift` holds the tokens (colours, type, spacing, radii,
+shadows, motion, window and panel sizes) and `UI/Equipment.swift` the shared components
+(`BrushedPanel` card, `Well`, `TransportKey` pill button, `Silkscreen` label, `Lamp` status
+dot, `VUMeter` level bars). New screens use them; prefer adding a token to inlining a value.
+The component names are historical — they no longer draw anything field-recorder-like.
 
-The direction is 1980s field recorders — Sony TC-D5, Marantz PMD, Nakamichi, Braun. Silver
-face in light appearance, black face in dark. Two rules that are not negotiable:
+The art direction is **Clement's own** (FLU-11): pure, understated native macOS
+craftsmanship — Things 3, Apple Notes — in French. Light paper-mist canvas (`chassis`),
+rounded white cards (`panel`, radius 12–16, continuous corners) with a hairline `seam`
+border and a soft shadow, a deep slate-blue dark mode. Pill-shaped tab bars and buttons, SF
+symbols in the accent colour, rounded monospaced digits for timings.
 
-- **Red means recording.** Nothing else in the app is red.
-- **Amber and green are instrumentation only** — level meters, never UI chrome.
-
-Explicitly ruled out: neon, vaporwave, synthwave, purple/pink gradients, glowing text, chrome
-lettering, grid horizons. There are **no gradients anywhere**; depth comes from flat panels,
-hairline bevels and procedurally-drawn brushed grain.
+- **One accent: electric aqua blue** (`DS.Color.accent`, #0084FF / #38BDF8 in dark), the colour
+  of the Aqua orb (`AquaOrbView`, `Resources/AquaOrb.png`) that is the app's identity — in the
+  header, the settings and the HUD.
+- **The blue→cyan gradient is reserved for the Aqua identity**: the orb, the "AI" badge and the
+  primary *Dicter* button. Nothing else gets a gradient, and there are no neon glows or
+  purple/pink "AI" gradients.
+- **Red marks a recording you can stop** (*Arrêter*, the recording dot) and errors; amber means
+  "needs attention" (permission banners), green means "granted / done". None of them is used
+  as decoration.
+- The HUD is a floating capsule with the orb, light level bars, the live text, a language pill
+  and a finish button. It is excluded from screen sharing and never takes focus.
+- UI text is **French**; engine names, shortcuts and technical terms stay as they are.
 
 ---
 
