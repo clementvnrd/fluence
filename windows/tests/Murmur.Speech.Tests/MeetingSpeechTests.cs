@@ -15,28 +15,29 @@ public sealed class MeetingSpeechTests : IDisposable
     }
 
     [Fact]
-    public void Durations_bound_tokens_when_the_model_reports_them()
+    public void A_token_ends_where_the_next_begins_and_the_last_is_capped_at_the_audio()
     {
-        var timed = SherpaTokens.Timed(["▁Bon", "jour"], [0.0f, 0.24f], [0.16f, 0.24f], 1.0);
+        // sherpa-onnx marks word starts with a space, not U+2581.
+        var timed = SherpaTokens.Timed([" Bon", "jour", " a"], [0.0f, 0.24f, 0.4f], 0.5);
         timed.Select(t => (t.Text, Math.Round(t.Start, 2), Math.Round(t.End, 2)))
-            .ShouldBe([("▁Bon", 0.0, 0.16), ("jour", 0.24, 0.48)]);
+            .ShouldBe([(" Bon", 0.0, 0.24), ("jour", 0.24, 0.4), (" a", 0.4, 0.5)]);
+
+        SherpaTokens.Timed([" x"], [0.5f], 2.0).Single().End.ShouldBe(0.5 + SherpaTokens.FallbackTokenSeconds, 1e-6);
     }
 
     [Fact]
-    public void Without_durations_a_token_ends_where_the_next_begins_and_the_last_is_capped()
+    public void The_word_before_a_pause_does_not_stretch_across_it()
     {
-        var timed = SherpaTokens.Timed(["▁a", "▁b", "▁c"], [0.0f, 0.4f, 0.9f], [], 1.0);
-        timed.Select(t => Math.Round(t.End, 2)).ShouldBe([0.4, 0.9, 1.0]);
-
-        SherpaTokens.Timed(["▁x"], [0.5f], null, 2.0).Single().End.ShouldBe(0.5 + SherpaTokens.FallbackTokenSeconds, 1e-6);
+        var timed = SherpaTokens.Timed([" yes", " okay"], [1.0f, 4.0f], 5.0);
+        timed[0].End.ShouldBe(1.0 + SherpaTokens.MaxTokenSeconds, 1e-6);
     }
 
     [Fact]
     public void Mismatched_or_missing_arrays_never_throw()
     {
-        SherpaTokens.Timed(null, null, null, 1).ShouldBeEmpty();
-        SherpaTokens.Timed(["▁a", "▁b"], [0.1f], null, 1).Count.ShouldBe(1);
-        SherpaTokens.Timed(["▁a"], [0.5f], [-1f], 0.2).Single().End.ShouldBe(0.5);   // never before its start
+        SherpaTokens.Timed(null, null, 1).ShouldBeEmpty();
+        SherpaTokens.Timed([" a", " b"], [0.1f], 1).Count.ShouldBe(1);
+        SherpaTokens.Timed([" a"], [0.5f], 0.2).Single().End.ShouldBe(0.5);   // never before its start
     }
 
     [Fact]

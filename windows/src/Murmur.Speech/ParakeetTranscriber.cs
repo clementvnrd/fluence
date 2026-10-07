@@ -200,8 +200,8 @@ public sealed class ParakeetTranscriber : ITranscriber, ITimedTranscriber
     /// <inheritdoc />
     /// <remarks>
     /// The same decode as <see cref="TranscribeAsync"/>, reading sherpa-onnx's per-token
-    /// <c>Tokens</c>, <c>Timestamps</c> and (for TDT models) <c>Durations</c>; see
-    /// <see cref="SherpaTokens.Timed"/> for how ends are derived.
+    /// <c>Tokens</c> and <c>Timestamps</c>; see <see cref="SherpaTokens.Timed"/> for how ends
+    /// are derived. Checked against Parakeet TDT 0.6B v2 on real speech (macOS, same library).
     /// </remarks>
     public ValueTask<TimedTranscript> TranscribeTimedAsync(ReadOnlyMemory<float> samples, CancellationToken cancellationToken)
     {
@@ -224,7 +224,7 @@ public sealed class ParakeetTranscriber : ITranscriber, ITimedTranscriber
             var seconds = (double)samples.Length / AudioChunk.SampleRate;
             return ValueTask.FromResult(new TimedTranscript(
                 result.Text?.Trim() ?? string.Empty,
-                SherpaTokens.Timed(result.Tokens, result.Timestamps, result.Durations, seconds)));
+                SherpaTokens.Timed(result.Tokens, result.Timestamps, seconds)));
         }
     }
 
