@@ -45,6 +45,14 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Fluence listens while you hold the push-to-talk key so it can turn your speech into text.</string>
+	<!-- Notetaker (capture): the calendar gives a call its title and the attendees' names.
+	     Requested only when "Use calendar" is on, the first time a meeting needs it. -->
+	<!-- Notetaker (capture): the Core Audio process tap that records the other side of a
+	     call (TCC "System Audio Recording Only"). Without it the tap delivers silence. -->
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Fluence records the other people in your call, only while you take meeting notes. The audio stays on your Mac.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Fluence reads the event you are in to title your meeting notes and name the people speaking. Nothing leaves your Mac.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Fluence transcribes your speech on-device to insert text where you're typing.</string>
 </dict>

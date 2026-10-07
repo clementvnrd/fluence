@@ -6,5 +6,8 @@
 	     impossible inside the App Sandbox. Distribution would be Developer ID, not MAS. -->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
+	<!-- Notetaker (capture): the hardened runtime blocks EventKit without it. -->
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
 </dict>
 </plist>
