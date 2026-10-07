@@ -38,6 +38,11 @@ protocol TranscriptionEngine: Actor {
 
     /// Close the session and flush any pending final results.
     func finish() async
+
+    /// Close the session and throw away what it heard: no final result, no transcription
+    /// pass. For a dictation that was cancelled, or that the silence gate turned away.
+    /// Safe to call more than once, and after `finish()`.
+    func cancel() async
 }
 
 enum TranscriptionError: LocalizedError {

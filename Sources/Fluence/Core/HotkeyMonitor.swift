@@ -60,6 +60,9 @@ final class HotkeyMonitor {
     var key: PushToTalkKey = .rightOption
     var onPress: (() -> Void)?
     var onRelease: (() -> Void)?
+    /// The system disabled the tap. Events were missed while it was off — possibly the
+    /// key-up of the hold in progress.
+    var onTapDisabled: (() -> Void)?
 
     /// - Returns: `false` if the tap couldn't be created — almost always missing Accessibility permission.
     @discardableResult
@@ -123,6 +126,12 @@ final class HotkeyMonitor {
         // The system disables a tap that runs too slowly or is interrupted; re-arm it.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            // Whatever we believed about the key is stale. Starting from "up" means a key
+            // still held is simply ignored until it's pressed again — never mistaken for a
+            // press whose release we'll wait on forever.
+            isPressed = false
+            Log.hotkey.error("event tap was disabled by the system — re-armed")
+            onTapDisabled?()
             return false
         }
 

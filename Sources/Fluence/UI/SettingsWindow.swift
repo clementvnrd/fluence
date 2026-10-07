@@ -68,6 +68,28 @@ struct SettingsWindow: View {
                         + "corrections run either way.")
                 }
 
+                panel(label: "Recording limit") {
+                    HStack(spacing: DS.Space.snug) {
+                        ForEach(Settings.recordingLimitChoices, id: \.self) { minutes in
+                            TransportKey(
+                                title: "\(minutes) min",
+                                isEngaged: settings.maxRecordingMinutes == minutes,
+                                engagedColor: DS.Color.ink
+                            ) {
+                                settings.maxRecordingMinutes = minutes
+                            }
+                            .background {
+                                if settings.maxRecordingMinutes == minutes {
+                                    RoundedRectangle(cornerRadius: DS.Radius.control)
+                                        .fill(DS.Color.selection)
+                                }
+                            }
+                        }
+                    }
+                    note("A dictation still running after this long is finished and typed, "
+                        + "in case the key's release was missed.")
+                }
+
                 panel(label: "History") {
                     HStack(spacing: DS.Space.snug) {
                         ForEach(HistoryRetention.allCases, id: \.self) { retention in
@@ -100,7 +122,7 @@ struct SettingsWindow: View {
             }
             .padding(DS.Space.panel)
         }
-        .frame(width: 520, height: 600)
+        .frame(width: 520, height: 720)
     }
 
     private func panel<Content: View>(

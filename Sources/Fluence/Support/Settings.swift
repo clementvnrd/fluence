@@ -58,6 +58,15 @@ final class Settings {
         didSet { defaults.set(historyRetention.rawValue, forKey: Keys.historyRetention) }
     }
 
+    /// A dictation still running after this long is finished automatically. The backstop
+    /// for a key-up that never arrives: without it a lost release means an open mic, an
+    /// ever-growing buffer, and text typed into whatever has focus much later.
+    var maxRecordingMinutes: Int {
+        didSet { defaults.set(maxRecordingMinutes, forKey: Keys.maxRecordingMinutes) }
+    }
+
+    static let recordingLimitChoices = [2, 5, 10, 30]
+
     private let defaults = UserDefaults.standard
 
     private enum Keys {
@@ -68,6 +77,7 @@ final class Settings {
         static let smartCleanup = "smartCleanup"
         static let compareMode = "compareMode"
         static let historyRetention = "historyRetention"
+        static let maxRecordingMinutes = "maxRecordingMinutes"
     }
 
     private init() {
@@ -83,6 +93,8 @@ final class Settings {
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         historyRetention = HistoryRetention(rawValue: defaults.string(forKey: Keys.historyRetention) ?? "")
             ?? .default
+        let limit = defaults.integer(forKey: Keys.maxRecordingMinutes)
+        maxRecordingMinutes = limit > 0 ? limit : 10
     }
 }
 
