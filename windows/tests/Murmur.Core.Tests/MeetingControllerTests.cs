@@ -224,7 +224,9 @@ public sealed class MeetingControllerTests : IDisposable
         var id = controller.Current!.Id;
         await controller.StopAsync(StopReason.User);
 
-        _diarizer.Calls.ShouldHaveSingleItem();
+        _diarizer.Calls.ShouldHaveSingleItem(customMessage: string.Join("\n", _log.Events.Select(e =>
+            $"{e.Level} {e.Name} {e.Exception?.GetType().Name} {e.Exception?.Message} "
+            + string.Join(",", (e.Fields ?? new Dictionary<string, object?>()).Select(p => $"{p.Key}={p.Value}")))));
         var saved = _store.Load(id)!;
         saved.KeepAudio.ShouldBeTrue();
         saved.Segments.Where(s => s.Source == AudioSource.System).ShouldAllBe(s => s.SpeakerId == "S1");
