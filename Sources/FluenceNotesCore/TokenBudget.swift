@@ -26,7 +26,8 @@ public struct NotesBudget: Sendable, Hashable {
     /// Reserved for the answer, and passed as `maximumResponseTokens`.
     public var responseTokens: Int
     /// Instructions, the injected schema and the prompt framing (title, participants, part
-    /// numbers). Measured at about 550 tokens; rounded up.
+    /// numbers). Estimated, not measured: map instructions ~375 tokens, the injected schema
+    /// ~400, framing ~60; rounded up. On macOS 26.4+ every call is measured anyway.
     public var overheadTokens: Int
     /// The user's own notes are sent with every chunk; past this they are truncated.
     public var userNotesTokens: Int
@@ -37,7 +38,7 @@ public struct NotesBudget: Sendable, Hashable {
     public init(
         contextSize: Int,
         responseTokens: Int = 800,
-        overheadTokens: Int = 700,
+        overheadTokens: Int = 900,
         userNotesTokens: Int = 300,
         maximumChunkTokens: Int = 2_500
     ) {
@@ -49,7 +50,8 @@ public struct NotesBudget: Sendable, Hashable {
     }
 
     /// Tokens available for transcript lines in one call.
-    /// With a 4,096 window: 2,296 when the user typed notes, 2,500 otherwise.
+    /// With a 4,096 window: 2,096 when the user typed notes, 2,396 otherwise. These are
+    /// estimated tokens, which over-count by about a quarter, so real chunks run ~1,700–1,900.
     public func chunkTokens(hasUserNotes: Bool) -> Int {
         let free = contextSize - responseTokens - overheadTokens - (hasUserNotes ? userNotesTokens : 0)
         return max(256, min(maximumChunkTokens, free))

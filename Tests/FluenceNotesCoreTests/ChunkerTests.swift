@@ -99,8 +99,9 @@ struct ChunkerTests {
 
     @Test func budgetLeavesRoomForAnswer() {
         let budget = NotesBudget(contextSize: 4_096)
-        #expect(budget.chunkTokens(hasUserNotes: false) == 2_500)
-        #expect(budget.chunkTokens(hasUserNotes: true) == 2_296)
+        #expect(budget.chunkTokens(hasUserNotes: false) == 2_396)
+        #expect(budget.chunkTokens(hasUserNotes: true) == 2_096)
+        #expect(NotesBudget(contextSize: 8_192).chunkTokens(hasUserNotes: true) == 2_500)
         #expect(budget.fits(promptTokens: 3_296))
         #expect(!budget.fits(promptTokens: 3_297))
         #expect(TokenEstimate.tokens(in: "") == 0)
