@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Murmur.App.Controls;
 using Murmur.App.Design;
 using Murmur.Core;
@@ -30,16 +31,51 @@ public sealed class SettingsWindow : Window
                           + "will interfere with typing @, €, \\ and |."),
     ];
 
+    /// <summary>History retention choices, shortest first.</summary>
+    private static readonly (HistoryRetention Retention, string Label)[] Retentions =
+    [
+        (HistoryRetention.Never, "NEVER"),
+        (HistoryRetention.OneDay, "1 DAY"),
+        (HistoryRetention.ThirtyDays, "30 DAYS"),
+        (HistoryRetention.Forever, "FOREVER"),
+    ];
+
     private readonly AppSettings _settings;
+    private readonly TranscriptStore? _history;
+    private readonly TranscriberHost? _model;
+    private readonly Lamp _modelLamp = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _modelHeadline = new()
+    {
+        FontFamily = Tokens.Fonts.Grotesque,
+        FontSize = Tokens.Fonts.Body,
+        Foreground = Tokens.Brushes.Ink,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+    private readonly TextBlock _modelDetail = Note(string.Empty);
+    private readonly TransportKey _modelRetry = new() { Content = "TRY AGAIN", EngagedColor = Tokens.Colors.Ink };
     private readonly StackPanel _keyRow;
+    private readonly StackPanel _retentionRow;
     private readonly TextBlock _keyWarning;
 
     /// <summary>Builds the settings window.</summary>
-    public SettingsWindow(AppSettings settings)
+    /// <param name="settings">The preferences being edited.</param>
+    /// <param name="history">The history, to report whether it is sealed on disk.</param>
+    /// <param name="model">The speech model, whose real load state is shown.</param>
+    public SettingsWindow(AppSettings settings, TranscriptStore? history = null, TranscriberHost? model = null)
     {
         _settings = settings;
+        _history = history;
+        _model = model;
 
-        Title = "Murmur Settings";
+        // The model loads in the background; follow it live rather than showing a snapshot.
+        if (_model is not null)
+        {
+            EventHandler onChange = (_, _) => Dispatcher.UIThread.Post(UpdateModelStatus);
+            _model.StateChanged += onChange;
+            Closed += (_, _) => _model.StateChanged -= onChange;
+        }
+
+        Title = AppPaths.ProductName + " Settings";
         Width = 540;
         SizeToContent = SizeToContent.Height;
         CanResize = false;
@@ -68,8 +104,39 @@ public sealed class SettingsWindow : Window
             _keyRow.Children.Add(button);
         }
 
+        _retentionRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Tokens.Space.Snug,
+        };
+
+        foreach (var (retention, label) in Retentions)
+        {
+            var button = new TransportKey { Content = label, EngagedColor = Tokens.Colors.Ink };
+            button.Click += (_, _) => SelectRetention(retention);
+            _retentionRow.Children.Add(button);
+        }
+
         Content = BuildContent();
         SelectKey(_settings.Data.PushToTalkKey, WarningFor(_settings.Data.PushToTalkKey));
+        SelectRetention(_settings.Data.HistoryRetention);
+    }
+
+    /// <summary>The retention currently engaged. Exposed for headless tests.</summary>
+    public HistoryRetention SelectedRetention => _settings.Data.HistoryRetention;
+
+    /// <summary>Engages a retention button and saves. Exposed for headless tests.</summary>
+    public void SelectRetention(HistoryRetention retention)
+    {
+        for (var i = 0; i < Retentions.Length; i++)
+        {
+            ((TransportKey)_retentionRow.Children[i]).IsEngaged = Retentions[i].Retention == retention;
+        }
+
+        if (_settings.Data.HistoryRetention != retention)
+        {
+            Save(_settings.Data with { HistoryRetention = retention });
+        }
     }
 
     private static string? WarningFor(int key) =>
@@ -88,8 +155,11 @@ public sealed class SettingsWindow : Window
                 {
                     _keyRow,
                     _keyWarning,
-                    Note("Hold this key anywhere to dictate. The key is passed through to the "
-                       + "focused app rather than swallowed, so it never gets stuck down."),
+                    Note("Hold this key anywhere to dictate; a tap shorter than a quarter second, "
+                       + "or holding it with another key (a shortcut such as Ctrl+C), is ignored. "
+                       + "The key is passed through to the focused app rather than swallowed, so "
+                       + "it never gets stuck down — except Caps Lock, which is swallowed so "
+                       + "dictating does not toggle it. Changes apply after restarting Fluence."),
                 },
             }),
 
@@ -102,51 +172,62 @@ public sealed class SettingsWindow : Window
                 {
                     Toggle("Type transcripts into the focused app", _settings.Data.InjectText,
                         v => Save(_settings.Data with { InjectText = v })),
-                    Toggle("Keep a transcript history", _settings.Data.KeepHistory,
-                        v => Save(_settings.Data with { KeepHistory = v })),
+                    Note("Off: dictations go to the history only, nothing is typed."),
+                },
+            }),
+
+            Section("HISTORY", new StackPanel
+            {
+                Spacing = Tokens.Space.Snug,
+                Children =
+                {
+                    _retentionRow,
+                    Note(HistoryNote(_history)),
                 },
             }),
         },
     };
 
-    private static StackPanel BuildModelSection()
+    private static string HistoryNote(TranscriptStore? history)
     {
-        var located = ParakeetTranscriber.Locate();
-        var found = located is not null;
+        if (history?.Problem is { } problem) return problem;
+
+        return "Each transcript is encrypted on disk (AES-256-GCM) with a key only your Windows "
+             + "account can unlock. Older entries are deleted at startup and after every "
+             + "dictation. Never deletes the existing history now.";
+    }
+
+    private StackPanel BuildModelSection()
+    {
+        _modelRetry.Click += (_, _) => _ = _model?.LoadAsync(CancellationToken.None).AsTask();
 
         var status = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = Tokens.Space.Snug,
-            Children =
-            {
-                new Lamp
-                {
-                    IsLit = found,
-                    LampColor = found ? Tokens.Colors.MeterGreen : Tokens.Colors.MeterAmber,
-                    VerticalAlignment = VerticalAlignment.Center,
-                },
-                new TextBlock
-                {
-                    Text = found ? "Parakeet ready" : "Model not installed",
-                    FontFamily = Tokens.Fonts.Grotesque,
-                    FontSize = Tokens.Fonts.Body,
-                    Foreground = Tokens.Brushes.Ink,
-                    VerticalAlignment = VerticalAlignment.Center,
-                },
-            },
+            Children = { _modelLamp, _modelHeadline },
         };
 
-        var detail = found
-            // Showing the resolved path matters: "model not found" is unactionable without
-            // knowing which directory was actually checked.
-            ? Note($"Loaded from {located}")
-            : Note("Windows has no built-in speech engine equivalent to Apple's, so Murmur "
-                 + "cannot transcribe until the Parakeet model is downloaded (~661 MB). "
-                 + "See docs/PARAKEET-WINDOWS.md. Expected in:\n"
-                 + string.Join("\n", ParakeetTranscriber.DefaultSearchPaths()));
+        UpdateModelStatus();
+        return new StackPanel { Spacing = Tokens.Space.Snug, Children = { status, _modelDetail, _modelRetry } };
+    }
 
-        return new StackPanel { Spacing = Tokens.Space.Snug, Children = { status, detail } };
+    /// <summary>The model status currently shown. Exposed for headless tests.</summary>
+    public ModelStatus? ShownModelStatus { get; private set; }
+
+    private void UpdateModelStatus()
+    {
+        var searched = ParakeetTranscriber.SearchPaths(_settings.Data.ModelDirectory, AppPaths.ModelsDirectory);
+        var status = _model is null
+            ? ModelStatus.Describe(ModelState.NotInstalled, null, null, searched)
+            : ModelStatus.Describe(_model.State, _model.Detail, _model.Location, searched);
+
+        ShownModelStatus = status;
+        _modelLamp.IsLit = status.IsReady || _model?.State == ModelState.Loading;
+        _modelLamp.LampColor = status.IsReady ? Tokens.Colors.MeterGreen : Tokens.Colors.MeterAmber;
+        _modelHeadline.Text = status.Headline;
+        _modelDetail.Text = status.Detail;
+        _modelRetry.IsVisible = _model?.State == ModelState.Failed;
     }
 
     private void SelectKey(int key, string? warning)

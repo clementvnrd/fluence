@@ -16,9 +16,14 @@ namespace Murmur.Platform.Windows;
 /// </para>
 /// <para>
 /// So <c>SendInput</c> is the primary path, not a fallback. Short text is typed as Unicode
-/// packets, which leaves the clipboard untouched. Longer text goes via the clipboard, because
-/// some terminals and Electron apps drop characters when thousands of synthetic keystrokes
-/// arrive back to back.
+/// packets, which leaves the clipboard untouched. Longer or multi-line text goes via the
+/// clipboard (<see cref="ClipboardPaste"/>, supplied by the app), because some terminals and
+/// Electron apps drop characters when thousands of synthetic keystrokes arrive back to back,
+/// and typed newlines are real Enter keys that send chat messages.
+/// </para>
+/// <para>
+/// Whether the focused window can receive input at all (<see cref="GetFocusTarget"/>) is asked
+/// separately, so the engine can report "blocked" instead of typing into the void.
 /// </para>
 /// </remarks>
 public sealed class SendInputTextInjector : ITextInjector
@@ -105,7 +110,81 @@ public sealed class SendInputTextInjector : ITextInjector
     [DllImport("user32.dll", EntryPoint = "MapVirtualKeyW")]
     private static extern uint MapVirtualKey(uint code, uint mapType);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint processId);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetTokenInformation(IntPtr token, int infoClass, out uint info, uint length, out uint returned);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    private const uint TOKEN_QUERY = 0x0008;
+    private const int TokenElevation = 20;
+
     private static readonly int InputSize = Marshal.SizeOf<INPUT>();
+
+    private static readonly Lazy<bool> s_selfElevated = new(() => IsElevated(GetCurrentProcess(), ownsHandle: false) == true);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// UIPI drops synthetic input aimed at a process running elevated when this one is not,
+    /// and <c>SendInput</c> does not say so — so it is asked up front: is the foreground
+    /// window's process elevated, and are we not? Anything that cannot be determined counts as
+    /// "not blocked" and is left for <c>SendInput</c> to try.
+    /// </remarks>
+    public FocusTarget GetFocusTarget()
+    {
+        var window = GetForegroundWindow();
+        if (window == IntPtr.Zero) return FocusTarget.Unknown;
+
+        var blocked = false;
+        if (!s_selfElevated.Value && GetWindowThreadProcessId(window, out var processId) != 0 && processId != 0)
+        {
+            var process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+            if (process != IntPtr.Zero) blocked = IsElevated(process, ownsHandle: true) == true;
+        }
+
+        return new FocusTarget(window, blocked);
+    }
+
+    private static bool? IsElevated(IntPtr process, bool ownsHandle)
+    {
+        try
+        {
+            if (!OpenProcessToken(process, TOKEN_QUERY, out var token)) return null;
+            try
+            {
+                return GetTokenInformation(token, TokenElevation, out var elevated, sizeof(uint), out _)
+                    ? elevated != 0
+                    : null;
+            }
+            finally
+            {
+                CloseHandle(token);
+            }
+        }
+        finally
+        {
+            if (ownsHandle) CloseHandle(process);
+        }
+    }
 
     /// <summary>Called to place text on the clipboard and paste it.</summary>
     /// <remarks>

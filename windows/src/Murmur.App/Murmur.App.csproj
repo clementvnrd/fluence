@@ -6,6 +6,11 @@
          over WPF. Windows-only code lives in Murmur.Platform.Windows. -->
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Murmur.App</RootNamespace>
+    <!-- The product is Fluence, so the executable is Fluence.exe. The project and namespaces
+         keep their Murmur.* names on purpose: renaming them would touch every file for no
+         user-visible gain and bury the real changes in an unreviewable diff. -->
+    <AssemblyName>Fluence</AssemblyName>
+    <AssemblyTitle>Fluence</AssemblyTitle>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
@@ -54,6 +59,10 @@
     <ItemGroup>
       <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\Murmur.Platform.Windows.dll" />
       <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\NAudio*.dll" />
+      <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\System.Security.Cryptography.ProtectedData.dll" />
+      <!-- The runtimes\win copy, NOT the one in the bin root: that is a stub that throws
+           PlatformNotSupportedException. Flattened beside the exe like the rest. -->
+      <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\runtimes\win\lib\net10.0\Microsoft.Win32.SystemEvents.dll" />
       <!-- Loose beside the exe rather than inside the bundle: PublishSingleFile only bundles
            assemblies the compiler knows about, and this one is deliberately invisible to it.
            The default load context probes AppContext.BaseDirectory, and Program.cs installs
@@ -71,6 +80,10 @@
     <ItemGroup>
       <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\Murmur.Platform.Windows.dll" />
       <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\NAudio*.dll" />
+      <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\System.Security.Cryptography.ProtectedData.dll" />
+      <!-- The runtimes\win copy, NOT the one in the bin root: that is a stub that throws
+           PlatformNotSupportedException. Flattened beside the exe like the rest. -->
+      <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\runtimes\win\lib\net10.0\Microsoft.Win32.SystemEvents.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(PlatformLayer)"
           DestinationFolder="$(OutDir)"
