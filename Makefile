@@ -1,5 +1,7 @@
 EXEC     := Fluence
-CONFIG   := debug
+## Release by default: `make install` is what runs every day, and the audio paths (VAD,
+## resampling, echo cancellation) are far slower unoptimised. `make CONFIG=debug run` to debug.
+CONFIG   ?= release
 
 ## Build products live OUTSIDE this directory, for the same reason the .app does.
 ##
@@ -28,12 +30,26 @@ CONTENTS := $(BUNDLE)/Contents
 
 ## TCC keys the Accessibility grant to the code signature, so an ad-hoc signature — which
 ## changes on every build — makes the user re-grant after every `make`. Signing with a
-## stable Developer ID keeps the identity constant and the grant sticky. Falls back to
-## ad-hoc ("-") on a machine without the cert.
+## stable identity keeps it constant and the grant sticky: a Developer ID if there is one,
+## otherwise the free "Apple Development" certificate Xcode creates for any Apple ID
+## (Xcode ▸ Settings ▸ Accounts ▸ Manage Certificates ▸ +). Falls back to ad-hoc ("-").
 SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null \
              | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)".*/\1/')
 ifeq ($(strip $(SIGN_ID)),)
+SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null \
+             | grep "Apple Development" | head -1 | sed -E 's/.*"(.*)".*/\1/')
+endif
+ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
+endif
+
+## SwiftUI's macros only ship with Xcode. When the active developer directory is the
+## Command Line Tools but Xcode is installed, use Xcode for this build without asking for
+## `sudo xcode-select`.
+ifneq ($(findstring CommandLineTools,$(shell xcode-select -p 2>/dev/null)),)
+ifneq ($(wildcard /Applications/Xcode.app/Contents/Developer),)
+export DEVELOPER_DIR := /Applications/Xcode.app/Contents/Developer
+endif
 endif
 
 .PHONY: all build app run install clean icon
