@@ -72,6 +72,10 @@ extension Meeting {
     /// display name follow too. The name is marked as the user's, which nothing inferred
     /// may overwrite.
     mutating func renameSpeaker(_ id: String, to newName: String) {
+        if !speakers.contains(where: { $0.id == id }) {
+            // A segment can name a speaker the list never got (an early live pass).
+            speakers.append(Speaker(id: id))
+        }
         guard let index = speakers.firstIndex(where: { $0.id == id }) else { return }
         let oldName = speakers[index].displayName
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -40,6 +40,14 @@ struct FluenceApp: App {
         }
         .defaultSize(width: 640, height: 560)
         .windowResizability(.contentMinSize)
+
+        // MARK: Notetaker (library)
+        Window("Meetings", id: MeetingsWindowID.library) {
+            MeetingsWindow(model: .shared)
+        }
+        .defaultSize(width: 1_040, height: 720)
+        .windowResizability(.contentMinSize)
+        .commands { MeetingsCommands() }
     }
 }
 
@@ -225,6 +233,9 @@ private struct MenuContent: View {
             NSApp.activate(ignoringOtherApps: true)
         }
         .keyboardShortcut("d")
+
+        // MARK: Notetaker (library)
+        MeetingsMenuButton()
 
         // Downloading ~470 MB on the first hold would look like a hang, so offer to do it
         // deliberately instead.
