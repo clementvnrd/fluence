@@ -12,42 +12,11 @@ struct ShortcutsSettingsSection: View {
 
     private var key: String { settings.pushToTalkKey.displayName }
 
-    private var legend: [(keys: String, action: String)] {
-        var rows: [(String, String)] = [
-            ("Hold \(key)", "Dictate; let go to type"),
-            ("\(key) \(key)", "Hands-free: double-tap, keeps recording"),
-            ("\(key) + Space", "Hands-free, from a hold"),
-            ("\(key)", "Tap to end hands-free and type"),
-            ("Esc", "Cancel — nothing is typed"),
-        ]
-        if settings.commandModifier != .off {
-            rows.append(("\(key) + \(settings.commandModifier.displayName)", "Command Mode: say how to change the selection"))
-        }
-        if settings.lastTranscriptShortcuts {
-            rows.append(("⌃⌘V", "Paste the last transcript"))
-            rows.append(("⌃⌘C", "Copy the last transcript"))
-        }
-        return rows
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.base) {
             Silkscreen(text: "Shortcuts", large: true)
 
-            DeckWindow {
-                Grid(alignment: .leading, horizontalSpacing: DS.Space.roomy, verticalSpacing: DS.Space.snug) {
-                    ForEach(legend, id: \.keys) { row in
-                        GridRow {
-                            Readout(text: row.keys)
-                            Text(row.action)
-                                .font(DS.Font.label)
-                                .foregroundStyle(DS.Color.inkOnDeck)
-                        }
-                    }
-                }
-                .padding(DS.Space.base)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            ShortcutLegend()
 
             Silkscreen(text: "Command Mode key")
             HStack(spacing: DS.Space.snug) {
@@ -102,5 +71,46 @@ struct ShortcutsSettingsSection: View {
             .font(DS.Font.label)
             .foregroundStyle(DS.Color.inkSecondary)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The legend itself, also shown on the onboarding window's last page.
+struct ShortcutLegend: View {
+    @State private var settings = Settings.shared
+
+    private var rows: [(keys: String, action: String)] {
+        let key = settings.pushToTalkKey.displayName
+        var rows: [(String, String)] = [
+            ("Hold \(key)", "Dictate; let go to type"),
+            ("\(key) \(key)", "Hands-free: double-tap, keeps recording"),
+            ("\(key) + Space", "Hands-free, from a hold"),
+            ("\(key)", "Tap to end hands-free and type"),
+            ("Esc", "Cancel — nothing is typed"),
+        ]
+        if settings.commandModifier != .off {
+            rows.append(("\(key) + \(settings.commandModifier.displayName)", "Command Mode: say how to change the selection"))
+        }
+        if settings.lastTranscriptShortcuts {
+            rows.append(("⌃⌘V", "Paste the last transcript"))
+            rows.append(("⌃⌘C", "Copy the last transcript"))
+        }
+        return rows
+    }
+
+    var body: some View {
+        DeckWindow {
+            Grid(alignment: .leading, horizontalSpacing: DS.Space.roomy, verticalSpacing: DS.Space.snug) {
+                ForEach(rows, id: \.keys) { row in
+                    GridRow {
+                        Readout(text: row.keys)
+                        Text(row.action)
+                            .font(DS.Font.label)
+                            .foregroundStyle(DS.Color.inkOnDeck)
+                    }
+                }
+            }
+            .padding(DS.Space.base)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }

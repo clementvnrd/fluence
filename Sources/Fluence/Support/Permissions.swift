@@ -1,6 +1,7 @@
 import AVFoundation
 import AppKit
 import ApplicationServices
+import EventKit
 import Foundation
 
 /// Fluence needs two grants, and neither can be worked around:
@@ -47,6 +48,45 @@ enum Permissions {
 
     static func openMicrophoneSettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
+        NSWorkspace.shared.open(url)
+    }
+}
+
+// MARK: FLU-5 input — what the onboarding window needs beyond the two hard requirements.
+
+extension Permissions {
+    static var microphoneUndecided: Bool {
+        AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
+    }
+
+    /// Calendar is optional: meeting notes use it for titles and attendee names.
+    static var hasCalendar: Bool {
+        EKEventStore.authorizationStatus(for: .event) == .fullAccess
+    }
+
+    static var calendarUndecided: Bool {
+        EKEventStore.authorizationStatus(for: .event) == .notDetermined
+    }
+
+    /// Asked only from a button the user pressed, never at launch.
+    static func requestCalendar() async -> Bool {
+        do {
+            return try await EKEventStore().requestFullAccessToEvents()
+        } catch {
+            Log.app.error("calendar access request failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// System Audio Recording has no public status query: macOS asks the first time the
+    /// meeting tap starts. The pane is still where a refusal is undone.
+    static func openSystemAudioSettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture")!
+        NSWorkspace.shared.open(url)
+    }
+
+    static func openCalendarSettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!
         NSWorkspace.shared.open(url)
     }
 }
