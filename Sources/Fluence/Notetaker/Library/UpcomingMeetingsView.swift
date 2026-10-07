@@ -36,7 +36,7 @@ struct UpcomingMeetingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             ContentTitle(
                 title: "À venir",
-                subtitle: "Les appels de votre calendrier sur les 7 prochains jours — ceux qui ont un lien Zoom, Teams, Meet…"
+                subtitle: "Vos appels des 7 prochains jours"
             )
             .padding(.horizontal, DS.Space.panel)
             .padding(.top, 28)
@@ -46,7 +46,7 @@ struct UpcomingMeetingsView: View {
                 EmptyState(
                     systemImage: "calendar",
                     title: "Le calendrier n'est pas utilisé",
-                    detail: "Avec votre calendrier, Fluence montre ici vos prochains appels et reprend le titre et les invités dans les notes. Il est lu sur ce Mac, uniquement pour cela.",
+                    detail: "Vos prochains appels ici, leur titre et leurs invités dans les notes. Lu sur ce Mac uniquement.",
                     actionTitle: "Utiliser mon calendrier"
                 ) {
                     settings.useCalendar = true
@@ -56,7 +56,7 @@ struct UpcomingMeetingsView: View {
                 EmptyState(
                     systemImage: "calendar.badge.exclamationmark",
                     title: "Fluence n'a pas accès au calendrier",
-                    detail: "macOS demande votre accord une fois. Le calendrier est lu sur ce Mac et n'est jamais envoyé ailleurs.",
+                    detail: "Lu sur ce Mac, jamais envoyé ailleurs.",
                     actionTitle: Permissions.calendarUndecided ? "Autoriser l'accès au calendrier" : "Ouvrir les Réglages Système"
                 ) {
                     if Permissions.calendarUndecided {

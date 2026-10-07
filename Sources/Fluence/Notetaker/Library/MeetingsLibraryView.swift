@@ -38,7 +38,7 @@ private struct MeetingsList: View {
     @State private var isConfirmingDeleteAll = false
 
     private var subtitle: String {
-        FrenchFormat.count(model.store.summaries.count, "réunion") + " · transcrites, résumées et chiffrées sur ce Mac"
+        FrenchFormat.count(model.store.summaries.count, "réunion")
     }
 
     private var footerText: String {
@@ -64,7 +64,7 @@ private struct MeetingsList: View {
             .padding(.bottom, DS.Space.roomy)
 
             HStack(spacing: DS.Space.snug) {
-                SearchWell(text: $model.query, placeholder: "Rechercher dans toutes les réunions (titres, notes, transcriptions)…")
+                SearchWell(text: $model.query, placeholder: "Rechercher dans les réunions…")
                 let apps = model.apps
                 if !apps.isEmpty {
                     MenuChip(title: model.appFilter.flatMap { id in apps.first { $0.bundleID == id }?.name } ?? "Toutes les apps") {

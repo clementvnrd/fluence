@@ -9,20 +9,18 @@ struct StylesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.base) {
-                ContentTitle(
-                    title: "Styles",
-                    subtitle: "Le ton s'adapte à l'app où vous dictez : un message à un ami ne s'écrit pas comme un e-mail."
-                )
-                .padding(.bottom, DS.Space.snug)
+                ContentTitle(title: "Styles")
+                    .padding(.bottom, DS.Space.snug)
 
                 if settings.cleanupLevel != .high {
                     HStack(spacing: DS.Space.base) {
-                        Image(systemName: "info.circle").foregroundStyle(DS.Color.accent)
-                        Text("Les styles s'appliquent au niveau de nettoyage Élevé. Niveau actuel : \(settings.cleanupLevel.title).")
+                        Image(systemName: "pause.circle").foregroundStyle(DS.Color.accent)
+                        Text("Inactifs au niveau \(settings.cleanupLevel.title)")
                             .font(DS.Font.label)
                             .foregroundStyle(DS.Color.ink)
+                        InfoButton(text: "Les styles réécrivent le texte : ils ne s'appliquent qu'au niveau de nettoyage Élevé.")
                         Spacer()
-                        CapButton(title: "Passer au niveau Élevé", height: 26) { settings.cleanupLevel = .high }
+                        CapButton(title: "Activer", height: 26) { settings.cleanupLevel = .high }
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
@@ -30,22 +28,21 @@ struct StylesView: View {
                 }
 
                 SectionCard {
-                    SettingsRow(systemImage: "textformat", title: "Styles par app", subtitle: "Choisi d'après l'app au premier plan et, dans un navigateur, d'après la page.") {
-                        Text(WritingStyle.allCases.map(\.displayName).joined(separator: " · "))
-                            .font(DS.Font.caption)
-                            .foregroundStyle(DS.Color.silkscreen)
-                    }
+                    SettingsRow(
+                        systemImage: "textformat",
+                        title: "Styles par app",
+                        info: "Choisi d'après l'app au premier plan et, dans un navigateur, d'après la page. L'adresse de la page est lue une fois et n'est jamais gardée."
+                    ) { EmptyView() }
                     StyleTiles()
                         .padding(.horizontal, 14)
                         .padding(.bottom, 14)
-                    RowNote(text: "L'adresse de la page est lue une fois, pour choisir le style, et n'est jamais gardée.")
                 }
 
                 SectionCard {
                     SettingsRow(
                         systemImage: "chevron.left.forwardslash.chevron.right",
                         title: "Formatage code & terminaux",
-                        subtitle: "Dans les éditeurs et les terminaux : symboles dictés, options de commande, pas de point final."
+                        info: "Dans les éditeurs et les terminaux : symboles dictés, options de commande, pas de point final."
                     ) {
                         RowToggle(isOn: $settings.appAwareStylesEnabled)
                     }

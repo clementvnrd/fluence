@@ -45,7 +45,6 @@ struct DictionaryPanel: View {
             PageHeader(
                 title: "Dictionnaire",
                 subtitle: FrenchFormat.count(store.entries.count, "entrée")
-                    + " · les noms et les termes que Fluence doit écrire correctement"
             ) {
                 lexiconButton
                 CapButton(title: "Scanner un projet…", systemImage: "folder.badge.plus") { scanFolder() }

@@ -35,7 +35,7 @@ struct SettingsWindow: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.base) {
-                    ContentTitle(title: selection.title, subtitle: selection.subtitle)
+                    ContentTitle(title: selection.title)  // the title says it; no sentence under it (FLU-19)
                         .padding(.bottom, DS.Space.snug)
                     switch selection {
                     case .dictation: DictationSettingsSection(controller: controller)
@@ -79,17 +79,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         }
     }
 
-    var subtitle: String {
-        switch self {
-        case .dictation: "Comment vous dictez : raccourcis, micro et gestes."
-        case .transcription: "Le moteur qui transforme votre voix en texte, sur ce Mac."
-        case .text: "Ce que Fluence fait du texte avant de le coller."
-        case .meetings: "Repérer les appels, nommer les intervenants, prévenir les participants."
-        case .privacy: "Ce que Fluence garde, combien de temps, et comment l'effacer."
-        case .about: "Fluence, sa version et ce qu'il fait de vos données."
-        }
-    }
-
     var symbol: String {
         switch self {
         case .dictation: "mic"
@@ -111,7 +100,7 @@ struct DictationSettingsSection: View {
 
     var body: some View {
         SectionCard {
-            SettingsRow(systemImage: "keyboard", title: "Raccourci de dictée", subtitle: "Maintenez pour dicter ; touchez pour les mains libres.") {
+            SettingsRow(systemImage: "keyboard", title: "Raccourci de dictée", info: "Maintenez pour dicter ; touchez pour les mains libres.") {
                 ShortcutRecorder(controller: controller, isCommand: false)
             }
             RowDivider()
@@ -119,7 +108,7 @@ struct DictationSettingsSection: View {
                 microphoneMenu
             }
             RowDivider()
-            SettingsRow(systemImage: "timer", title: "Durée maximale d'une dictée", subtitle: "Au-delà, la dictée est terminée et tapée.") {
+            SettingsRow(systemImage: "timer", title: "Durée maximale d'une dictée", info: "Au-delà, la dictée est terminée et tapée.") {
                 PillTabs(
                     options: Settings.recordingLimitChoices,
                     title: { "\($0)\(FrenchFormat.space)min" },
@@ -128,7 +117,7 @@ struct DictationSettingsSection: View {
                 ) { settings.maxRecordingMinutes = $0 }
             }
             RowDivider()
-            SettingsRow(systemImage: "speaker.wave.2", title: "Son", subtitle: "Un léger signal au début et à la fin de la dictée.") {
+            SettingsRow(systemImage: "speaker.wave.2", title: "Son", info: "Un léger signal au début et à la fin de la dictée.") {
                 RowToggle(isOn: $settings.soundEnabled)
             }
         }
@@ -137,9 +126,8 @@ struct DictationSettingsSection: View {
             SettingsRow(
                 systemImage: "wand.and.stars",
                 title: "Mode Commande",
-                subtitle: FoundationModelFormatter.isAvailable
-                    ? "Sélectionnez un texte, maintenez le raccourci et dites comment le réécrire."
-                    : "Nécessite Apple Intelligence sur ce Mac."
+                subtitle: FoundationModelFormatter.isAvailable ? nil : "Nécessite Apple Intelligence sur ce Mac",
+                info: "Sélectionnez un texte, maintenez le raccourci et dites comment le réécrire."
             ) {
                 RowToggle(isOn: Binding(
                     get: { settings.commandModeEnabled },
@@ -159,7 +147,7 @@ struct DictationSettingsSection: View {
             SettingsRow(
                 systemImage: "doc.on.clipboard",
                 title: "⌃⌘V colle, ⌃⌘C copie la dernière transcription",
-                subtitle: "Gardée en mémoire seulement, jusqu'à ce que vous quittiez."
+                info: "Gardée en mémoire seulement, jusqu'à ce que vous quittiez."
             ) {
                 RowToggle(isOn: Binding(
                     get: { settings.lastTranscriptShortcuts },
@@ -179,7 +167,7 @@ struct DictationSettingsSection: View {
         }
 
         SectionCard {
-            SettingsRow(systemImage: "hand.tap", title: "Gestes", subtitle: "Ce que font vos raccourcis, partout sur le Mac.") { EmptyView() }
+            SettingsRow(systemImage: "hand.tap", title: "Gestes", info: "Ce que font vos raccourcis, partout sur le Mac.") { EmptyView() }
             ShortcutLegend()
                 .padding(.leading, 46)
                 .padding(.trailing, 14)
@@ -404,7 +392,7 @@ struct TranscriptionSettingsSection: View {
 
     var body: some View {
         SectionCard {
-            SettingsRow(systemImage: "globe", title: "Langue de dictée") {
+            SettingsRow(systemImage: "globe", title: "Langue de dictée", info: languageNote) {
                 HStack(spacing: DS.Space.snug) {
                     PillTabs(
                         options: Self.quickLanguages,
@@ -420,9 +408,11 @@ struct TranscriptionSettingsSection: View {
                     }
                 }
             }
-            RowNote(text: languageNote)
+            if let languageCaveat {
+                RowNote(text: languageCaveat, color: DS.Color.meterAmber)
+            }
             RowDivider()
-            SettingsRow(systemImage: "waveform", title: "Moteur vocal", subtitle: settings.engine.explanation) {
+            SettingsRow(systemImage: "waveform", title: "Moteur vocal", info: settings.engine.explanation) {
                 PillTabs(options: SpeechEngineChoice.allCases, title: \.shortName, selection: settings.engine, small: true) {
                     settings.engine = $0
                 }
@@ -432,7 +422,7 @@ struct TranscriptionSettingsSection: View {
                 SettingsRow(
                     systemImage: "cpu",
                     title: "Modèle Whisper",
-                    subtitle: WhisperModels.isDownloaded(variant: settings.whisperModel) ? "Installé sur ce Mac" : "Téléchargé à la première dictée"
+                    subtitle: WhisperModels.isDownloaded(variant: settings.whisperModel) ? nil : "Téléchargé à la première dictée"
                 ) {
                     MenuChip(title: WhisperModels.availableVariants.first { $0.id == settings.whisperModel }?.displayName ?? settings.whisperModel) {
                         ForEach(WhisperModels.availableVariants) { variant in
@@ -444,7 +434,7 @@ struct TranscriptionSettingsSection: View {
                 SettingsRow(
                     systemImage: "bolt",
                     title: "Nettoyage par le modèle avec Whisper",
-                    subtitle: "Whisper ponctue déjà. Le modèle local ajoute environ 3,5 s ; sans lui, les niveaux Moyen et Élevé nettoient avec les règles."
+                    info: "Whisper ponctue déjà. Le modèle local ajoute environ 3,5 s ; sans lui, les niveaux Moyen et Élevé nettoient avec les règles."
                 ) {
                     RowToggle(isOn: $settings.smartCleanupOnWhisper, isEnabled: FoundationModelFormatter.isAvailable)
                 }
@@ -452,7 +442,7 @@ struct TranscriptionSettingsSection: View {
         }
 
         SectionCard {
-            SettingsRow(systemImage: "text.magnifyingglass", title: "Renforcer les mots du dictionnaire dans Parakeet", subtitle: boostNote) {
+            SettingsRow(systemImage: "text.magnifyingglass", title: "Renforcer les mots du dictionnaire dans Parakeet", subtitle: boostState, info: Self.boostInfo) {
                 RowToggle(isOn: Binding(get: { settings.parakeetVocabularyBoost }, set: { setBoost($0) }))
             }
         }
@@ -461,7 +451,7 @@ struct TranscriptionSettingsSection: View {
             SettingsRow(
                 systemImage: "square.split.2x1",
                 title: "Mode comparaison",
-                subtitle: "Chaque dictée passe par tous les moteurs, côte à côte. Rien n'est tapé dans ce mode."
+                info: "Chaque dictée passe par tous les moteurs, côte à côte. Rien n'est tapé dans ce mode."
             ) {
                 HStack(spacing: DS.Space.snug) {
                     CapButton(title: "Ouvrir", height: 24) {
@@ -483,20 +473,29 @@ struct TranscriptionSettingsSection: View {
         switch settings.dictationLanguage {
         case .auto:
             "Apple écoute dans la langue de votre Mac ; Whisper et Parakeet détectent la langue eux-mêmes. Le nettoyage reconnaît la langue de chaque dictée."
-        case .english, .french:
-            "Les moteurs et le nettoyage attendent : \(settings.dictationLanguage.displayName)."
         default:
-            "Les moteurs attendent : \(settings.dictationLanguage.displayName). Le nettoyage corrige les espaces et les majuscules ; les hésitations et la ponctuation dictée ne sont connues qu'en anglais et en français."
+            "Les moteurs et le nettoyage attendent : \(settings.dictationLanguage.displayName)."
         }
     }
 
-    private var boostNote: String {
-        let what = "Un petit modèle repère les mots de votre dictionnaire dans ce que Parakeet entend. Environ 100 Mo, une fois ; réglé pour l'anglais."
+    /// Shown under the row, because it changes what the user gets: cleanup only knows the
+    /// fillers and dictated punctuation of English and French.
+    private var languageCaveat: String? {
+        switch settings.dictationLanguage {
+        case .auto, .english, .french: nil
+        default: "Hors anglais et français, le nettoyage corrige seulement les espaces et les majuscules."
+        }
+    }
+
+    private static let boostInfo = "Un petit modèle repère les mots de votre dictionnaire dans ce que Parakeet entend. Environ 100 Mo, une fois ; réglé pour l'anglais."
+
+    /// The download's state, when there is one to tell (FLU-19: the explanation is in ⓘ).
+    private var boostState: String? {
         switch boostStatus {
-        case .idle: return what
-        case .downloading: return "Téléchargement du modèle (environ 100 Mo)…"
-        case .ready: return what + " Installé."
-        case .failed(let message): return "Échec du téléchargement : \(message). Désactivez puis réactivez pour réessayer."
+        case .idle: nil
+        case .downloading: "Téléchargement du modèle (environ 100 Mo)…"
+        case .ready: "Installé"
+        case .failed(let message): "Échec du téléchargement : \(message). Désactivez puis réactivez pour réessayer."
         }
     }
 
@@ -555,11 +554,11 @@ struct AboutSettingsSection: View {
         }
 
         SectionCard {
-            SettingsRow(systemImage: "checklist", title: "Assistant de configuration", subtitle: "Les autorisations, une par une, en mots simples.") {
+            SettingsRow(systemImage: "checklist", title: "Assistant de configuration", info: "Les autorisations, une par une, en mots simples.") {
                 CapButton(title: "Ouvrir…", height: 24) { OnboardingWindow.shared.show() }
             }
             RowDivider()
-            SettingsRow(systemImage: "doc.text", title: "Fichier du dictionnaire", subtitle: "Un mot par ligne, modifiable dans n'importe quel éditeur.") {
+            SettingsRow(systemImage: "doc.text", title: "Fichier du dictionnaire", info: "Un mot par ligne, modifiable dans n'importe quel éditeur.") {
                 CapButton(title: "Afficher dans le Finder", height: 24) {
                     NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
                 }
