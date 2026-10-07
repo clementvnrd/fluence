@@ -81,9 +81,15 @@ final class HotkeyMonitor {
                 guard let refcon else { return Unmanaged.passUnretained(event) }
                 let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
 
+                // The tap's source is added to the *main* run loop (`CFRunLoopGetMain`, not
+                // "current"), so this runs on the main thread — and the check below makes
+                // that a guarantee rather than an assumption: `assumeIsolated` traps instead
+                // of checking, and the answer is needed synchronously, so hopping isn't an
+                // option. Off the main thread, the event passes through untouched.
+                guard Thread.isMainThread else { return Unmanaged.passUnretained(event) }
+
                 // CGEvent isn't Sendable, so pull out the plain values before crossing into
-                // actor-isolated code. The tap was added to the main run loop, so this
-                // callback genuinely does run on the main thread.
+                // actor-isolated code.
                 let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
                 let flags = event.flags
                 let consume = MainActor.assumeIsolated {
@@ -100,7 +106,7 @@ final class HotkeyMonitor {
         self.tap = tap
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         runLoopSource = source
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
 
         Log.hotkey.info("listening for \(self.key.displayName)")
@@ -112,7 +118,7 @@ final class HotkeyMonitor {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
         if let runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }
         tap = nil
         runLoopSource = nil

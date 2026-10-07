@@ -34,6 +34,10 @@ final class HUDPanel: NSPanel {
         contentView = NSHostingView(rootView: HUDView(controller: controller))
     }
 
+    /// Bumped on every present, so a fade-out that finishes after the HUD was shown again
+    /// knows it's stale.
+    private var presentation = 0
+
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
@@ -63,6 +67,7 @@ final class HUDPanel: NSPanel {
         // reads as a flicker mid-utterance.
         guard !isVisible || alphaValue < 1 else { return }
 
+        presentation += 1
         reposition()
         alphaValue = 0
         orderFrontRegardless()
@@ -73,12 +78,18 @@ final class HUDPanel: NSPanel {
     }
 
     func dismiss() {
+        let presentation = self.presentation
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.16
             animator().alphaValue = 0
         } completionHandler: { [weak self] in
-            // AppKit always calls this on the main thread.
-            MainActor.assumeIsolated { self?.orderOut(nil) }
+            // Hopped rather than asserted: see AGENTS.md on `MainActor.assumeIsolated`.
+            Task { @MainActor in
+                // A fast re-press presented the HUD again while this fade was running;
+                // hiding it now would leave the user dictating with no HUD.
+                guard let self, self.presentation == presentation else { return }
+                self.orderOut(nil)
+            }
         }
     }
 }

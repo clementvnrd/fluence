@@ -7,18 +7,15 @@ import Observation
 
 /// Builds the engine named by the current setting.
 ///
-/// Deliberately at file scope rather than a static on `DictationController`: the class is
-/// `@MainActor`, which would make a static method main-actor-isolated and therefore
-/// ineligible to be `@Sendable`. Reading the setting per-utterance is what lets the menu's
-/// engine picker take effect on the very next hold instead of needing a restart.
-@Sendable
+/// Reading the setting per-utterance is what lets the menu's engine picker take effect on
+/// the very next hold instead of needing a restart. Main-actor isolated like the setting it
+/// reads — it used to be `@Sendable` and *assert* main-actor isolation inside, which traps
+/// the moment anything calls it from elsewhere.
+@MainActor
 func engineForCurrentSetting() -> any TranscriptionEngine {
-    // Always invoked from `beginDictation`, which runs on the main actor.
-    MainActor.assumeIsolated {
-        switch Settings.shared.engine {
-        case .apple: AppleSpeechEngine()
-        case .parakeet: ParakeetEngine()
-        }
+    switch Settings.shared.engine {
+    case .apple: AppleSpeechEngine()
+    case .parakeet: ParakeetEngine()
     }
 }
 
@@ -55,7 +52,7 @@ final class DictationController {
 
     private let hotkey = HotkeyMonitor()
     private let capture = AudioCapture()
-    private let makeEngine: @Sendable () -> any TranscriptionEngine
+    private let makeEngine: @MainActor () -> any TranscriptionEngine
 
     /// Injected only by tests; production reads the setting per-utterance below.
     private let formatter: (any TextFormatter)?
@@ -80,7 +77,7 @@ final class DictationController {
 
     init(
         formatter: (any TextFormatter)? = nil,
-        makeEngine: @escaping @Sendable () -> any TranscriptionEngine = engineForCurrentSetting
+        makeEngine: @escaping @MainActor () -> any TranscriptionEngine = engineForCurrentSetting
     ) {
         self.formatter = formatter
         self.makeEngine = makeEngine

@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 import Foundation
 
 /// Puts text into whatever field currently has keyboard focus.
@@ -21,8 +22,15 @@ import Foundation
 /// target app, so "the focused element" is still their text field.
 @MainActor
 enum TextInjector {
+    /// How long any one AX call may wait on the target app. The default is 6 s, on the main
+    /// thread: a hung app would freeze Fluence — HUD, menu, hotkey — along with it. Half a
+    /// second is ample for a responsive app; a frozen one falls through to the paste path.
+    private static let axTimeout: Float = 0.5
+
     static func insert(_ text: String) {
         guard !text.isEmpty else { return }
+        // On the system-wide element this sets the timeout for every AX call the app makes.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), axTimeout)
 
         switch insertViaAccessibility(text) {
         case .inserted:
@@ -229,7 +237,7 @@ enum TextInjector {
 
     private static func postCommandV() {
         guard let source = CGEventSource(stateID: .privateState) else { return }
-        let vKey: CGKeyCode = 9 // kVK_ANSI_V
+        let vKey = keyCode(producing: "v") ?? CGKeyCode(kVK_ANSI_V)
 
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false)
@@ -242,5 +250,53 @@ enum TextInjector {
 
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)
+    }
+
+    /// The physical key that types `character` with ⌘ held, on the current layout.
+    ///
+    /// Key codes are positions, not letters: `kVK_ANSI_V` is where V sits on QWERTY, and on
+    /// Dvorak that key is K — so a hard-coded ⌘V arrives as ⌘K. Translating with ⌘ held
+    /// also gets "Dvorak – QWERTY ⌘" right, where shortcuts deliberately keep QWERTY
+    /// positions. Layouts that type no Latin letters (Russian, Greek…) fall back to the
+    /// ASCII-capable layout macOS itself uses for shortcuts.
+    private static func keyCode(producing character: Character) -> CGKeyCode? {
+        let sources = [
+            TISCopyCurrentKeyboardLayoutInputSource(),
+            TISCopyCurrentASCIICapableKeyboardLayoutInputSource(),
+        ]
+        for case let source? in sources.map({ $0?.takeRetainedValue() }) {
+            guard let property = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { continue }
+            let layoutData = Unmanaged<CFData>.fromOpaque(property).takeUnretainedValue() as Data
+            let found = layoutData.withUnsafeBytes { bytes -> CGKeyCode? in
+                guard let layout = bytes.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else {
+                    return nil
+                }
+                let commandHeld = UInt32((cmdKey >> 8) & 0xFF)
+                for code in 0..<128 {
+                    var deadKeyState: UInt32 = 0
+                    var length = 0
+                    var characters = [UniChar](repeating: 0, count: 4)
+                    let status = UCKeyTranslate(
+                        layout,
+                        UInt16(code),
+                        UInt16(kUCKeyActionDown),
+                        commandHeld,
+                        UInt32(LMGetKbdType()),
+                        OptionBits(kUCKeyTranslateNoDeadKeysMask),
+                        &deadKeyState,
+                        characters.count,
+                        &length,
+                        &characters
+                    )
+                    guard status == noErr, length == 1 else { continue }
+                    if Character(String(utf16CodeUnits: characters, count: 1).lowercased()) == character {
+                        return CGKeyCode(code)
+                    }
+                }
+                return nil
+            }
+            if let found { return found }
+        }
+        return nil
     }
 }
