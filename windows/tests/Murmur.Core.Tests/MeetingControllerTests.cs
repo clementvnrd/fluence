@@ -216,9 +216,10 @@ public sealed class MeetingControllerTests : IDisposable
         await using var controller = Controller();
         await controller.TakeNotesAsync();
         controller.KeepAudio = true;
-        await TickAsync(controller, 5);
-        // The loopback is read on its own task: stopping before it delivered left no remote
-        // speech to diarize, which failed this test on slow CI runners.
+        // Meeting time moves without controller ticks: a tick's heartbeat could pad the system
+        // channel before the loopback task queued the scripted audio, and the aligner would trim
+        // that audio as late (FLU-13). The heartbeat's own rule is tested below.
+        _host.Advance(5);
         await WaitForAsync(() => controller.LiveSegments.Any(s => s.Source == AudioSource.System),
             "the remote channel to produce a segment");
         var id = controller.Current!.Id;
@@ -232,6 +233,21 @@ public sealed class MeetingControllerTests : IDisposable
         saved.Segments.Where(s => s.Source == AudioSource.System).ShouldAllBe(s => s.SpeakerId == "S1");
         saved.Speakers.Select(s => s.Id).ShouldBe(["me", "S1"]);
         File.Exists(MeetingAudioSpool.PathFor(_store.DirectoryFor(id), AudioSource.System)).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(long.MinValue, true)]   // no packet yet: silence from the start is padded
+    [InlineData(0.1, false)]            // packets still flowing: they keep the timeline
+    [InlineData(0.49, false)]           // late audio may still be in flight
+    [InlineData(0.5, true)]             // quiet for the lag: pad
+    [InlineData(3.0, true)]
+    public void The_heartbeat_pads_only_after_the_loopback_went_quiet(double secondsSinceLastPacket, bool pads)
+    {
+        const long now = 100 * 10_000_000L;
+        var last = secondsSinceLastPacket == long.MinValue
+            ? long.MinValue
+            : now - (long)(secondsSinceLastPacket * 10_000_000);
+        MeetingSession.ShouldPad(now, last).ShouldBe(pads);
     }
 
     [Fact]
