@@ -57,23 +57,32 @@ public static class SelfTest
         {
             Directory.CreateDirectory(directory);
 
-            var store = new TranscriptStore(Path.Combine(directory, "transcripts.jsonl"));
-            store.Add(new TranscriptRecord
-            {
-                At = DateTimeOffset.UtcNow,
-                Text = "Claude Code",
-                Corrections = [new AppliedCorrection("cloud code", "Claude Code", 1)],
-            });
+            // The real DPAPI protector on Windows; an in-process stand-in elsewhere, so the
+            // sealing and JSON paths are still exercised.
+            var protector = PlatformFactory.CreateSecretProtector() ?? new SelfTestProtector();
+            var path = Path.Combine(directory, "transcripts.jsonl");
 
-            var reopened = new TranscriptStore(Path.Combine(directory, "transcripts.jsonl"));
+            using (var store = new TranscriptStore(path, protector))
+            {
+                store.Add(new TranscriptRecord
+                {
+                    At = DateTimeOffset.UtcNow,
+                    Text = "Claude Code",
+                    Corrections = [new AppliedCorrection("cloud code", "Claude Code", 1)],
+                });
+            }
+
+            using var reopened = new TranscriptStore(path, protector);
             var ok = reopened.Records.Count == 1
                      && reopened.Records[0].Corrections?[0].To == "Claude Code";
+            var sealedOnDisk = !File.ReadAllText(path).Contains("Claude", StringComparison.Ordinal);
 
             var settings = new AppSettings(Path.Combine(directory, "settings.json"));
             settings.Update(settings.Data with { PushToTalkKey = 0x7C });
             var settingsOk = new AppSettings(Path.Combine(directory, "settings.json")).Data.PushToTalkKey == 0x7C;
 
             return Check("history round-trips through source-generated JSON", ok)
+                 + Check("history is sealed on disk", sealedOnDisk)
                  + Check("settings round-trip", settingsOk);
         }
         finally
@@ -125,6 +134,14 @@ public static class SelfTest
         hotkey?.Dispose();
 
         return failures;
+    }
+
+    /// <summary>Stands in for DPAPI off Windows. Not protection — only exercises the code path.</summary>
+    private sealed class SelfTestProtector : Murmur.Abstractions.ISecretProtector
+    {
+        public byte[] Protect(byte[] secret) => [.. secret];
+
+        public byte[] Unprotect(byte[] protectedSecret) => [.. protectedSecret];
     }
 
     private static int Check(string name, bool passed)

@@ -173,3 +173,43 @@ public sealed class FakeClock : IClock
     /// <summary>Moves time forward.</summary>
     public void Advance(TimeSpan by) => Now += by;
 }
+
+/// <summary>
+/// A reversible stand-in for DPAPI: XORs with a per-instance byte and adds a marker, so a test
+/// can tell a protected blob from a raw one and simulate "another user's key".
+/// </summary>
+public sealed class FakeSecretProtector : ISecretProtector
+{
+    private const byte Marker = 0xD7;
+    private readonly byte _mask;
+
+    /// <summary>Creates a protector; two with different <paramref name="identity"/> cannot read each other's blobs.</summary>
+    public FakeSecretProtector(byte identity = 0x5A) => _mask = identity;
+
+    /// <summary>How many times <see cref="Unprotect"/> was called.</summary>
+    public int UnprotectCalls { get; private set; }
+
+    /// <inheritdoc />
+    public byte[] Protect(byte[] secret)
+    {
+        var blob = new byte[secret.Length + 2];
+        blob[0] = Marker;
+        blob[1] = _mask;
+        for (var i = 0; i < secret.Length; i++) blob[i + 2] = (byte)(secret[i] ^ _mask);
+        return blob;
+    }
+
+    /// <inheritdoc />
+    public byte[] Unprotect(byte[] protectedSecret)
+    {
+        UnprotectCalls++;
+        if (protectedSecret.Length < 2 || protectedSecret[0] != Marker || protectedSecret[1] != _mask)
+        {
+            throw new System.Security.Cryptography.CryptographicException("Key not valid for use in specified state.");
+        }
+
+        var secret = new byte[protectedSecret.Length - 2];
+        for (var i = 0; i < secret.Length; i++) secret[i] = (byte)(protectedSecret[i + 2] ^ _mask);
+        return secret;
+    }
+}

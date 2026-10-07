@@ -18,6 +18,10 @@
          NAudio 3.x targets net9.0+ only and will not restore here. -->
     <PackageVersion Include="NAudio" Version="2.3.0" />
 
+    <!-- Windows platform layer only. DPAPI wraps the key that seals the transcript history.
+         Ships as a loose DLL beside Fluence.exe (see Murmur.App.csproj). -->
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
+
     <!-- UI. Avalonia rather than WPF: it is the only option that builds, runs and
          UI-tests on macOS, which is where this app is being written. -->
     <PackageVersion Include="Avalonia" Version="11.3.20" />

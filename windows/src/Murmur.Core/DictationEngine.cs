@@ -23,7 +23,11 @@ public sealed record DictationResult(
     TimeSpan AudioDuration,
     TimeSpan ProcessingTime,
     string Text,
-    IReadOnlyList<AppliedCorrection> Corrections);
+    IReadOnlyList<AppliedCorrection> Corrections)
+{
+    /// <summary>What the speech engine heard, before the dictionary ran.</summary>
+    public string RawText { get; init; } = Text;
+}
 
 /// <summary>
 /// The whole dictation flow: hotkey down, capture, hotkey up, transcribe, correct, inject.
@@ -241,7 +245,10 @@ public sealed class DictationEngine : IAsyncDisposable
             AudioDuration: TimeSpan.FromSeconds((double)audio.Length / AudioChunk.SampleRate),
             ProcessingTime: _clock.Now - releasedAt,
             Text: corrected,
-            Corrections: applied);
+            Corrections: applied)
+        {
+            RawText = raw,
+        };
 
         // A subscriber failing (a UI update from the wrong thread, a full disk breaking the
         // history write) must not cost the user the text they just dictated — injection is

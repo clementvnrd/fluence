@@ -22,8 +22,24 @@ public sealed record SettingsData
     /// <summary>Whether to type the transcript into the focused app.</summary>
     public bool InjectText { get; init; } = true;
 
-    /// <summary>Whether to keep a transcript history.</summary>
-    public bool KeepHistory { get; init; } = true;
+    /// <summary>How long dictations stay in the (sealed) history. Defaults to 30 days.</summary>
+    public HistoryRetention HistoryRetention { get; init; } = HistoryRetention.ThirtyDays;
+
+    /// <summary>
+    /// The pre-retention on/off switch. Read once from old settings files so "off" becomes
+    /// <see cref="HistoryRetention.Never"/>, and never written again.
+    /// </summary>
+    [JsonPropertyName("KeepHistory")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LegacyKeepHistory { get; init; }
+
+    /// <summary>Folds legacy fields into their replacements.</summary>
+    public SettingsData Normalize() => LegacyKeepHistory switch
+    {
+        false => this with { HistoryRetention = HistoryRetention.Never, LegacyKeepHistory = null },
+        true => this with { LegacyKeepHistory = null },
+        null => this,
+    };
 }
 
 /// <summary>Settings, persisted as JSON.</summary>
@@ -66,8 +82,8 @@ public sealed class AppSettings
         {
             if (!File.Exists(path)) return new SettingsData();
 
-            return JsonSerializer.Deserialize(File.ReadAllText(path), SettingsJsonContext.Default.SettingsData)
-                   ?? new SettingsData();
+            return (JsonSerializer.Deserialize(File.ReadAllText(path), SettingsJsonContext.Default.SettingsData)
+                    ?? new SettingsData()).Normalize();
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {
@@ -77,6 +93,6 @@ public sealed class AppSettings
 }
 
 /// <summary>Source-generated JSON for settings.</summary>
-[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(SettingsData))]
 public sealed partial class SettingsJsonContext : JsonSerializerContext;

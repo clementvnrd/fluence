@@ -22,7 +22,7 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            _composition = Composition.Create();
+            _composition = Composition.Create(Program.Log);
             _main = new MainWindow(_composition);
             desktop.MainWindow = _main;
 
@@ -68,7 +68,7 @@ public partial class App : Application
         ShowMain();
         if (_main is not null && _composition is not null)
         {
-            _ = new SettingsWindow(_composition.Settings).ShowDialog(_main);
+            _ = new SettingsWindow(_composition.Settings, _composition.Transcripts).ShowDialog(_main);
         }
     }
 

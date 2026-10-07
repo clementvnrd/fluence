@@ -30,14 +30,28 @@ public sealed class SettingsWindow : Window
                           + "will interfere with typing @, €, \\ and |."),
     ];
 
+    /// <summary>History retention choices, shortest first.</summary>
+    private static readonly (HistoryRetention Retention, string Label)[] Retentions =
+    [
+        (HistoryRetention.Never, "NEVER"),
+        (HistoryRetention.OneDay, "1 DAY"),
+        (HistoryRetention.ThirtyDays, "30 DAYS"),
+        (HistoryRetention.Forever, "FOREVER"),
+    ];
+
     private readonly AppSettings _settings;
+    private readonly TranscriptStore? _history;
     private readonly StackPanel _keyRow;
+    private readonly StackPanel _retentionRow;
     private readonly TextBlock _keyWarning;
 
     /// <summary>Builds the settings window.</summary>
-    public SettingsWindow(AppSettings settings)
+    /// <param name="settings">The preferences being edited.</param>
+    /// <param name="history">The history, to report whether it is sealed on disk.</param>
+    public SettingsWindow(AppSettings settings, TranscriptStore? history = null)
     {
         _settings = settings;
+        _history = history;
 
         Title = AppPaths.ProductName + " Settings";
         Width = 540;
@@ -68,8 +82,39 @@ public sealed class SettingsWindow : Window
             _keyRow.Children.Add(button);
         }
 
+        _retentionRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Tokens.Space.Snug,
+        };
+
+        foreach (var (retention, label) in Retentions)
+        {
+            var button = new TransportKey { Content = label, EngagedColor = Tokens.Colors.Ink };
+            button.Click += (_, _) => SelectRetention(retention);
+            _retentionRow.Children.Add(button);
+        }
+
         Content = BuildContent();
         SelectKey(_settings.Data.PushToTalkKey, WarningFor(_settings.Data.PushToTalkKey));
+        SelectRetention(_settings.Data.HistoryRetention);
+    }
+
+    /// <summary>The retention currently engaged. Exposed for headless tests.</summary>
+    public HistoryRetention SelectedRetention => _settings.Data.HistoryRetention;
+
+    /// <summary>Engages a retention button and saves. Exposed for headless tests.</summary>
+    public void SelectRetention(HistoryRetention retention)
+    {
+        for (var i = 0; i < Retentions.Length; i++)
+        {
+            ((TransportKey)_retentionRow.Children[i]).IsEngaged = Retentions[i].Retention == retention;
+        }
+
+        if (_settings.Data.HistoryRetention != retention)
+        {
+            Save(_settings.Data with { HistoryRetention = retention });
+        }
     }
 
     private static string? WarningFor(int key) =>
@@ -102,12 +147,29 @@ public sealed class SettingsWindow : Window
                 {
                     Toggle("Type transcripts into the focused app", _settings.Data.InjectText,
                         v => Save(_settings.Data with { InjectText = v })),
-                    Toggle("Keep a transcript history", _settings.Data.KeepHistory,
-                        v => Save(_settings.Data with { KeepHistory = v })),
+                },
+            }),
+
+            Section("HISTORY", new StackPanel
+            {
+                Spacing = Tokens.Space.Snug,
+                Children =
+                {
+                    _retentionRow,
+                    Note(HistoryNote(_history)),
                 },
             }),
         },
     };
+
+    private static string HistoryNote(TranscriptStore? history)
+    {
+        if (history?.Problem is { } problem) return problem;
+
+        return "Each transcript is encrypted on disk (AES-256-GCM) with a key only your Windows "
+             + "account can unlock. Older entries are deleted at startup and after every "
+             + "dictation. Never deletes the existing history now.";
+    }
 
     private static StackPanel BuildModelSection()
     {

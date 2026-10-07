@@ -59,6 +59,7 @@
     <ItemGroup>
       <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\Murmur.Platform.Windows.dll" />
       <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\NAudio*.dll" />
+      <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\System.Security.Cryptography.ProtectedData.dll" />
       <!-- Loose beside the exe rather than inside the bundle: PublishSingleFile only bundles
            assemblies the compiler knows about, and this one is deliberately invisible to it.
            The default load context probes AppContext.BaseDirectory, and Program.cs installs
@@ -76,6 +77,7 @@
     <ItemGroup>
       <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\Murmur.Platform.Windows.dll" />
       <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\NAudio*.dll" />
+      <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\System.Security.Cryptography.ProtectedData.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(PlatformLayer)"
           DestinationFolder="$(OutDir)"

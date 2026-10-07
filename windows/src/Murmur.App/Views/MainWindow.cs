@@ -250,7 +250,7 @@ public sealed class MainWindow : Window
     private void ShowSettings()
     {
         if (_composition is null) return;
-        _ = new SettingsWindow(_composition.Settings).ShowDialog(this);
+        _ = new SettingsWindow(_composition.Settings, _composition.Transcripts).ShowDialog(this);
     }
 
     /// <summary>Pulls state from the engine onto the panel.</summary>

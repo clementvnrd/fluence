@@ -117,3 +117,30 @@ public sealed class SystemClock : IClock
     /// <inheritdoc />
     public DateTimeOffset Now => DateTimeOffset.Now;
 }
+
+/// <summary>
+/// Protects a small secret so only the current user on this machine can read it back.
+/// </summary>
+/// <remarks>
+/// <para>
+/// On Windows this is DPAPI (<c>ProtectedData</c>, <c>CurrentUser</c> scope): the secret is
+/// bound to the user's logon credentials, so the file it is written to is useless when copied
+/// to another account or machine, or read from a backup by someone else.
+/// </para>
+/// <para>
+/// Used to wrap the key that seals the transcript history — never the history itself. The
+/// bulk encryption (AES-GCM) is platform-neutral and lives in <c>Murmur.Core</c>, where CI can
+/// test it; only this wrapping step needs Windows.
+/// </para>
+/// </remarks>
+public interface ISecretProtector
+{
+    /// <summary>Wraps <paramref name="secret"/> for the current user.</summary>
+    byte[] Protect(byte[] secret);
+
+    /// <summary>Unwraps what <see cref="Protect"/> produced.</summary>
+    /// <exception cref="System.Security.Cryptography.CryptographicException">
+    /// The blob was protected by another user or machine, or is corrupt.
+    /// </exception>
+    byte[] Unprotect(byte[] protectedSecret);
+}

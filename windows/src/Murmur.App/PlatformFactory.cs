@@ -52,11 +52,20 @@ internal static class PlatformFactory
         if (_resolverInstalled) return;
         _resolverInstalled = true;
 
+        // Answers for ANY assembly found beside the executable, not just the platform layer:
+        // its own dependencies (NAudio, DPAPI, …) are equally invisible to the single-file
+        // host's deps.json. Answering for one name only is how NAudio once failed with
+        // FileNotFoundException on the first key press.
         AssemblyLoadContext.Default.Resolving += (context, name) =>
         {
-            if (!string.Equals(name.Name, AssemblyName, StringComparison.Ordinal)) return null;
+            var simpleName = name.Name;
+            if (string.IsNullOrEmpty(simpleName)
+                || simpleName.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0)
+            {
+                return null;
+            }
 
-            var candidate = System.IO.Path.Combine(AppContext.BaseDirectory, AssemblyName + ".dll");
+            var candidate = System.IO.Path.Combine(AppContext.BaseDirectory, simpleName + ".dll");
             return File.Exists(candidate) ? context.LoadFromAssemblyPath(candidate) : null;
         };
     }
@@ -86,6 +95,10 @@ internal static class PlatformFactory
 
         return hook;
     }
+
+    /// <summary>Creates the DPAPI secret protector, or null off Windows.</summary>
+    public static ISecretProtector? CreateSecretProtector() =>
+        Create<ISecretProtector>("DpapiSecretProtector", []);
 
     /// <summary>Creates the SendInput injector, or null off Windows.</summary>
     public static ITextInjector? CreateTextInjector() =>

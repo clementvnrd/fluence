@@ -188,3 +188,28 @@ public sealed class DesignSystemTests
         Tokens.Motion.NeedleOvershoot.ShouldBeGreaterThan(0);
     }
 }
+
+/// <summary>The settings window.</summary>
+public sealed class SettingsWindowTests : IDisposable
+{
+    private readonly string _path = Path.Combine(Path.GetTempPath(), $"fluence-ui-set-{Guid.NewGuid():N}.json");
+
+    public void Dispose()
+    {
+        if (File.Exists(_path)) File.Delete(_path);
+    }
+
+    [AvaloniaFact]
+    public void Retention_buttons_save_the_choice()
+    {
+        var settings = new Murmur.Core.AppSettings(_path);
+        var window = new SettingsWindow(settings);
+        window.Show();
+
+        window.SelectedRetention.ShouldBe(Murmur.Core.HistoryRetention.ThirtyDays);
+
+        window.SelectRetention(Murmur.Core.HistoryRetention.OneDay);
+
+        new Murmur.Core.AppSettings(_path).Data.HistoryRetention.ShouldBe(Murmur.Core.HistoryRetention.OneDay);
+    }
+}

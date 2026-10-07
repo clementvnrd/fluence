@@ -92,7 +92,8 @@ jobs:
           # loose DLLs beside it, because the exe loads them by reflection and single-file
           # publishing cannot bundle what it cannot see. An artifact without them starts
           # fine and then does nothing when the key is pressed.
-          foreach ($dll in 'Murmur.Platform.Windows.dll', 'NAudio.Wasapi.dll') {
+          foreach ($dll in 'Murmur.Platform.Windows.dll', 'NAudio.Wasapi.dll',
+                           'System.Security.Cryptography.ProtectedData.dll') {
             if (-not (Test-Path "artifacts/publish/$dll")) { throw "publish folder is missing $dll" }
           }
           Get-ChildItem artifacts/publish | Select-Object Name, @{n='KB';e={[math]::Round($_.Length/1KB)}}

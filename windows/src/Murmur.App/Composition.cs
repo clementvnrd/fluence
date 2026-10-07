@@ -64,11 +64,21 @@ public sealed class Composition : IAsyncDisposable
     public static bool IsModelInstalled => ParakeetTranscriber.Locate() is not null;
 
     /// <summary>Builds the object graph.</summary>
-    public static Composition Create()
+    /// <param name="log">Where failures are recorded. Never receives transcript text.</param>
+    public static Composition Create(IDiagnosticLog log)
     {
         var settings = new AppSettings(AppSettings.DefaultPath);
         var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
-        var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);
+
+        // Sealed under a DPAPI-wrapped key. With no platform layer there is no protector and
+        // the history stays in memory — never a plaintext fallback.
+        var transcripts = new TranscriptStore(
+            TranscriptStore.DefaultPath, PlatformFactory.CreateSecretProtector(), log);
+
+        // Purge on start, whenever the setting changes, and after every dictation (below).
+        transcripts.ApplyRetention(settings.Data.HistoryRetention, DateTimeOffset.Now);
+        settings.Changed += (_, _) =>
+            transcripts.ApplyRetention(settings.Data.HistoryRetention, DateTimeOffset.Now);
 
         var capture = PlatformFactory.CreateAudioCapture();
         var hotkey = PlatformFactory.CreateHotkeySource(settings.Data.PushToTalkKey);
@@ -91,16 +101,22 @@ public sealed class Composition : IAsyncDisposable
 
             engine.Completed += (_, result) =>
             {
-                if (!settings.Data.KeepHistory) return;
+                var retention = settings.Data.HistoryRetention;
 
-                transcripts.Add(new TranscriptRecord
+                if (retention != HistoryRetention.Never)
                 {
-                    At = result.At,
-                    AudioSeconds = result.AudioDuration.TotalSeconds,
-                    ProcessingSeconds = result.ProcessingTime.TotalSeconds,
-                    Text = result.Text,
-                    Corrections = result.Corrections.Count > 0 ? result.Corrections : null,
-                });
+                    transcripts.Add(new TranscriptRecord
+                    {
+                        At = result.At,
+                        AudioSeconds = result.AudioDuration.TotalSeconds,
+                        ProcessingSeconds = result.ProcessingTime.TotalSeconds,
+                        Text = result.Text,
+                        RawText = result.RawText == result.Text ? null : result.RawText,
+                        Corrections = result.Corrections.Count > 0 ? result.Corrections : null,
+                    });
+                }
+
+                transcripts.ApplyRetention(retention, DateTimeOffset.Now);
             };
         }
 
@@ -111,6 +127,7 @@ public sealed class Composition : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (Engine is not null) await Engine.DisposeAsync().ConfigureAwait(false);
+        Transcripts.Dispose();
     }
 }
 

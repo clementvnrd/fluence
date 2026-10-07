@@ -110,3 +110,62 @@ public sealed class AtomicFileTests : IDisposable
         File.ReadAllBytes(path).ShouldBe(new byte[] { 0xC3, 0xA9 });
     }
 }
+
+/// <summary>The per-line AES-GCM seal.</summary>
+public sealed class HistoryCipherTests : IDisposable
+{
+    private readonly string _directory = Path.Combine(Path.GetTempPath(), $"fluence-cipher-{Guid.NewGuid():N}");
+
+    private string KeyPath => Path.Combine(_directory, "transcripts.key");
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
+    }
+
+    [Fact]
+    public void Seals_and_opens_and_never_repeats_a_nonce()
+    {
+        using var cipher = HistoryCipher.OpenOrCreate(KeyPath, new FakeSecretProtector());
+
+        var a = cipher.Seal("same text");
+        var b = cipher.Seal("same text");
+
+        a.ShouldNotBe(b, "a fresh nonce per line means equal text never produces equal lines");
+        cipher.TryOpen(a, out var opened).ShouldBeTrue();
+        opened.ShouldBe("same text");
+    }
+
+    [Fact]
+    public void A_tampered_line_is_rejected_rather_than_misread()
+    {
+        using var cipher = HistoryCipher.OpenOrCreate(KeyPath, new FakeSecretProtector());
+        var line = cipher.Seal("hello");
+
+        var bytes = Convert.FromBase64String(line[HistoryCipher.Prefix.Length..]);
+        bytes[^1] ^= 0x01;
+        var tampered = HistoryCipher.Prefix + Convert.ToBase64String(bytes);
+
+        cipher.TryOpen(tampered, out _).ShouldBeFalse();
+        cipher.TryOpen("plain text", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void The_key_is_reused_across_opens_and_unreadable_keys_are_never_overwritten()
+    {
+        var protector = new FakeSecretProtector();
+        string line;
+        using (var first = HistoryCipher.OpenOrCreate(KeyPath, protector)) line = first.Seal("persisted");
+
+        using (var second = HistoryCipher.OpenOrCreate(KeyPath, protector))
+        {
+            second.TryOpen(line, out var text).ShouldBeTrue();
+            text.ShouldBe("persisted");
+        }
+
+        var before = File.ReadAllBytes(KeyPath);
+        Should.Throw<System.Security.Cryptography.CryptographicException>(
+            () => HistoryCipher.OpenOrCreate(KeyPath, new FakeSecretProtector(identity: 0x22)));
+        File.ReadAllBytes(KeyPath).ShouldBe(before);
+    }
+}
