@@ -91,24 +91,23 @@ jobs:
           $run = Start-Process -FilePath $exe -ArgumentList '--selftest' -Wait -PassThru -NoNewWindow
           if ($run.ExitCode -ne 0) { throw "self-test failed with exit code $($run.ExitCode)" }
 
-          # The exe alone is NOT the app: the platform layer and its dependencies ship as
-          # loose DLLs beside it, because the exe loads them by reflection and single-file
-          # publishing cannot bundle what it cannot see. An artifact without them starts
-          # fine and then does nothing when the key is pressed.
-          foreach ($dll in 'Murmur.Platform.Windows.dll', 'NAudio.Wasapi.dll',
-                           'System.Security.Cryptography.ProtectedData.dll',
-                           'Microsoft.Win32.SystemEvents.dll') {
-            if (-not (Test-Path "artifacts/publish/$dll")) { throw "publish folder is missing $dll" }
-          }
-          # Microsoft.Win32.SystemEvents ships a ~27 KB PlatformNotSupported stub in lib/;
-          # the real implementation (~80 KB) is under runtimes/win. Catch the wrong one here.
-          if ((Get-Item artifacts/publish/Microsoft.Win32.SystemEvents.dll).Length -lt 50KB) {
+          # What actually ships, for the log. Whether the platform layer and its dependencies
+          # end up loose beside the exe or inside the single-file bundle is the SDK's call;
+          # the self-test above is the real gate — it loads the layer by reflection, enumerates
+          # WASAPI through NAudio, round-trips DPAPI and subscribes to session events from
+          # this very folder, exactly as a user's double-click would.
+          #
+          # One thing the self-test cannot see: Microsoft.Win32.SystemEvents ships a ~27 KB
+          # PlatformNotSupported stub in lib/, the real implementation (~80 KB) is under
+          # runtimes/win. If a loose copy is present, make sure it is the real one.
+          $events = 'artifacts/publish/Microsoft.Win32.SystemEvents.dll'
+          if ((Test-Path $events) -and (Get-Item $events).Length -lt 50KB) {
             throw 'publish folder has the SystemEvents stub, not the Windows implementation'
           }
           Get-ChildItem artifacts/publish | Select-Object Name, @{n='KB';e={[math]::Round($_.Length/1KB)}}
 
-      # The whole publish folder, which upload-artifact delivers as one zip. Never the exe
-      # alone — see the check above.
+      # The whole publish folder, which upload-artifact delivers as one zip — never the exe
+      # alone, in case the SDK leaves any dependency loose beside it.
       - name: Upload the app
         uses: actions/upload-artifact@v4
         with:
