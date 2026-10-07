@@ -41,7 +41,10 @@ public struct UtteranceSegmenter: Sendable {
         public var negativeThreshold: Float = 0.35
         public var minSilence: TimeInterval = 0.5
         public var minSpeech: TimeInterval = 0.25
-        public var maxDuration: TimeInterval = 20
+        /// Parakeet transcribes up to 15 s (240 000 samples) in one encoder pass; anything
+        /// longer goes through FluidAudio's chunked path, with its seams. 14.5 s plus the
+        /// padding on both sides stays inside one pass.
+        public var maxDuration: TimeInterval = 14.5
         public var padding: TimeInterval = 0.1
 
         public init() {}

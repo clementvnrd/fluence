@@ -27,14 +27,18 @@ struct UtteranceSegmenterTests {
 
     @Test("long speech is cut at its least probable hop and continues")
     func maxDuration() {
+        // 14.5 s cap = 57 hops. The first cut lands on the dip at hop 40; the second, with
+        // no dip, on the latest hop of the second half.
         var probabilities = [Float](repeating: 0.9, count: 100)
-        probabilities[60] = 0.5
+        probabilities[40] = 0.5
         let utterances = run(probabilities)
         #expect(utterances == [
-            Utterance(startSample: 0, endSample: 60 * hop),
-            Utterance(startSample: 60 * hop, endSample: 100 * hop),
+            Utterance(startSample: 0, endSample: 40 * hop),
+            Utterance(startSample: 40 * hop, endSample: 96 * hop),
+            Utterance(startSample: 96 * hop, endSample: 100 * hop),
         ])
-        #expect(utterances.allSatisfy { Double($0.sampleCount) <= 20 * 16_000 })
+        // Every utterance fits one Parakeet pass (240 000 samples).
+        #expect(utterances.allSatisfy { $0.sampleCount <= 240_000 })
     }
 
     @Test("bursts shorter than the minimum are dropped")
