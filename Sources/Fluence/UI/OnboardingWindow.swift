@@ -88,7 +88,8 @@ final class OnboardingModel {
         let initial = Self.readStatuses()
         statuses = initial
         // Start where the work is: the first grant still missing, or the end.
-        step = Step.allCases.first { initial[$0] == .missing } ?? .ready
+        step = DevPreview.onboardingStep.flatMap(Step.init(rawValue:))
+            ?? Step.allCases.first { initial[$0] == .missing } ?? .ready
     }
 
     func status(of step: Step) -> Status? { statuses[step] }

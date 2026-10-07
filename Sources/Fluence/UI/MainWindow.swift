@@ -16,9 +16,11 @@ final class MainNavigation {
         case transcriptions, dictionary, snippets, styles, meetings, upcoming
     }
 
-    var section: Section = .transcriptions
+    var section: Section
 
-    private init() {}
+    private init() {
+        section = DevPreview.section ?? .transcriptions
+    }
 
     /// Selects `section` and brings the main window forward, opening it if it was closed.
     func show(_ section: Section, openWindow: OpenWindowAction) {
@@ -38,6 +40,7 @@ struct MainWindow: View {
     @Bindable var controller: DictationController
     @State private var navigation = MainNavigation.shared
     @State private var hasAccessibility = Permissions.hasAccessibility
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         HStack(spacing: 0) {
@@ -61,6 +64,9 @@ struct MainWindow: View {
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: DS.Window.mainMinimum.width, minHeight: DS.Window.mainMinimum.height)
         .task {
+            DevPreview.openMeetingIfRequested(.shared)
+            // Dev only: the settings window on a given section, for screenshots.
+            if DevPreview.settingsSection != nil { openSettings() }
             while !Task.isCancelled {
                 hasAccessibility = Permissions.hasAccessibility
                 try? await Task.sleep(for: .seconds(1))

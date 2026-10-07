@@ -96,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             retryActivation()
         }
         // MARK: FLU-5 input
-        if OnboardingWindow.isNeeded { OnboardingWindow.shared.show() }
+        if OnboardingWindow.isNeeded || DevPreview.onboardingStep != nil { OnboardingWindow.shared.show() }
 
         // Reads (and on first run after the update, seals and replaces) the history off the
         // main thread, then applies the retention setting.
@@ -139,6 +139,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotetakerNotes.launch()
 
         Log.app.info("Fluence ready — hold \(Settings.shared.pushToTalkKey.displayName, privacy: .public) to dictate")
+
+        DevPreview.snapshotIfRequested()
 
         // Clement's build brings the main window forward at launch.
         Task { @MainActor in
