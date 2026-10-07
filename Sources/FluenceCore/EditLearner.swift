@@ -33,19 +33,20 @@ public enum EditLearner {
     /// Longest term proposed. Past this it is a phrase being rewritten, not a name.
     public static let maximumLength = 40
 
-    // MARK: - Locating the edit
+    // MARK: - Following the inserted span
 
-    /// The text now standing where the dictation was inserted, or nil when the field didn't
-    /// change there.
+    /// Where the inserted span sits after the field changed from `before` to `after`, or nil
+    /// when the change cut across one of its edges and it can no longer be told apart.
     ///
-    /// Positions are UTF-16 offsets, as Accessibility reports them. The one changed region
-    /// between the two snapshots is found from their common prefix and suffix; an edit that
-    /// reaches outside the inserted span is the user writing something else, not correcting
-    /// the dictation, and is ignored.
-    public static func editedSpan(before: String, after: String, inserted: Range<Int>) -> String? {
+    /// Positions are UTF-16 offsets, as Accessibility reports them. Called on every pair of
+    /// consecutive snapshots, so typing before the dictation shifts the span, typing after it
+    /// leaves it alone, and a fix inside it grows or shrinks it — the user can correct a word
+    /// and carry on writing, and the correction is still found.
+    public static func follow(_ span: Range<Int>, from before: String, to after: String) -> Range<Int>? {
         let old = Array(before.utf16)
         let new = Array(after.utf16)
-        guard old != new, inserted.lowerBound >= 0, inserted.upperBound <= old.count else { return nil }
+        guard span.lowerBound >= 0, span.upperBound <= old.count else { return nil }
+        guard old != new else { return span }
 
         var prefix = 0
         while prefix < old.count, prefix < new.count, old[prefix] == new[prefix] { prefix += 1 }
@@ -53,13 +54,29 @@ public enum EditLearner {
         while suffix < old.count - prefix, suffix < new.count - prefix,
               old[old.count - 1 - suffix] == new[new.count - 1 - suffix] { suffix += 1 }
 
-        let changedStart = prefix
-        let changedEnd = old.count - suffix
-        guard changedStart >= inserted.lowerBound, changedEnd <= inserted.upperBound else { return nil }
+        let changeStart = prefix
+        let changeEnd = old.count - suffix
+        let delta = new.count - old.count
 
-        let end = inserted.upperBound + (new.count - old.count)
-        guard end >= inserted.lowerBound, end <= new.count else { return nil }
-        return String(decoding: new[inserted.lowerBound..<end], as: UTF16.self)
+        // Text typed exactly at its start counts as before it: the dictation didn't change.
+        if changeEnd <= span.lowerBound {
+            return (span.lowerBound + delta)..<(span.upperBound + delta)   // all before it
+        }
+        if changeStart >= span.upperBound {
+            return span                                                       // all after it
+        }
+        if changeStart >= span.lowerBound, changeEnd <= span.upperBound {
+            let upper = span.upperBound + delta                               // inside it
+            return upper >= span.lowerBound ? span.lowerBound..<upper : nil
+        }
+        return nil
+    }
+
+    /// The text of `span` in `field`, or nil when the span doesn't fit.
+    public static func text(of span: Range<Int>, in field: String) -> String? {
+        let units = Array(field.utf16)
+        guard span.lowerBound >= 0, span.upperBound <= units.count else { return nil }
+        return String(decoding: units[span], as: UTF16.self)
     }
 
     // MARK: - Comparing words

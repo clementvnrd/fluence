@@ -161,14 +161,27 @@ struct EditLearnerTests {
         #expect(EditLearner.proposals(inserted: "Use xyz.", edited: "Use \(long).").isEmpty)
     }
 
-    @Test func theEditedSpanIsFoundInTheField() {
-        let before = "Dear team, Ask clod about it. Thanks"
-        let inserted = (before as NSString).range(of: "Ask clod about it.")
-        let range = inserted.location..<(inserted.location + inserted.length)
-        let after = "Dear team, Ask Claude about it. Thanks"
-        #expect(EditLearner.editedSpan(before: before, after: after, inserted: range) == "Ask Claude about it.")
-        // An edit elsewhere in the field isn't a correction of the dictation.
-        #expect(EditLearner.editedSpan(before: before, after: "Hi team, Ask clod about it. Thanks", inserted: range) == nil)
-        #expect(EditLearner.editedSpan(before: before, after: before, inserted: range) == nil)
+    @Test func theInsertedSpanIsFollowedThroughEdits() {
+        let field = "Dear team, Ask clod about it. Thanks"
+        let at = (field as NSString).range(of: "Ask clod about it.")
+        let span = at.location..<(at.location + at.length)
+
+        // A fix inside it.
+        let fixed = "Dear team, Ask Claude about it. Thanks"
+        let afterFix = EditLearner.follow(span, from: field, to: fixed)
+        #expect(afterFix.flatMap { EditLearner.text(of: $0, in: fixed) } == "Ask Claude about it.")
+
+        // Then typing after it, and before it: the span moves with the text.
+        let more = "Dear team, Ask Claude about it. Thanks a lot"
+        let afterMore = afterFix.flatMap { EditLearner.follow($0, from: fixed, to: more) }
+        let hello = "Hello! Dear team, Ask Claude about it. Thanks a lot"
+        let afterHello = afterMore.flatMap { EditLearner.follow($0, from: more, to: hello) }
+        #expect(afterHello.flatMap { EditLearner.text(of: $0, in: hello) } == "Ask Claude about it.")
+
+        // An edit across its edge loses it, rather than guessing.
+        let across = "Dear folks, ask clod about it. Thanks"
+        #expect(EditLearner.follow(span, from: field, to: across) == nil)
+        // Nothing changed: same span.
+        #expect(EditLearner.follow(span, from: field, to: field) == span)
     }
 }

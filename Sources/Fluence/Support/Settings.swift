@@ -71,6 +71,12 @@ final class Settings {
         didSet { defaults.set(parakeetVocabularyBoost, forKey: Keys.parakeetVocabularyBoost) }
     }
 
+    /// Re-read the text field after typing and offer, never add, words the user corrected.
+    /// Off by default: it reads what is in the field around the dictation for 20 seconds.
+    var learnFromEdits: Bool {
+        didSet { defaults.set(learnFromEdits, forKey: Keys.learnFromEdits) }
+    }
+
     // MARK: end FLU-5 text
 
     /// Play a short tick when capture starts and stops.
@@ -110,6 +116,7 @@ final class Settings {
         static let cleanupLevel = "cleanupLevel"
         static let dictationLanguage = "dictationLanguage"
         static let parakeetVocabularyBoost = "parakeetVocabularyBoost"
+        static let learnFromEdits = "learnFromEdits"
         static func style(_ category: AppCategory) -> String { "style.\(category.rawValue)" }
     }
 
@@ -141,6 +148,7 @@ final class Settings {
         }
         self.styles = styles
         parakeetVocabularyBoost = defaults.object(forKey: Keys.parakeetVocabularyBoost) as? Bool ?? false
+        learnFromEdits = defaults.object(forKey: Keys.learnFromEdits) as? Bool ?? false
         // MARK: end FLU-5 text
         compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true

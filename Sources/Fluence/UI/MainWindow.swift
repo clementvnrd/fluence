@@ -38,6 +38,9 @@ struct MainWindow: View {
 
                 sectionKeys
 
+                // MARK: FLU-5 text — words learned from corrections, awaiting a yes or no.
+                LearnedWordsStrip()
+
                 Well {
                     Group {
                         switch section {

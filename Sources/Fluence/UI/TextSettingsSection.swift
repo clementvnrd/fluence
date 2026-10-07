@@ -2,7 +2,7 @@ import FluenceCore
 import SwiftUI
 
 /// Settings for what happens to the words (FLU-5 text): cleanup level, language, styles per
-/// kind of app, and Parakeet's dictionary boosting.
+/// kind of app, and the dictionary's two helpers (Parakeet boosting, learning from edits).
 struct TextSettingsSection: View {
     @State private var settings = Settings.shared
     @State private var boostStatus: BoostStatus = ParakeetModels.isVocabularyModelDownloaded ? .ready : .idle
@@ -120,6 +120,15 @@ struct TextSettingsSection: View {
 
     private var dictionaryPanel: some View {
         SettingsPanel(label: "Dictionary") {
+            Toggle(isOn: $settings.learnFromEdits) {
+                Silkscreen(text: "Learn from my corrections")
+            }
+            .toggleStyle(.switch)
+            SettingsNote("Off unless you turn it on. For 20 seconds after typing, Fluence re-reads the "
+                + "text field; if you correct a name it wrote, it offers to add that name to the "
+                + "dictionary. Nothing is added without you, nothing read is kept, and password fields "
+                + "are never read.")
+
             Toggle(isOn: Binding(get: { settings.parakeetVocabularyBoost }, set: setBoost)) {
                 Silkscreen(text: "Boost dictionary words in Parakeet")
             }

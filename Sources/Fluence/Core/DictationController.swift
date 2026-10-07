@@ -382,7 +382,10 @@ final class DictationController {
 
         // Typed first, filed second: the user is waiting on the text, not on the history.
         let processSeconds = session.releasedAt.map { Date().timeIntervalSince($0) } ?? 0
+        // MARK: FLU-5 text — snapshot the field first, so a later correction can be found.
+        if Settings.shared.learnFromEdits { EditWatcher.shared.willInsert(output) }
         TextInjector.insert(output)
+        if Settings.shared.learnFromEdits { EditWatcher.shared.didInsert() }
         if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
 
         // Text arrived, but the engine also failed partway: type what there is, and say so.
