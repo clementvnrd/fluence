@@ -154,6 +154,14 @@ bars and buttons, SF symbols in the accent colour, rounded monospaced digits for
   "1 h 05", "Aujourd'hui, 10:00"), shortcuts through `ShortcutLabel` (from the configured
   shortcut, never hard-coded), and stored English speaker labels are translated at display
   time (`SpeakerLabel.french`).
+- **Little text on screen** (FLU-19, Clement: "bien trop de texte dans l'UI"). A page title
+  has no sentence under it; a subtitle is only a count or a state ("4 dictées", "Français ⇄
+  English", "1 réunion stockée"). A setting is a short label and its control: what it does
+  goes behind the ⓘ next to the title (`SettingsRow(info:)`, `InfoButton`), not under it.
+  What stays visible is what the user must not miss: a state that limits a feature (amber
+  `RowNote`: "Nécessite Apple Intelligence", a language cleanup barely knows), a legal or
+  biometric duty in one short line (consent, voice prints) and an irreversible action
+  ("irréversible"). Per-item details and actions show on hover (transcription cards).
 
 ---
 

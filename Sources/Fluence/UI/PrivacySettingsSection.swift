@@ -32,7 +32,7 @@ struct PrivacySettingsSection: View {
             SettingsRow(
                 systemImage: "clock.arrow.circlepath",
                 title: "Historique des dictées",
-                subtitle: settings.historyRetention == .never ? "Rien n'est écrit sur le disque" : "Effacé automatiquement au-delà"
+                info: settings.historyRetention == .never ? "Rien n'est écrit sur le disque." : "Les dictées plus anciennes sont effacées automatiquement."
             ) {
                 PillTabs(options: HistoryRetention.allCases, title: \.displayName, selection: settings.historyRetention, small: true) {
                     settings.historyRetention = $0
@@ -43,7 +43,7 @@ struct PrivacySettingsSection: View {
                 RowNote(text: problem, color: DS.Color.fault)
             }
             RowDivider()
-            SettingsRow(systemImage: "person.2", title: "Réunions et notes", subtitle: retentionSubtitle) {
+            SettingsRow(systemImage: "person.2", title: "Réunions et notes", subtitle: retentionSubtitle, info: "Notes, résumés et transcriptions : effacés automatiquement au-delà.") {
                 PillTabs(options: meetingChoices, title: \.settingsTitle, selection: model.retention, small: true) {
                     model.chooseRetention($0)
                 }
@@ -52,17 +52,21 @@ struct PrivacySettingsSection: View {
             SettingsRow(
                 systemImage: "waveform",
                 title: "Garder l'audio des réunions par défaut",
-                subtitle: "Sinon l'audio est effacé dès que la transcription est prête. Modifiable pour chaque réunion."
+                info: "Sinon l'audio est effacé dès que la transcription est prête. Modifiable pour chaque réunion."
             ) {
                 RowToggle(isOn: Bindable(notetaker).keepAudioByDefault)
             }
         }
 
         SectionCard {
-            SettingsRow(systemImage: "person.wave.2", title: "Empreintes vocales", subtitle: notetaker.voicePrintsEnabled ? "Activé" : "Désactivé") {
+            SettingsRow(
+                systemImage: "person.wave.2",
+                title: "Empreintes vocales",
+                subtitle: "Donnée biométrique · prévenez les personnes concernées",
+                info: "Pour reconnaître vos interlocuteurs d'une réunion à l'autre, Fluence peut mémoriser la signature de leur voix. C'est une donnée biométrique : elle n'est créée que si vous l'activez, reste sur ce Mac, et s'efface ici à tout moment. Prévenez les personnes concernées."
+            ) {
                 RowToggle(isOn: Binding(get: { notetaker.voicePrintsEnabled }, set: { model.setVoicePrints($0) }))
             }
-            RowNote(text: "Pour reconnaître vos interlocuteurs d'une réunion à l'autre, Fluence peut mémoriser la signature de leur voix. C'est une donnée biométrique : elle n'est créée que si vous l'activez, reste sur ce Mac, et s'efface ici à tout moment. Prévenez les personnes concernées.")
         }
 
         SectionCard {
@@ -74,7 +78,7 @@ struct PrivacySettingsSection: View {
                 }
             }
             RowDivider()
-            SettingsRow(systemImage: "accessibility", title: "Accessibilité", subtitle: "Pour repérer le raccourci et écrire là où est le curseur.") {
+            SettingsRow(systemImage: "accessibility", title: "Accessibilité", info: "Pour repérer le raccourci et écrire là où est le curseur.") {
                 if hasAccessibility {
                     GrantBadge(text: "Autorisé", isOK: true)
                 } else {
@@ -92,7 +96,7 @@ struct PrivacySettingsSection: View {
             SettingsRow(
                 systemImage: "arrow.counterclockwise",
                 title: "Réinitialiser l'autorisation Accessibilité",
-                subtitle: "Si macOS affiche l'interrupteur activé sans l'appliquer."
+                info: "Si macOS affiche l'interrupteur activé sans l'appliquer."
             ) {
                 CapButton(title: "Réinitialiser", height: 24) {
                     Permissions.resetAccessibilityTCC()
@@ -164,12 +168,10 @@ struct PrivacySettingsSection: View {
                 .frame(width: 44, height: 44)
                 .background(Circle().fill(DS.Color.selection))
             VStack(alignment: .leading, spacing: 5) {
-                Text("Tout reste sur ce Mac").font(DS.Font.title).foregroundStyle(DS.Color.ink)
-                Text("Vos dictées, réunions et notes sont transcrites et résumées sur cet ordinateur, puis enregistrées chiffrées. Rien n'est envoyé sur Internet, et il n'y a pas de compte.")
-                    .font(DS.Font.body)
-                    .foregroundStyle(DS.Color.inkSecondary)
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Text("Tout reste sur ce Mac").font(DS.Font.title).foregroundStyle(DS.Color.ink)
+                    InfoButton(text: "Vos dictées, réunions et notes sont transcrites et résumées sur cet ordinateur, puis enregistrées chiffrées. Rien n'est envoyé sur Internet, et il n'y a pas de compte.")
+                }
                 HStack(spacing: 6) {
                     MetaChip(text: "Transcription sur l'appareil", systemImage: "cpu")
                     MetaChip(text: "Chiffré sur le disque", systemImage: "lock.fill")
@@ -188,11 +190,9 @@ struct PrivacySettingsSection: View {
         )
     }
 
-    private var retentionSubtitle: String {
-        guard model.retention != nil else {
-            return "Actuellement \(notetaker.retentionDays ?? 0) jours. Notes, résumés et transcriptions."
-        }
-        return "Notes, résumés et transcriptions"
+    /// Only when the stored value is not one of the presets: then the pills show none selected.
+    private var retentionSubtitle: String? {
+        model.retention == nil ? "Actuellement \(notetaker.retentionDays ?? 0) jours" : nil
     }
 
     /// Dictations, meetings (notes, transcripts, audio) and voice prints. Not the

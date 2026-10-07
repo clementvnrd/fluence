@@ -30,7 +30,6 @@ struct SnippetPanel: View {
                 ContentTitle(
                     title: "Snippets",
                     subtitle: FrenchFormat.count(store.entries.count, "raccourci vocal", "raccourcis vocaux")
-                        + " · dites la phrase, Fluence écrit le texte complet"
                 )
                 Spacer(minLength: DS.Space.roomy)
                 HStack(spacing: DS.Space.snug) {

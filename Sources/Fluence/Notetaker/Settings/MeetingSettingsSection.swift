@@ -100,16 +100,15 @@ struct MeetingSettingsSection: View {
             SettingsRow(
                 systemImage: "person.2.wave.2",
                 title: "Détecter les réunions",
-                subtitle: "Repère les appels — Zoom, Teams, Meet ou un navigateur — et propose de prendre des notes."
+                info: "Repère les appels — Zoom, Teams, Meet ou un navigateur — et propose de prendre des notes. Fluence n'enregistre jamais sans l'afficher : la carte « Réunion détectée » apparaît, puis un point rouge tant que l'enregistrement dure."
             ) {
                 RowToggle(isOn: Bindable(settings).detectMeetings)
             }
-            RowNote(text: "Fluence n'enregistre jamais sans l'afficher : la carte « Réunion détectée » apparaît, puis un point rouge tant que l'enregistrement dure.")
             RowDivider()
             SettingsRow(
                 systemImage: "timer",
                 title: "Compte à rebours",
-                subtitle: settings.countdownSeconds == 0
+                info: settings.countdownSeconds == 0
                     ? "La carte attend que vous appuyiez sur Enregistrer."
                     : "La carte enregistre après \(settings.countdownSeconds)\(FrenchFormat.space)s, sauf « Pas maintenant »."
             ) {
@@ -121,7 +120,7 @@ struct MeetingSettingsSection: View {
                 ) { settings.countdownSeconds = $0 }
             }
             RowDivider()
-            SettingsRow(systemImage: "stop.circle", title: "Arrêter après", subtitle: "Un enregistrement s'arrête de lui-même au bout de cette durée.") {
+            SettingsRow(systemImage: "stop.circle", title: "Arrêter après", info: "Un enregistrement s'arrête de lui-même au bout de cette durée.") {
                 PillTabs(
                     options: Self.maxDurations,
                     title: { "\($0 / 60)\(FrenchFormat.space)h" },
@@ -135,7 +134,7 @@ struct MeetingSettingsSection: View {
             SettingsRow(
                 systemImage: "person.text.rectangle",
                 title: "Lire les noms dans la fenêtre de l'appel",
-                subtitle: "Les noms affichés par Zoom, Teams et Meet, lus via l'Accessibilité, pour dire qui a parlé."
+                info: "Les noms affichés par Zoom, Teams et Meet, lus via l'Accessibilité, pour dire qui a parlé."
             ) {
                 RowToggle(isOn: Bindable(settings).readNamesFromMeetingWindow)
             }
@@ -143,7 +142,7 @@ struct MeetingSettingsSection: View {
             SettingsRow(
                 systemImage: "calendar",
                 title: "Utiliser mon calendrier",
-                subtitle: "Le titre de la réunion et ses invités, et la liste « À venir »."
+                info: "Le titre de la réunion et ses invités, et la liste « À venir »."
             ) {
                 HStack(spacing: DS.Space.snug) {
                     if settings.useCalendar && !hasCalendar {
@@ -164,10 +163,14 @@ struct MeetingSettingsSection: View {
         }
 
         SectionCard {
-            SettingsRow(systemImage: "text.bubble", title: "Consentement", subtitle: "Prévenir les participants avant d'enregistrer.") {
+            SettingsRow(
+                systemImage: "text.bubble",
+                title: "Consentement",
+                subtitle: "Prévenez les participants avant d'enregistrer",
+                info: "Enregistrer des personnes sans les prévenir est illégal dans de nombreux pays, dont la France. Copiez cet avis et collez-le dans le chat de la réunion avant de commencer : \(FrenchFormat.quoted(NotetakerConsent.text(.french)))"
+            ) {
                 ConsentKeys(flash: model.flash) { model.showFlash($0) }
             }
-            RowNote(text: "Enregistrer des personnes sans les prévenir est illégal dans de nombreux pays, dont la France. Copiez cet avis et collez-le dans le chat de la réunion avant de commencer : \(FrenchFormat.quoted(NotetakerConsent.text(.french)))")
         }
 
         SectionCard {
@@ -201,8 +204,8 @@ struct MeetingSettingsSection: View {
 
     private static func storedNote(_ count: Int) -> String {
         count > 1
-            ? "\(count) réunions stockées, chiffrées sur ce Mac."
-            : "\(count) réunion stockée, chiffrée sur ce Mac."
+            ? "\(count) réunions stockées, chiffrées sur ce Mac"
+            : "\(count) réunion stockée, chiffrée sur ce Mac"
     }
 }
 
