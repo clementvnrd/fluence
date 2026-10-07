@@ -281,6 +281,29 @@ enum DS {
     }
 }
 
+// MARK: - Notetaker (capture)
+
+extension DS {
+    /// Sizes of the Notetaker's floating panels: the *Meeting detected* card, the
+    /// recording indicator and the live transcript.
+    enum MeetingPanel {
+        /// The detection card.
+        static let cardWidth: CGFloat = 340
+        /// The recording indicator: lamp, counter, keep-audio, transcript and stop.
+        static let recorderWidth: CGFloat = 300
+        /// The live transcript window's initial size.
+        static let transcriptWidth: CGFloat = 420
+        static let transcriptHeight: CGFloat = 480
+        static let transcriptMinHeight: CGFloat = 200
+        /// Distance from the screen's top-right corner (below the menu bar).
+        static let screenInset: CGFloat = 16
+        /// Width of the speaker column in the live transcript.
+        static let speakerColumn: CGFloat = 64
+        /// Glyph size inside a transport key.
+        static let keyGlyph: CGFloat = 10
+    }
+}
+
 // MARK: - Hex helpers
 
 private extension SwiftUI.Color {

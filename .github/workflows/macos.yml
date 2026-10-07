@@ -50,3 +50,17 @@ jobs:
             exit 1
           fi
           echo "Vectors match."
+
+      # Notetaker: the platform-neutral meeting logic (merge, echo dedupe, word→speaker,
+      # naming) has its own shared contract, reused by the Windows port.
+      - name: Test the meeting core
+        run: swift test --filter FluenceMeetingCoreTests
+
+      - name: Confirm the meeting vectors on both sides are identical
+        run: |
+          if ! diff -q shared/meeting-test-vectors.json Tests/FluenceMeetingCoreTests/meeting-test-vectors.json; then
+            echo "::error::The Swift test copy of the meeting vectors has drifted from shared/."
+            echo "Run: cp shared/meeting-test-vectors.json Tests/FluenceMeetingCoreTests/"
+            exit 1
+          fi
+          echo "Meeting vectors match."
