@@ -162,6 +162,15 @@ public static class MeetingFinalizer
 
         IReadOnlyList<SpeakerTurn> turns = [];
         var rawVoices = new Dictionary<string, float[]>(StringComparer.Ordinal);
+        if (remote.Count > 0 && (system is null || diarizer is null))
+        {
+            log.Info("meeting.diarization_skipped", new Dictionary<string, object?>
+            {
+                ["reason"] = system is null ? "no system spool" : "no diarizer",
+                ["remoteSegments"] = remote.Count,
+            });
+        }
+
         if (remote.Count > 0 && system is not null && diarizer is not null)
         {
             try
@@ -179,6 +188,16 @@ public static class MeetingFinalizer
                     });
 
                     if (embedder is not null) rawVoices = Embed(turns, system, embedder);
+                }
+                else
+                {
+                    log.Info("meeting.diarization_skipped", new Dictionary<string, object?>
+                    {
+                        ["reason"] = "under 2 s of remote speech",
+                        ["remoteSegments"] = remote.Count,
+                        ["speechSamples"] = speech.TotalSamples,
+                        ["spoolSamples"] = system.SampleCount,
+                    });
                 }
             }
             catch (Exception e) when (e is not OperationCanceledException)
