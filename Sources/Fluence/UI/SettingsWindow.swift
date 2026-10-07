@@ -8,7 +8,7 @@ import SwiftUI
 /// `docs/DESIGN-FLU-12.md` for the map from old tab to new section.
 struct SettingsWindow: View {
     @Bindable var controller: DictationController
-    @State private var selection: SettingsSection = .dictation
+    @State private var selection: SettingsSection = DevPreview.settingsSection ?? .dictation
 
     var body: some View {
         HStack(spacing: 0) {
@@ -56,6 +56,10 @@ struct SettingsWindow: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .frame(width: DS.Window.settings.width, height: DS.Window.settings.height)
+        // The Settings scene keeps its title and toolbar hairline even with a hidden title
+        // bar; the sidebar's "Réglages" is the title here (mock-up 08).
+        .toolbar(removing: .title)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
     }
 }
 
@@ -290,7 +294,8 @@ struct ShortcutRecorder: View {
                     .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(DS.Color.seam, lineWidth: 1))
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
         }

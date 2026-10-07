@@ -17,8 +17,9 @@ struct Avatar: View {
     private var tint: Color {
         if isMe { return DS.Tone.me }
         if dashed { return DS.Tone.neutral }
-        // Slot 0 is the user's blue; others take the remaining tones.
-        return DS.Tone.all[1 + PersonInitials.slot(for: name, count: DS.Tone.all.count - 1)]
+        // Slot 0 is the user's blue and the last the unnamed slate; a named person takes
+        // one of the tones between.
+        return DS.Tone.all[1 + PersonInitials.slot(for: name, count: DS.Tone.all.count - 2)]
     }
 
     var body: some View {
@@ -142,6 +143,8 @@ struct RecordPill: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        // Never squeezed by a crowded row: a clipped capsule reads as broken.
+        .fixedSize()
     }
 }
 
@@ -289,6 +292,7 @@ struct StatusChip: View {
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.Color.inkSecondary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
                 .truncationMode(.middle)
         }
         .padding(.horizontal, 10)
@@ -406,7 +410,10 @@ struct MenuChip<Content: View>: View {
             }
             .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        // `.button` + plain keeps the label drawn here; `.borderlessButton` hands it to an
+        // AppKit pop-up that redraws it as icon-then-title without the chip.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize(horizontal: !fill, vertical: true)
     }

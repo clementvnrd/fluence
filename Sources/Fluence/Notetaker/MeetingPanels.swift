@@ -254,8 +254,10 @@ private struct RecordingPill: View {
         .padding(.trailing, 6)
         .frame(height: DS.MeetingPanel.pillHeight)
         .background {
-            Capsule().fill(DS.Color.panel.opacity(0.97))
-                .overlay(Capsule().strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline))
+            // A rounded rectangle at half the height draws as a capsule; a `Capsule` here
+            // showed straight slivers at its ends in off-screen renders of the panel.
+            RoundedRectangle(cornerRadius: DS.MeetingPanel.pillHeight / 2).fill(DS.Color.panel.opacity(0.97))
+                .overlay(RoundedRectangle(cornerRadius: DS.MeetingPanel.pillHeight / 2).strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline))
                 .shadow(color: DS.Shadow.window.color, radius: 16, y: 6)
         }
         .padding(DS.Space.panel)

@@ -21,10 +21,12 @@ public enum ShortcutLabel {
         tokens(shortName).joined(separator: joiner + "+" + joiner)
     }
 
-    /// Just the modifier symbols, for the compact status chip ("Raccourci ⌥").
+    /// Just the modifier symbols, for the compact status chip: "Raccourci ⌥", "⌥ droite",
+    /// "⌃⌥⌘" (several bare symbols run together, as macOS writes them in menus).
     public static func modifiers(_ shortName: String) -> String {
         let symbols = tokens(shortName).filter { $0.unicodeScalars.first.map(isModifierSymbol) ?? false }
-        return symbols.isEmpty ? display(shortName) : symbols.joined(separator: joiner)
+        if symbols.isEmpty { return display(shortName) }
+        return symbols.joined(separator: symbols.allSatisfy { $0.unicodeScalars.count == 1 } ? "" : joiner)
     }
 
     // MARK: Parsing

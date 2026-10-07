@@ -124,7 +124,7 @@ extension AppCategory {
     /// A few of the apps `classify` puts in this category.
     var apps: String {
         switch self {
-        case .personal: "Messages, WhatsApp, Telegram"
+        case .personal: "Messages, WhatsApp"
         case .work: "Slack, Teams, Google Chat"
         case .email: "Mail, Outlook, Gmail"
         case .other: "Toutes les autres apps"

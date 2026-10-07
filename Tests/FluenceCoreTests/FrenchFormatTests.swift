@@ -119,7 +119,8 @@ struct ShortcutLabelTests {
     @Test func spelledAndModifierForms() {
         #expect(ShortcutLabel.spelled("⌥ Espace") == "⌥\(nbsp)+\(nbsp)Espace")
         #expect(ShortcutLabel.modifiers("⌥ Espace") == "⌥")
-        #expect(ShortcutLabel.modifiers("⌃ ⌥") == "⌃\(nbsp)⌥")
+        #expect(ShortcutLabel.modifiers("⌃ ⌥") == "⌃⌥")
+        #expect(ShortcutLabel.modifiers("Right Option") == "⌥\(nbsp)droite")
         // A custom key with no modifier symbol falls back to the whole label.
         #expect(ShortcutLabel.modifiers("F5") == "F5")
     }
