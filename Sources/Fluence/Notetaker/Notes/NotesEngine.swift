@@ -108,7 +108,7 @@ struct NotesEngine: Sendable {
         guard wordCount >= minimumWords else { throw NotesFailure.tooShort }
 
         await progress(.preparing)
-        let budget = NotesBudget(contextSize: model.contextSize)
+        let budget = NotesBudget(contextSize: Self.contextSize(of: model))
         var context = request.context
         context.userNotes = NotesPrompts.trimmedUserNotes(context.userNotes, budget: budget.userNotesTokens)
         let hasUserNotes = !context.userNotes.isEmpty
@@ -147,7 +147,7 @@ struct NotesEngine: Sendable {
         let instructions = NotesPrompts.reduceInstructions(context)
         let prompt = NotesPrompts.reducePrompt(merged, context: context)
         let output = try await respond(FinalNotesOutput.self, instructions, prompt, budget)
-        let knownNames = context.participants + merged.actionItems.compactMap(\.owner)
+        let knownNames = context.participants + merged.actionItems.compactMap { $0.owner }
         return try finish(output.draft, context: context, sourceText: NotesMerger.render(merged), knownNames: knownNames)
     }
 
@@ -287,6 +287,9 @@ struct NotesEngine: Sendable {
         _ type: Output.Type,
         _ budget: NotesBudget
     ) async throws -> Bool {
+        // `tokenCount(for:)` first ships in the macOS 26.4 SDK (Swift 6.3). Older SDKs — CI's
+        // Xcode among them — fall back to the estimate.
+        #if compiler(>=6.3)
         guard #available(macOS 26.4, *) else { return true }
         let model = SystemLanguageModel.default
         do {
@@ -298,6 +301,19 @@ struct NotesEngine: Sendable {
             // Counting is an optimisation; the call itself still reports an overflow.
             return true
         }
+        #else
+        return true
+        #endif
+    }
+
+    /// The model's context window. `contextSize` first ships in the macOS 26.4 SDK; before
+    /// that the on-device model is documented at 4,096 tokens.
+    static func contextSize(of model: SystemLanguageModel) -> Int {
+        #if compiler(>=6.3)
+        return model.contextSize
+        #else
+        return 4_096
+        #endif
     }
 
     // MARK: - Errors
@@ -311,10 +327,13 @@ struct NotesEngine: Sendable {
     }
 
     static func isContextOverflow(_ error: Error) -> Bool {
+        // `LanguageModelError` is macOS 27 SDK (Swift 6.4) API.
+        #if compiler(>=6.4)
         if #available(macOS 27.0, *), let error = error as? LanguageModelError,
            case .contextSizeExceeded = error {
             return true
         }
+        #endif
         if let error = error as? LanguageModelSession.GenerationError,
            case .exceededContextWindowSize = error {
             return true
@@ -332,6 +351,7 @@ struct NotesEngine: Sendable {
     static func classify(_ error: Error) -> NotesFailure {
         if let failure = error as? NotesFailure { return failure }
         if error is CancellationError { return .cancelled }
+        #if compiler(>=6.4)
         if #available(macOS 27.0, *), let error = error as? LanguageModelError {
             switch error {
             case .contextSizeExceeded: return .failed("the transcript did not fit the on-device model.")
@@ -342,6 +362,7 @@ struct NotesEngine: Sendable {
             default: return .failed("the on-device model could not write them.")
             }
         }
+        #endif
         if let error = error as? LanguageModelSession.GenerationError {
             switch error {
             case .exceededContextWindowSize: return .failed("the transcript did not fit the on-device model.")
