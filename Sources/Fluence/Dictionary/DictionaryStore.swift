@@ -31,17 +31,32 @@ final class DictionaryStore {
     /// instead of on every transcription.
     private(set) var revision = 0
 
-    private var watcher: DispatchSourceFileSystemObject?
-    /// Set while we're writing, so our own save doesn't read back as an external edit.
-    private var isSaving = false
+    /// Watches the file itself: catches editors that write in place.
+    private var fileWatcher: DispatchSourceFileSystemObject?
+    /// Watches the directory: catches editors that save by writing a new file and renaming
+    /// it over the old one (the old inode — and a watcher on it — simply goes away), and a
+    /// dictionary created after launch.
+    private var directoryWatcher: DispatchSourceFileSystemObject?
+
+    /// The file's contents as last loaded or saved. An event after which the file reads back
+    /// as exactly this is our own save, or nothing at all — so it changes nothing. Comparing
+    /// contents replaces an `isSaving` flag, which was already reset by the time the
+    /// watcher's event arrived, so every in-app save re-read the file it had just written.
+    private var lastText: String?
+    private var pendingReload: Task<Void, Never>?
 
     static var fileURL: URL {
         AppPaths.support.appendingPathComponent("dictionary.txt")
     }
 
     private init() {
-        load()
-        startWatching()
+        if case .text(let text) = Self.read() {
+            lastText = text
+            entries = Self.parse(text)
+            revision += 1
+        }
+        watchDirectory()
+        watchFile()
     }
 
     // MARK: - Editing
@@ -84,14 +99,44 @@ final class DictionaryStore {
 
     // MARK: - Persistence
 
-    private func load() {
-        guard let text = try? String(contentsOf: Self.fileURL, encoding: .utf8) else {
-            entries = []
-            revision += 1
-            return
+    private enum ReadResult {
+        case text(String)
+        case missing
+        case failed(Error)
+    }
+
+    private static func read() -> ReadResult {
+        do {
+            return .text(try String(contentsOf: fileURL, encoding: .utf8))
+        } catch CocoaError.fileReadNoSuchFile, CocoaError.fileNoSuchFile {
+            return .missing
+        } catch {
+            return .failed(error)
         }
-        entries = Self.parse(text)
-        revision += 1
+    }
+
+    /// Re-reads the file after an external change.
+    ///
+    /// A failed read never empties the dictionary. Between an editor's delete and its rename
+    /// the file briefly doesn't exist, and an unreadable file is not an empty one; replacing
+    /// the entries with `[]` there would let the next in-app edit write `[]` over the user's
+    /// file. The entries in memory stand until a read actually succeeds.
+    ///
+    /// - Returns: false if the file couldn't be read, so the caller can try again.
+    private func reload() -> Bool {
+        switch Self.read() {
+        case .text(let text):
+            guard text != lastText else { return true }
+            lastText = text
+            entries = Self.parse(text)
+            revision += 1
+            return true
+        case .missing:
+            return false
+        case .failed(let error):
+            Log.app.error("dictionary unreadable, keeping the current entries: \(error.localizedDescription)")
+            return false
+        }
     }
 
     static func parse(_ text: String) -> [DictionaryEntry] {
@@ -122,12 +167,17 @@ final class DictionaryStore {
 
     private func save() {
         revision += 1
-        isSaving = true
-        defer { isSaving = false }
 
         let body = entries.map(\.fileLine).joined(separator: "\n")
         let text = Self.header + body + "\n"
-        try? text.write(to: Self.fileURL, atomically: true, encoding: .utf8)
+        do {
+            try text.write(to: Self.fileURL, atomically: true, encoding: .utf8)
+            lastText = text
+        } catch {
+            Log.app.error("dictionary not saved: \(error.localizedDescription)")
+        }
+        // The atomic write replaced the file, so the old watcher is on a dead inode.
+        watchFile()
     }
 
     private static let header = """
@@ -143,30 +193,51 @@ final class DictionaryStore {
 
     // MARK: - External edits
 
-    /// Watches the file so a hand edit shows up in the UI without a relaunch.
-    ///
-    /// Rearms after every event: an atomic write replaces the inode, so the descriptor we
-    /// were watching is gone the moment the file changes — including when *we* save.
-    private func startWatching() {
-        watcher?.cancel()
+    /// Any change to the file or its directory schedules a reload, a beat later so the
+    /// editor has finished; a file that's missing at that moment (mid-rename) is retried a
+    /// few times. Then the file watcher is re-armed on whatever inode is at the path now.
+    private func scheduleReload() {
+        pendingReload?.cancel()
+        pendingReload = Task { [weak self] in
+            for attempt in 0..<5 {
+                try? await Task.sleep(for: .milliseconds(attempt == 0 ? 50 : 100))
+                guard !Task.isCancelled, let self else { return }
+                if self.reload() { break }
+            }
+            guard !Task.isCancelled else { return }
+            self?.watchFile()
+        }
+    }
 
-        let descriptor = open(Self.fileURL.path, O_EVTONLY)
-        guard descriptor >= 0 else { return }
+    private func watchFile() {
+        fileWatcher?.cancel()
+        fileWatcher = nil
+        // Not there (yet): the directory watcher will see it arrive.
+        fileWatcher = watch(Self.fileURL, events: [.write, .extend, .delete, .rename, .attrib])
+    }
+
+    private func watchDirectory() {
+        directoryWatcher?.cancel()
+        directoryWatcher = watch(AppPaths.support, events: [.write])
+    }
+
+    private func watch(
+        _ url: URL,
+        events: DispatchSource.FileSystemEvent
+    ) -> DispatchSourceFileSystemObject? {
+        let descriptor = open(url.path, O_EVTONLY)
+        guard descriptor >= 0 else { return nil }
 
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: descriptor,
-            eventMask: [.write, .delete, .rename, .extend],
+            eventMask: events,
             queue: .main
         )
-
         source.setEventHandler { [weak self] in
-            guard let self else { return }
-            if !self.isSaving { self.load() }
-            self.startWatching()
+            self?.scheduleReload()
         }
         source.setCancelHandler { close(descriptor) }
         source.resume()
-
-        watcher = source
+        return source
     }
 }

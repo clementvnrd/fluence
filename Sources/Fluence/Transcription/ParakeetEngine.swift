@@ -97,6 +97,11 @@ actor ParakeetEngine: TranscriptionEngine {
         }
     }
 
+    func cancel() async {
+        samples.removeAll(keepingCapacity: false)
+        continuation?.finish()
+        continuation = nil
+    }
 }
 
 /// Process-wide model cache.

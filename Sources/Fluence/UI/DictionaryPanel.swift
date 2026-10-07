@@ -118,7 +118,7 @@ private struct DictionaryRow: View {
 
     var body: some View {
         HStack(spacing: DS.Space.base) {
-            Lamp(color: DS.Color.meterGreen, isLit: entry.isEnabled, size: 6)
+            Lamp(color: DS.Color.pilot, isLit: entry.isEnabled, size: 6)
 
             Silkscreen(
                 text: entry.kind == .correction ? "Fix" : "Term",
@@ -217,7 +217,7 @@ private struct DictionaryEditor: View {
 
             ForEach(warnings) { warning in
                 HStack(alignment: .top, spacing: DS.Space.snug) {
-                    Lamp(color: DS.Color.meterAmber, isLit: true, size: 6)
+                    Lamp(color: DS.Color.pilot, isLit: true, size: 6)
                         .padding(.top, 3)
                     Text(warning.message)
                         .font(DS.Font.label)
@@ -228,7 +228,7 @@ private struct DictionaryEditor: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .overlay(
                     RoundedRectangle(cornerRadius: DS.Radius.chip)
-                        .strokeBorder(DS.Color.meterAmber.opacity(0.4), lineWidth: DS.Border.hairline)
+                        .strokeBorder(DS.Color.selectionEdge, lineWidth: DS.Border.hairline)
                 )
             }
 
