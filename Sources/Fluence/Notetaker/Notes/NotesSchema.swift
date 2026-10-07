@@ -79,39 +79,34 @@ struct ChunkExtraction: Generable, Sendable {
     var actionItems: [ActionOutput]
     var decisions: [String]
     var openQuestions: [String]
-    var quotes: [QuoteOutput]
 
+    // No quotes here (FLU-21): they cost answer tokens in every part and the final notes
+    // never showed them. Caps are the smaller per-part ones (`NotesMerger.maxMap…`).
     static var generationSchema: GenerationSchema {
         GenerationSchema(type: Self.self, description: "Notes extracted from one part of a meeting transcript.", properties: [
             .init(
                 name: "recap",
                 description: "Short points on what was discussed, in order.",
                 type: [String].self,
-                guides: [.maximumCount(NotesMerger.maxRecapPoints)]
+                guides: [.maximumCount(NotesMerger.maxMapRecapPoints)]
             ),
             .init(
                 name: "actionItems",
                 description: "Tasks someone agreed to do.",
                 type: [ActionOutput].self,
-                guides: [.maximumCount(NotesMerger.maxActions)]
+                guides: [.maximumCount(NotesMerger.maxMapActions)]
             ),
             .init(
                 name: "decisions",
                 description: "What was agreed or decided.",
                 type: [String].self,
-                guides: [.maximumCount(NotesMerger.maxDecisions)]
+                guides: [.maximumCount(NotesMerger.maxMapDecisions)]
             ),
             .init(
                 name: "openQuestions",
                 description: "Questions raised and left unanswered.",
                 type: [String].self,
-                guides: [.maximumCount(NotesMerger.maxQuestions)]
-            ),
-            .init(
-                name: "quotes",
-                description: "At most three notable sentences, copied exactly.",
-                type: [QuoteOutput].self,
-                guides: [.maximumCount(NotesMerger.maxQuotes)]
+                guides: [.maximumCount(NotesMerger.maxMapQuestions)]
             ),
         ])
     }
@@ -121,7 +116,6 @@ struct ChunkExtraction: Generable, Sendable {
         actionItems = try content.value([ActionOutput].self, forProperty: "actionItems")
         decisions = try content.value([String].self, forProperty: "decisions")
         openQuestions = try content.value([String].self, forProperty: "openQuestions")
-        quotes = try content.value([QuoteOutput].self, forProperty: "quotes")
     }
 
     var generatedContent: GeneratedContent {
@@ -130,7 +124,6 @@ struct ChunkExtraction: Generable, Sendable {
             "actionItems": actionItems,
             "decisions": decisions,
             "openQuestions": openQuestions,
-            "quotes": quotes,
         ])
     }
 
@@ -139,8 +132,7 @@ struct ChunkExtraction: Generable, Sendable {
             recap: recap,
             actionItems: actionItems.map(\.draft),
             decisions: decisions,
-            openQuestions: openQuestions,
-            quotes: quotes.map(\.draft)
+            openQuestions: openQuestions
         )
     }
 }

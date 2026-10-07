@@ -37,7 +37,7 @@ public struct NotesBudget: Sendable, Hashable {
 
     public init(
         contextSize: Int,
-        responseTokens: Int = 800,
+        responseTokens: Int = 1_000,
         overheadTokens: Int = 900,
         userNotesTokens: Int = 300,
         maximumChunkTokens: Int = 2_500
@@ -50,8 +50,9 @@ public struct NotesBudget: Sendable, Hashable {
     }
 
     /// Tokens available for transcript lines in one call.
-    /// With a 4,096 window: 2,096 when the user typed notes, 2,396 otherwise. These are
-    /// estimated tokens, which over-count by about a quarter, so real chunks run ~1,700–1,900.
+    /// With a 4,096 window: 1,896 when the user typed notes, 2,196 otherwise. These are
+    /// estimated tokens, which over-count by about a quarter, so real chunks run ~1,500–1,750.
+    /// The answer gets 1,000 (FLU-21): at 800, a dense part's list was cut off mid-answer.
     public func chunkTokens(hasUserNotes: Bool) -> Int {
         let free = contextSize - responseTokens - overheadTokens - (hasUserNotes ? userNotesTokens : 0)
         return max(256, min(maximumChunkTokens, free))

@@ -99,6 +99,13 @@ enum DevPreview {
             model.importer.begin()
         } else {
             model.importer.open(value.split(separator: ":").map { URL(fileURLWithPath: String($0)) })
+            // `FLUENCE_PREVIEW_IMPORT_COMMIT=1`: saves every draft as is, which starts the
+            // notes — for testing long meetings end to end on synthetic transcripts.
+            if env["FLUENCE_PREVIEW_IMPORT_COMMIT"] == "1" {
+                while model.importer.draft != nil {
+                    model.importer.commit(store: model.store, generator: model.generator)
+                }
+            }
         }
     }
 

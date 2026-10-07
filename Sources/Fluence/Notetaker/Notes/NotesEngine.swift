@@ -124,7 +124,7 @@ struct NotesEngine: Sendable {
                 do {
                     let output = try await respond(FinalNotesOutput.self, instructions, prompt, budget)
                     return try finish(output.draft, context: context, sourceText: chunks[0].text)
-                } catch where Self.isContextOverflow(error) {
+                } catch where Self.isContextOverflow(error) || Self.isCutOff(error) {
                     // Estimate was off for this text: fall through to map-reduce on halves.
                 }
             }
@@ -145,14 +145,24 @@ struct NotesEngine: Sendable {
         let merged = try await consolidate(partials, context: context, budget: budget)
         await progress(.writing)
         let instructions = NotesPrompts.reduceInstructions(context)
-        let prompt = NotesPrompts.reducePrompt(merged, context: context)
-        let output = try await respond(FinalNotesOutput.self, instructions, prompt, budget)
-        let knownNames = context.participants + merged.actionItems.compactMap { $0.owner }
-        return try finish(output.draft, context: context, sourceText: NotesMerger.render(merged), knownNames: knownNames)
+        var reduced = merged
+        let output: FinalNotesOutput
+        do {
+            output = try await respond(FinalNotesOutput.self, instructions, NotesPrompts.reducePrompt(reduced, context: context), budget)
+        } catch where Self.isRetryableBySplitting(error) {
+            // FLU-21: less to rewrite, a shorter answer. The lists themselves are kept in
+            // code; only the least important items go.
+            let limit = budget.reduceInputTokens(hasUserNotes: !context.userNotes.isEmpty)
+            reduced = NotesMerger.trim(merged, toFit: limit * 6 / 10)
+            output = try await respond(FinalNotesOutput.self, instructions, NotesPrompts.reducePrompt(reduced, context: context), budget)
+        }
+        let knownNames = context.participants + reduced.actionItems.compactMap { $0.owner }
+        return try finish(output.draft, context: context, sourceText: NotesMerger.render(reduced), knownNames: knownNames)
     }
 
-    /// Maps one chunk; on a context overflow or a guardrail refusal, retries once on each
-    /// half — a shorter excerpt is both smaller and less likely to trip a filter on one line.
+    /// Maps one chunk; on a context overflow, a cut-off answer or a guardrail refusal,
+    /// retries on each half, down to three levels — a shorter excerpt is smaller, has less to
+    /// list, and is less likely to trip a filter on one line (FLU-21).
     private func map(
         _ chunk: TranscriptChunk,
         index: Int,
@@ -166,7 +176,8 @@ struct NotesEngine: Sendable {
         do {
             let output = try await respond(ChunkExtraction.self, instructions, prompt, budget)
             return [NotesMerger.clean(output.partial, chunk: chunk, participants: context.participants)]
-        } catch where depth == 0 && chunk.lines.count > 1 && Self.isRetryableBySplitting(error) {
+        } catch where depth < Self.maximumSplitDepth && chunk.lines.count > 1 && Self.isRetryableBySplitting(error) {
+            Log.app.info("notes: part \(index + 1, privacy: .public)/\(count, privacy: .public) split in two (level \(depth + 1, privacy: .public))")
             var results: [PartialNotes] = []
             for half in Self.halves(chunk) {
                 results += try await map(half, index: index, count: count, context: context, budget: budget, depth: depth + 1)
@@ -213,17 +224,22 @@ struct NotesEngine: Sendable {
                 try Task.checkCancellation()
                 if group.count == 1 { next.append(group[0]); continue }
                 let source = NotesMerger.merge(group)
-                let output = try await respond(
-                    ChunkExtraction.self,
-                    NotesPrompts.consolidateInstructions(context),
-                    NotesPrompts.consolidatePrompt(group, context: context),
-                    budget
-                )
-                next.append(NotesMerger.cleanConsolidated(
-                    output.partial,
-                    source: source,
-                    knownNames: context.participants
-                ))
+                do {
+                    let output = try await respond(
+                        ChunkExtraction.self,
+                        NotesPrompts.consolidateInstructions(context),
+                        NotesPrompts.consolidatePrompt(group, context: context),
+                        budget
+                    )
+                    next.append(NotesMerger.cleanConsolidated(
+                        output.partial,
+                        source: source,
+                        knownNames: context.participants
+                    ))
+                } catch where Self.isRetryableBySplitting(error) {
+                    // FLU-21: the plain merge loses nothing; `trim` fits it at the end.
+                    next.append(source)
+                }
             }
             current = next
         }
@@ -272,10 +288,35 @@ struct NotesEngine: Sendable {
                 throw NotesFailure.timedOut
             }
             // Whichever finishes first wins; the loser is cancelled.
-            guard let first = try await group.next() else { throw NotesFailure.timedOut }
-            group.cancelAll()
-            return first
+            do {
+                guard let first = try await group.next() else { throw NotesFailure.timedOut }
+                group.cancelAll()
+                return first
+            } catch {
+                group.cancelAll()
+                // FLU-21: which call failed and how — sizes and the error's kind only. Some
+                // SDK errors carry the model's raw answer, so nothing of the error's
+                // content is ever printed.
+                Log.app.error("""
+                    notes call failed — \(String(describing: Output.self), privacy: .public), \
+                    ~\(TokenEstimate.tokens(in: instructions) + TokenEstimate.tokens(in: prompt), privacy: .public) tokens in, \
+                    answer cap \(budget.responseTokens, privacy: .public): \(Self.errorKind(error), privacy: .public)
+                    """)
+                throw error
+            }
         }
+    }
+
+    /// "Module.Type.case" for an error, from labels only: never its associated values, which
+    /// can hold generated text.
+    static func errorKind(_ error: Error) -> String {
+        let type = String(reflecting: Swift.type(of: error))
+        let mirror = Mirror(reflecting: error)
+        if mirror.displayStyle == .enum {
+            let name = mirror.children.first?.label ?? String(describing: error).prefix(while: { $0 != "(" }).description
+            return "\(type).\(name)"
+        }
+        return type
     }
 
     /// Whether instructions + prompt + schema + answer fit the window. Measured where the
@@ -341,9 +382,22 @@ struct NotesEngine: Sendable {
         return false
     }
 
+    /// How many times a part can be halved before the meeting fails: 2³ = 8 pieces.
+    static let maximumSplitDepth = 3
+
     static func isRetryableBySplitting(_ error: Error) -> Bool {
-        if isContextOverflow(error) { return true }
+        if isContextOverflow(error) || isCutOff(error) { return true }
         return classify(error) == .declined
+    }
+
+    /// The answer ran out of tokens or came back malformed (FLU-21). Since macOS 27 that is
+    /// `GeneratedContent.ParsingError`, a type the macOS 26 SDK — CI's — does not have,
+    /// hence the check by name.
+    static func isCutOff(_ error: Error) -> Bool {
+        if let error = error as? LanguageModelSession.GenerationError, case .decodingFailure = error {
+            return true
+        }
+        return String(reflecting: type(of: error)).hasSuffix("ParsingError")
     }
 
     /// Maps SDK errors to what the user is told. Covers both the macOS 26
@@ -375,6 +429,7 @@ struct NotesEngine: Sendable {
             @unknown default: return .failed("le modèle local n'a pas pu les rédiger.")
             }
         }
+        if isCutOff(error) { return .failed("le modèle local a renvoyé des notes incomplètes. Réessayez dans un instant.") }
         return .failed("le modèle local n'a pas pu les rédiger.")
     }
 
