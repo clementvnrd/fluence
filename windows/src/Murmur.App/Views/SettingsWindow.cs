@@ -39,7 +39,7 @@ public sealed class SettingsWindow : Window
     {
         _settings = settings;
 
-        Title = "Murmur Settings";
+        Title = AppPaths.ProductName + " Settings";
         Width = 540;
         SizeToContent = SizeToContent.Height;
         CanResize = false;
@@ -141,7 +141,7 @@ public sealed class SettingsWindow : Window
             // Showing the resolved path matters: "model not found" is unactionable without
             // knowing which directory was actually checked.
             ? Note($"Loaded from {located}")
-            : Note("Windows has no built-in speech engine equivalent to Apple's, so Murmur "
+            : Note("Windows has no built-in speech engine equivalent to Apple's, so Fluence "
                  + "cannot transcribe until the Parakeet model is downloaded (~661 MB). "
                  + "See docs/PARAKEET-WINDOWS.md. Expected in:\n"
                  + string.Join("\n", ParakeetTranscriber.DefaultSearchPaths()));

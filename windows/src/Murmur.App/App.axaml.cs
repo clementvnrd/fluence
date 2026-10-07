@@ -34,7 +34,7 @@ public partial class App : Application
                 PlatformFactory.AttachClipboardPaste(injector, PasteViaClipboardAsync);
             }
 
-            // Closing the window leaves Murmur running in the tray — the hotkey still works,
+            // Closing the window leaves Fluence running in the tray — the hotkey still works,
             // which is the whole point of a dictation app. Quit is explicit, from the tray
             // menu or the app menu.
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;

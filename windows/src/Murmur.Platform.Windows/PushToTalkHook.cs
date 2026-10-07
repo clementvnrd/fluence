@@ -204,7 +204,7 @@ public sealed class PushToTalkHook : IHotkeySource
         })
         {
             IsBackground = true,
-            Name = "Murmur push-to-talk hook",
+            Name = "Fluence push-to-talk hook",
             // Stay ahead of the 1000 ms timeout that silently removes the hook.
             Priority = ThreadPriority.AboveNormal,
         };

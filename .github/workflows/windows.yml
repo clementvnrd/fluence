@@ -79,7 +79,7 @@ jobs:
             --configuration Release --runtime win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             --output artifacts/publish
-          $exe = 'artifacts/publish/Murmur.App.exe'
+          $exe = 'artifacts/publish/Fluence.exe'
           if (-not (Test-Path $exe)) { throw "Published exe not found at $exe" }
           $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
           Write-Host "published: $size MB"
@@ -88,13 +88,23 @@ jobs:
           $run = Start-Process -FilePath $exe -ArgumentList '--selftest' -Wait -PassThru -NoNewWindow
           if ($run.ExitCode -ne 0) { throw "self-test failed with exit code $($run.ExitCode)" }
 
-      - name: Upload the exe
+          # The exe alone is NOT the app: the platform layer and its dependencies ship as
+          # loose DLLs beside it, because the exe loads them by reflection and single-file
+          # publishing cannot bundle what it cannot see. An artifact without them starts
+          # fine and then does nothing when the key is pressed.
+          foreach ($dll in 'Murmur.Platform.Windows.dll', 'NAudio.Wasapi.dll') {
+            if (-not (Test-Path "artifacts/publish/$dll")) { throw "publish folder is missing $dll" }
+          }
+          Get-ChildItem artifacts/publish | Select-Object Name, @{n='KB';e={[math]::Round($_.Length/1KB)}}
+
+      # The whole publish folder, which upload-artifact delivers as one zip. Never the exe
+      # alone — see the check above.
+      - name: Upload the app
         uses: actions/upload-artifact@v4
         with:
-          name: Murmur-win-x64
-          path: windows/artifacts/publish/Murmur.App.exe
+          name: Fluence-win-x64
+          path: windows/artifacts/publish/
           if-no-files-found: error
-          compression-level: 0
 
       - name: Upload test results
         if: always()

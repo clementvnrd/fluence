@@ -48,7 +48,7 @@ public sealed class MainWindow : Window
     {
         _composition = composition;
 
-        Title = "Murmur";
+        Title = AppPaths.ProductName;
         MinWidth = 720;
         MinHeight = 520;
         Width = 880;
@@ -186,7 +186,7 @@ public sealed class MainWindow : Window
                 },
                 new TextBlock
                 {
-                    Text = "Speech model not installed — Murmur cannot transcribe yet. "
+                    Text = "Speech model not installed — Fluence cannot transcribe yet. "
                          + "See Settings, or docs/PARAKEET-WINDOWS.md.",
                     FontFamily = Tokens.Fonts.Grotesque,
                     FontSize = Tokens.Fonts.Label,

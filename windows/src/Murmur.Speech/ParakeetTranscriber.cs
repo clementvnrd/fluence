@@ -62,7 +62,7 @@ public sealed class ParakeetTranscriber : ITranscriber
     {
         yield return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Murmur", "models", "parakeet-v2");
+            "Fluence", "models", "parakeet-v2");
 
         // AppContext.BaseDirectory, not Assembly.Location — the latter returns an empty
         // string in a single-file app, which silently resolves paths against the current

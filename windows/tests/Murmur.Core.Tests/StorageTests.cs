@@ -238,3 +238,71 @@ public sealed class AppSettingsTests : IDisposable
         new AppSettings(_path).Data.PushToTalkKey.ShouldBe(0xA3);
     }
 }
+
+/// <summary>The one-time move from the pre-rename data folder.</summary>
+public sealed class AppPathsTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), $"fluence-paths-{Guid.NewGuid():N}");
+
+    private string Legacy => Path.Combine(_root, "Murmur");
+    private string Current => Path.Combine(_root, "Fluence");
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
+    }
+
+    private static void Write(string path, string text)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, text);
+    }
+
+    [Fact]
+    public void Nothing_happens_without_a_legacy_folder()
+    {
+        AppPaths.MigrateLegacyData(Legacy, Current).ShouldBe(DataMigration.NothingToMigrate);
+        Directory.Exists(Current).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void The_legacy_folder_is_moved_not_copied()
+    {
+        Write(Path.Combine(Legacy, "transcripts.jsonl"), "old history");
+        Write(Path.Combine(Legacy, "models", "parakeet-v2", "tokens.txt"), "tokens");
+
+        AppPaths.MigrateLegacyData(Legacy, Current).ShouldBe(DataMigration.Moved);
+
+        File.ReadAllText(Path.Combine(Current, "transcripts.jsonl")).ShouldBe("old history");
+        File.Exists(Path.Combine(Current, "models", "parakeet-v2", "tokens.txt")).ShouldBeTrue();
+        Directory.Exists(Legacy).ShouldBeFalse("a plaintext copy left behind would defeat sealing the history");
+    }
+
+    [Fact]
+    public void A_merge_never_overwrites_the_new_folder()
+    {
+        Write(Path.Combine(Legacy, "settings.json"), "legacy settings");
+        Write(Path.Combine(Legacy, "dictionary.txt"), "legacy dictionary");
+        Write(Path.Combine(Legacy, "models", "parakeet-v3", "tokens.txt"), "v3");
+        Write(Path.Combine(Current, "settings.json"), "new settings");
+        Write(Path.Combine(Current, "models", "parakeet-v2", "tokens.txt"), "v2");
+
+        AppPaths.MigrateLegacyData(Legacy, Current).ShouldBe(DataMigration.Merged);
+
+        File.ReadAllText(Path.Combine(Current, "settings.json")).ShouldBe("new settings");
+        File.ReadAllText(Path.Combine(Current, "dictionary.txt")).ShouldBe("legacy dictionary");
+        File.Exists(Path.Combine(Current, "models", "parakeet-v3", "tokens.txt")).ShouldBeTrue();
+        File.Exists(Path.Combine(Current, "models", "parakeet-v2", "tokens.txt")).ShouldBeTrue();
+
+        // The conflicting file stays behind rather than being guessed at.
+        File.ReadAllText(Path.Combine(Legacy, "settings.json")).ShouldBe("legacy settings");
+    }
+
+    [Fact]
+    public void Paths_use_the_product_name()
+    {
+        AppPaths.DataDirectory.ShouldEndWith("Fluence");
+        AppPaths.TranscriptsFile.ShouldStartWith(AppPaths.DataDirectory);
+        AppPaths.LogsDirectory.ShouldStartWith(AppPaths.DataDirectory);
+    }
+}

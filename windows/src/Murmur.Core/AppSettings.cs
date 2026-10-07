@@ -39,9 +39,7 @@ public sealed class AppSettings
     }
 
     /// <summary>The default location.</summary>
-    public static string DefaultPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Murmur", "settings.json");
+    public static string DefaultPath => AppPaths.SettingsFile;
 
     /// <summary>Current values.</summary>
     public SettingsData Data { get; private set; }

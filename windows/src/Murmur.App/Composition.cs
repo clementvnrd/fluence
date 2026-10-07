@@ -66,6 +66,10 @@ public sealed class Composition : IAsyncDisposable
     /// <summary>Builds the object graph.</summary>
     public static Composition Create()
     {
+        // Before anything opens a file: the pre-rename %LOCALAPPDATA%\Murmur folder is moved,
+        // not copied, so its plaintext history cannot linger beside the new one.
+        AppPaths.MigrateLegacyData();
+
         var settings = new AppSettings(AppSettings.DefaultPath);
         var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
         var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);
