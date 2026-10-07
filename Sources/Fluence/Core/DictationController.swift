@@ -66,7 +66,7 @@ final class DictationController {
     private var feedTask: Task<[AudioChunk], Never>?
     private var audioContinuation: AsyncStream<AudioChunk>.Continuation?
 
-    /// Timestamps for the dashboard: when the key went down, and when it came up.
+    /// Timestamps for the history: when the key went down, and when it came up.
     private var holdStarted: Date?
     private var releasedAt: Date?
     private var engineName = ""
@@ -264,9 +264,11 @@ final class DictationController {
                 Log.speech.info("dictionary · \(corrections.count, privacy: .public) correction(s) applied")
             }
 
-            recordRun(text: output, corrections: corrections)
+            // Typed first, filed second: the user is waiting on the text, not on the history.
+            let processSeconds = releasedAt.map { Date().timeIntervalSince($0) } ?? 0
             TextInjector.insert(output)
             if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
+            recordRun(text: output, raw: raw, processSeconds: processSeconds, corrections: corrections)
 
             state = .idle
             transcript = ""
@@ -274,6 +276,7 @@ final class DictationController {
     }
 
     private func cancelDictation() {
+        WisprTrigger.release()
         capture.stop()
         audioContinuation?.finish()
         audioContinuation = nil
@@ -345,11 +348,13 @@ final class DictationController {
             )
         }
 
+        // Lengths only. The text itself is the user's dictation and has no place in the
+        // unified log, where `log stream` and every sysdiagnose can read it.
         for result in results {
             Log.speech.info("""
                 compare · \(result.engine, privacy: .public): \
                 \(result.seconds, format: .fixed(precision: 2))s — \
-                \(result.text, privacy: .public)
+                \(result.text.count, privacy: .public) chars
                 """)
         }
 
@@ -372,7 +377,7 @@ final class DictationController {
                 Log.speech.info("""
                     compare · \(wispr.engine, privacy: .public): \
                     \(wispr.seconds, format: .fixed(precision: 2))s — \
-                    \(wispr.text, privacy: .public)
+                    \(wispr.text.count, privacy: .public) chars
                     """)
             } else {
                 Log.speech.info("compare · Wispr Flow: no result (hotkey not held, or timed out)")
@@ -388,20 +393,27 @@ final class DictationController {
         if Settings.shared.soundEnabled { NSSound(named: "Glass")?.play() }
     }
 
-    /// Files the finished utterance for the dashboard.
+    /// Files the finished utterance in the history.
     ///
     /// `processSeconds` is measured from key release, not from capture start — that's the
     /// wait the user actually experiences, and it's the only number on which a streaming
     /// engine and a batch engine can be compared honestly.
-    private func recordRun(text: String, corrections: [AppliedCorrection] = []) {
+    private func recordRun(
+        text: String,
+        raw: String,
+        processSeconds: Double,
+        corrections: [AppliedCorrection] = []
+    ) {
         guard let holdStarted, let releasedAt else { return }
+        let rawText = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         RunLog.record(
             DictationRun(
                 date: releasedAt,
                 engine: engineName,
                 audioSeconds: releasedAt.timeIntervalSince(holdStarted),
-                processSeconds: Date().timeIntervalSince(releasedAt),
+                processSeconds: processSeconds,
                 text: text,
+                rawText: rawText == text ? nil : rawText,
                 corrections: corrections.isEmpty ? nil : corrections
             )
         )
@@ -416,6 +428,8 @@ final class DictationController {
 
     private func fail(_ message: String) {
         Log.app.error("\(message)")
+        // A held Wispr key outlives our failure: Wispr would keep recording, and uploading.
+        WisprTrigger.release()
         capture.stop()
         audioContinuation?.finish()
         audioContinuation = nil

@@ -1,3 +1,4 @@
+import FluenceCore
 import SwiftUI
 
 /// Settings — hotkey and model, per the brief. Opens on ⌘, via the standard `Settings` scene,
@@ -5,6 +6,7 @@ import SwiftUI
 struct SettingsWindow: View {
     @Bindable var controller: DictationController
     @State private var settings = Settings.shared
+    @State private var history = RunStore.shared
 
     var body: some View {
         ZStack {
@@ -66,11 +68,39 @@ struct SettingsWindow: View {
                         + "corrections run either way.")
                 }
 
+                panel(label: "History") {
+                    HStack(spacing: DS.Space.snug) {
+                        ForEach(HistoryRetention.allCases, id: \.self) { retention in
+                            TransportKey(
+                                title: retention.displayName,
+                                isEngaged: settings.historyRetention == retention,
+                                engagedColor: DS.Color.ink
+                            ) {
+                                settings.historyRetention = retention
+                                RunLog.applyRetention()
+                            }
+                            .background {
+                                if settings.historyRetention == retention {
+                                    RoundedRectangle(cornerRadius: DS.Radius.control)
+                                        .fill(DS.Color.selection)
+                                }
+                            }
+                        }
+                    }
+                    note(settings.historyRetention == .never
+                        ? "Nothing is written to disk. This session's transcripts stay listed until you quit."
+                        : "Encrypted on this Mac, never backed up. Older transcripts are deleted as soon "
+                            + "as you change this.")
+                    if let problem = history.problem {
+                        note(problem)
+                    }
+                }
+
                 Spacer()
             }
             .padding(DS.Space.panel)
         }
-        .frame(width: 520, height: 460)
+        .frame(width: 520, height: 600)
     }
 
     private func panel<Content: View>(

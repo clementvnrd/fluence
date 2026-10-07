@@ -27,6 +27,10 @@ final class HUDPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = false
 
+        // The HUD shows the live transcript. Excluded from screen sharing, recording and
+        // screenshots, so dictating during a call doesn't broadcast what you're writing.
+        sharingType = .none
+
         contentView = NSHostingView(rootView: HUDView(controller: controller))
     }
 

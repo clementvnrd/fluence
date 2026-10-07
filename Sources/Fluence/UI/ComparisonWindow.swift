@@ -1,40 +1,14 @@
 import SwiftUI
 
-/// Live-updating store behind the comparison window.
-///
-/// The window replaced a generated HTML file opened in the browser. That approach needed a
-/// `file://` URL, spawned a fresh tab on every open, and left stale tabs showing old data
-/// with no way to tell which was current. A window owned by the app has none of those
-/// problems: one instance, always live, nothing to refresh.
-@MainActor
-@Observable
-final class RunStore {
-    static let shared = RunStore()
-
-    private(set) var runs: [DictationRun] = []
-
-    private init() { reload() }
-
-    func reload() {
-        runs = RunLog.load()
-    }
-
-    /// Recordings grouped by comparison, newest first.
-    var comparisons: [[DictationRun]] {
-        Dictionary(grouping: runs.filter { $0.group != nil }, by: { $0.group! })
-            .values
-            .sorted { ($0.first?.date ?? .distantPast) > ($1.first?.date ?? .distantPast) }
-    }
-
-    var singles: [DictationRun] {
-        runs.filter { $0.group == nil }.reversed()
-    }
-}
-
+/// The comparison window replaced a generated HTML file opened in the browser. That approach
+/// needed a `file://` URL, spawned a fresh tab on every open, left stale tabs showing old data
+/// — and kept a second plaintext copy of every transcript on disk. A window owned by the app
+/// has none of those problems: one instance, always live, nothing to refresh.
 struct ComparisonWindow: View {
     @Bindable var controller: DictationController
     @State private var store = RunStore.shared
     @State private var settings = Settings.shared
+    @State private var isConfirmingClear = false
 
     var body: some View {
         ScrollView {
@@ -72,11 +46,20 @@ struct ComparisonWindow: View {
             }
             Spacer()
             if !store.runs.isEmpty {
-                Button("Clear") {
-                    RunLog.clear()
-                    store.reload()
-                }
+                Button("Clear") { isConfirmingClear = true }
             }
+        }
+        // Clear wipes every transcript, not just the comparisons shown here, and there's no
+        // undo — so it asks, as "Delete all" in the main window does.
+        .confirmationDialog(
+            "Delete all \(store.runs.count) recordings?",
+            isPresented: $isConfirmingClear,
+            titleVisibility: .visible
+        ) {
+            Button("Delete All", role: .destructive) { RunLog.clear() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes your whole transcription history. It can't be undone.")
         }
     }
 

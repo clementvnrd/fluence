@@ -168,6 +168,10 @@ private struct TranscriptionList: View {
         VStack(spacing: 0) {
             SearchField(text: $query, placeholder: "Search transcriptions")
 
+            if let problem = store.problem {
+                ProblemStrip(message: problem)
+            }
+
             if runs.isEmpty {
                 EmptyPanel(
                     label: store.runs.isEmpty ? "No recordings" : "No matches",
@@ -228,6 +232,7 @@ private struct TranscriptionRow: View {
 
     @State private var didCopy = false
     @State private var isHovering = false
+    @State private var showsRaw = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.snug) {
@@ -239,14 +244,15 @@ private struct TranscriptionRow: View {
                 Text(run.date, style: .time)
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Color.inkOnDeck.opacity(0.5))
+                if run.rawText != nil { rawButton }
                 copyButton
                 deleteButton
                     .opacity(isHovering ? 1 : 0)
             }
 
-            Text(run.text)
+            Text(showsRaw ? run.rawText ?? run.text : run.text)
                 .font(DS.Font.body)
-                .foregroundStyle(DS.Color.inkOnDeck)
+                .foregroundStyle(DS.Color.inkOnDeck.opacity(showsRaw ? 0.7 : 1))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -263,10 +269,29 @@ private struct TranscriptionRow: View {
         .onHover { isHovering = $0 }
     }
 
+    /// What the engine heard before cleanup — there when cleanup changed something, so a
+    /// sentence the cleanup pass dropped can still be recovered.
+    private var rawButton: some View {
+        Button { showsRaw.toggle() } label: {
+            Silkscreen(text: "Raw", color: DS.Color.inkOnDeck.opacity(showsRaw ? 1 : 0.6))
+                .padding(.horizontal, DS.Space.snug)
+                .padding(.vertical, DS.Space.tight)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.chip)
+                        .strokeBorder(DS.Color.inkOnDeck.opacity(0.3), lineWidth: DS.Border.hairline)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(showsRaw ? "Show the cleaned-up text" : "Show what was heard, before cleanup")
+    }
+
     private var copyButton: some View {
         Button {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(run.text, forType: .string)
+            // An explicit copy behaves like any other copy — clipboard managers may keep it —
+            // but stays on this Mac rather than syncing through Universal Clipboard.
+            let pasteboard = NSPasteboard.general
+            pasteboard.prepareForNewContents(with: .currentHostOnly)
+            pasteboard.setString(showsRaw ? run.rawText ?? run.text : run.text, forType: .string)
             didCopy = true
             Task {
                 try? await Task.sleep(for: .seconds(1.4))
@@ -365,6 +390,29 @@ struct SearchField: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+        .padding(.horizontal, DS.Space.base)
+        .padding(.vertical, DS.Space.snug)
+        .background(DS.Color.deck)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
+        }
+    }
+}
+
+/// A fault line under the search field: history couldn't be read or saved. Persistent rather
+/// than a toast, because the failure it reports — the Keychain refusing the key — persists.
+private struct ProblemStrip: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: DS.Space.snug) {
+            Silkscreen(text: "Fault", color: DS.Color.inkOnDeck)
+            Text(message)
+                .font(DS.Font.label)
+                .foregroundStyle(DS.Color.inkOnDeck.opacity(0.8))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, DS.Space.base)
         .padding(.vertical, DS.Space.snug)

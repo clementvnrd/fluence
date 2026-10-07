@@ -1,3 +1,4 @@
+import FluenceCore
 import Foundation
 import Observation
 
@@ -51,6 +52,12 @@ final class Settings {
         didSet { defaults.set(soundEnabled, forKey: Keys.soundEnabled) }
     }
 
+    /// How long finished dictations stay on disk. Applied at launch, after every run and
+    /// whenever it changes.
+    var historyRetention: HistoryRetention {
+        didSet { defaults.set(historyRetention.rawValue, forKey: Keys.historyRetention) }
+    }
+
     private let defaults = UserDefaults.standard
 
     private enum Keys {
@@ -60,6 +67,7 @@ final class Settings {
         static let engine = "engine"
         static let smartCleanup = "smartCleanup"
         static let compareMode = "compareMode"
+        static let historyRetention = "historyRetention"
     }
 
     private init() {
@@ -73,5 +81,18 @@ final class Settings {
         smartCleanup = defaults.object(forKey: Keys.smartCleanup) as? Bool ?? false
         compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
+        historyRetention = HistoryRetention(rawValue: defaults.string(forKey: Keys.historyRetention) ?? "")
+            ?? .default
+    }
+}
+
+extension HistoryRetention {
+    var displayName: String {
+        switch self {
+        case .never: "Don't keep"
+        case .day: "1 day"
+        case .month: "30 days"
+        case .forever: "Forever"
+        }
     }
 }

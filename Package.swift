@@ -18,10 +18,19 @@ let package = Package(
             path: "Sources/MurmurDictionary",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Logic the app depends on that needs no microphone, Keychain or window — formats,
+        // policies, signal maths. Its own target so it runs under `swift test`; the app
+        // target can only be typechecked without Xcode, never exercised.
+        .target(
+            name: "FluenceCore",
+            path: "Sources/FluenceCore",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .executableTarget(
             name: "Fluence",
             dependencies: [
                 "MurmurDictionary",
+                "FluenceCore",
                 .product(name: "FluidAudio", package: "FluidAudio"),
             ],
             path: "Sources/Fluence",
@@ -34,6 +43,12 @@ let package = Package(
             dependencies: ["MurmurDictionary"],
             path: "Tests/MurmurDictionaryTests",
             resources: [.copy("dictionary-test-vectors.json")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "FluenceCoreTests",
+            dependencies: ["FluenceCore"],
+            path: "Tests/FluenceCoreTests",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

@@ -64,9 +64,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             retryActivation()
         }
 
-        // Write the dashboard up front so the menu item always opens something, even
-        // before the first dictation.
-        RunLog.regenerate()
+        // Reads (and on first run after the update, seals and replaces) the history off the
+        // main thread, then applies the retention setting.
+        RunLog.start()
 
         // Parakeet's models take ~20s to load from disk, and that cost lands on whichever
         // dictation touches them first — so the first hold after every launch would stall
@@ -106,7 +106,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Raises the comparison window without needing SwiftUI's `openWindow` environment
     /// value — usable from the app delegate and from a URL handler.
     static func showComparisonWindow() {
-        RunStore.shared.reload()
         if let existing = NSApp.windows.first(where: { $0.title == "Engine comparison" }) {
             existing.makeKeyAndOrderFront(nil)
         }
@@ -117,6 +116,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let isOpen = NSApp.windows.contains { $0.title == "Engine comparison" && $0.isVisible }
         UserDefaults.standard.set(isOpen, forKey: "comparisonWindowOpen")
         controller.deactivate()
+        // Belt and braces: quitting mid-comparison must not leave Wispr Flow's key held down,
+        // or Wispr keeps recording — and uploading — after Fluence is gone.
+        WisprTrigger.release()
     }
 
     /// Shows and hides the HUD in step with the controller's state.
@@ -216,7 +218,6 @@ private struct MenuContent: View {
         Divider()
 
         Button("Show comparison window") {
-            RunStore.shared.reload()
             openWindow(id: "comparison")
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -227,6 +228,10 @@ private struct MenuContent: View {
         if settings.engine == .parakeet {
             Button(parakeetStatus) { preloadParakeet() }
                 .disabled(isPreloadingParakeet || parakeetOnDisk)
+        }
+
+        if let problem = RunStore.shared.problem {
+            Text(problem).font(.caption)
         }
 
         if !Permissions.hasAccessibility {

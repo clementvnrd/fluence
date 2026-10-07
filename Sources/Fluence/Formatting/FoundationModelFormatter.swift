@@ -152,7 +152,8 @@ struct FoundationModelFormatter: TextFormatter {
         let vocabulary = Set(originalTokens)
         let invented = cleanedTokens.filter { !vocabulary.contains($0) }
         guard invented.isEmpty else {
-            Log.speech.info("cleanup rejected — invented words: \(invented.prefix(5).joined(separator: ", "), privacy: .public)")
+            // A count, never the words: they are the user's dictation.
+            Log.speech.info("cleanup rejected — \(invented.count, privacy: .public) invented word(s)")
             return false
         }
 
