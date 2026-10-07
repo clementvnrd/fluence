@@ -174,7 +174,7 @@ them as load-bearing. Full detail in `windows/README.md` and `docs/PARAKEET-WIND
 |---|---|---|
 | `NAudio` | 2.3.0 | 3.x is a new major version — moving is a port that needs real-hardware testing. 3.1 is needed later for the Notetaker's process loopback (FLU-10) |
 | `Avalonia.Headless.XUnit` | 11.3.20 | 12.x requires xUnit **v3**, a different package line |
-| `org.k2fsa.sherpa.onnx` | 1.13.5 | Bundles ONNX Runtime — never also reference `Microsoft.ML.OnnxRuntime` |
+| `org.k2fsa.sherpa.onnx` | 1.13.8 | Bundles ONNX Runtime — never also reference `Microsoft.ML.OnnxRuntime` |
 
 **Right Alt is AltGr** on German, Polish, UK, Nordic and most Latin-American layouts. Binding
 push-to-talk there — and especially suppressing it — breaks typing `@`, `€`, `\`, `|` for
