@@ -209,6 +209,7 @@ struct CapButton: View {
             .contentShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
         }
         .buttonStyle(.plain)
+        .focusEffectDisabled()  // no ring on the first button when a window opens (FLU-18)
         .onHover { isHovered = $0 }
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.45)
@@ -275,6 +276,8 @@ struct CounterChip: View {
         Text(text)
             .font(DS.Font.counter)
             .foregroundStyle(DS.Color.inkSecondary)
+            .lineLimit(1)
+            .fixedSize()  // a counter never wraps (FLU-18: « 0 / 0: / 0 / 0 » in a narrow window)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(DS.Color.well, in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
@@ -323,6 +326,8 @@ struct MetaChip: View {
             if let systemImage { Image(systemName: systemImage).font(.system(size: 9, weight: .medium)) }
             Text(text).font(.system(size: 10, weight: .medium, design: .rounded))
         }
+        .lineLimit(1)
+        .fixedSize()  // a chip never wraps (FLU-18: « Chi / ffré »)
         .foregroundStyle(DS.Color.inkSecondary)
         .padding(.horizontal, 7)
         .padding(.vertical, 2.5)
@@ -502,6 +507,30 @@ struct ContentTitle: View {
                 Text(subtitle).font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary).lineLimit(2)
             }
         }
+    }
+}
+
+/// A page's title with its actions on the right. When the actions do not fit beside the
+/// title, they move under it rather than being cut short (FLU-18).
+struct PageHeader<Actions: View>: View {
+    let title: String
+    var subtitle: String?
+    @ViewBuilder let actions: () -> Actions
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: DS.Space.snug) {
+                ContentTitle(title: title, subtitle: subtitle)
+                Spacer(minLength: DS.Space.roomy)
+                HStack(spacing: DS.Space.snug) { actions() }.fixedSize()
+            }
+            VStack(alignment: .leading, spacing: DS.Space.base) {
+                ContentTitle(title: title, subtitle: subtitle)
+                HStack(spacing: DS.Space.snug) { actions() }.fixedSize()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -704,6 +733,9 @@ struct SidebarItem: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The selection highlight is the indicator; the focus ring the first row got when a
+        // window opened read as a second selection (FLU-18).
+        .focusEffectDisabled()
         .onHover { isHovered = $0 }
     }
 }

@@ -51,9 +51,7 @@ private struct MeetingsList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center) {
-                ContentTitle(title: "Réunions", subtitle: subtitle)
-                Spacer()
+            PageHeader(title: "Réunions", subtitle: subtitle) {
                 CapButton(title: "Importer", systemImage: "square.and.arrow.down") { model.importer.begin() }
                     .help("Ajouter une réunion passée depuis un fichier de transcription ou du texte collé")
                 if !controller.isBusy {

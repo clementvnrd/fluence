@@ -32,6 +32,7 @@ struct TranscriptionsView: View {
         VStack(spacing: 0) {
             HStack(alignment: .center) {
                 ContentTitle(title: "Transcriptions", subtitle: subtitle)
+                    .layoutPriority(1)  // the controls shrink first (FLU-18)
                 Spacer(minLength: DS.Space.roomy)
                 DictationHeaderControls(controller: controller)
             }
