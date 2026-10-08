@@ -42,12 +42,12 @@ public sealed class SettingsWindow : Window
         (HistoryRetention.Forever, "FOREVER"),
     ];
 
-    /// <summary>Card countdown choices; 0 waits for a click.</summary>
-    private static readonly int[] Countdowns = [0, 5, 10, 30];
+    /// <summary>"Record without a click" choices; 0 (never: wait for a click) is the default.</summary>
+    private static readonly int[] AutoRecordChoices = [0, 10, 30];
 
     private readonly AppSettings _settings;
     private readonly MeetingStore? _meetings;
-    private readonly StackPanel _countdownRow = new() { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Snug };
+    private readonly StackPanel _autoRecordRow = new() { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Snug };
     private readonly StackPanel _meetingRetentionRow = new() { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Snug };
     private readonly TransportKey _deleteMeetings = new() { Content = "DELETE ALL MEETINGS", EngagedColor = Tokens.Colors.Ink };
     private readonly TranscriptStore? _history;
@@ -129,15 +129,15 @@ public sealed class SettingsWindow : Window
             _retentionRow.Children.Add(button);
         }
 
-        foreach (var seconds in Countdowns)
+        foreach (var seconds in AutoRecordChoices)
         {
             var button = new TransportKey
             {
-                Content = seconds == 0 ? "WAIT FOR CLICK" : seconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " S",
+                Content = seconds == 0 ? "NEVER" : seconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " S",
                 EngagedColor = Tokens.Colors.Ink,
             };
-            button.Click += (_, _) => SelectCountdown(seconds);
-            _countdownRow.Children.Add(button);
+            button.Click += (_, _) => SelectAutoRecord(seconds);
+            _autoRecordRow.Children.Add(button);
         }
 
         foreach (var choice in Retention.Choices)
@@ -150,7 +150,7 @@ public sealed class SettingsWindow : Window
         _deleteMeetings.Click += (_, _) => DeleteAllMeetings();
 
         Content = new ScrollViewer { Content = BuildContent(), MaxHeight = 760 };
-        SelectCountdown(_settings.Data.NotetakerCountdownSeconds);
+        SelectAutoRecord(_settings.Data.NotetakerAutoRecordSeconds);
         SelectMeetingRetention(Retention.Choice(_settings.Data.NotetakerRetentionDays) ?? RetentionChoice.Forever);
         SelectKey(_settings.Data.PushToTalkKey, WarningFor(_settings.Data.PushToTalkKey));
         SelectRetention(_settings.Data.HistoryRetention);
@@ -173,15 +173,15 @@ public sealed class SettingsWindow : Window
         }
     }
 
-    /// <summary>Engages a countdown key and saves. Exposed for headless tests.</summary>
-    public void SelectCountdown(int seconds)
+    /// <summary>Engages a "record without a click" key and saves. Exposed for headless tests.</summary>
+    public void SelectAutoRecord(int seconds)
     {
-        for (var i = 0; i < Countdowns.Length; i++)
+        for (var i = 0; i < AutoRecordChoices.Length; i++)
         {
-            ((TransportKey)_countdownRow.Children[i]).IsEngaged = Countdowns[i] == seconds;
+            ((TransportKey)_autoRecordRow.Children[i]).IsEngaged = AutoRecordChoices[i] == seconds;
         }
 
-        if (_settings.Data.NotetakerCountdownSeconds != seconds) Save(_settings.Data with { NotetakerCountdownSeconds = seconds });
+        if (_settings.Data.NotetakerAutoRecordSeconds != seconds) Save(_settings.Data with { NotetakerAutoRecordSeconds = seconds });
     }
 
     /// <summary>Engages a meeting retention key and saves (old meetings are purged at once). Exposed for headless tests.</summary>
@@ -218,8 +218,9 @@ public sealed class SettingsWindow : Window
             Toggle("Offer to take notes when a call starts", _settings.Data.NotetakerDetectMeetings,
                 v => Save(_settings.Data with { NotetakerDetectMeetings = v })),
             Note("Teams, Zoom, Webex, Slack, Discord, GoTo, and browser calls (Meet, Teams, Zoom, Webex…) when "
-               + "the call is the active tab. A card appears with a countdown; nothing is ever recorded silently."),
-            _countdownRow,
+               + "the call is the active tab. A card asks; nothing records until you click Record."),
+            Note("Record without a click — if you don't answer the card, recording starts by itself after:"),
+            _autoRecordRow,
             Toggle("Keep the audio by default", _settings.Data.NotetakerKeepAudioByDefault,
                 v => Save(_settings.Data with { NotetakerKeepAudioByDefault = v })),
             Note("Off: the encrypted recording is deleted once the transcript is ready. Each meeting can still "

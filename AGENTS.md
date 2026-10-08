@@ -32,9 +32,10 @@ The repository is `clementvnrd/fluence` (private). Fluence's own code is under t
 Strict 1.0.0** licence (`LICENSE.md`, FLU-42): readable and usable for non-commercial purposes,
 no distribution, no changes. It started as a copy of the public `per-simmons/murmur-youtube`,
 which has **no licence**, and about 17 % of the lines are still its author's (measured
-2026-10-09, FLU-43). Clement chose not to ask that author (FLU-39). **Never make the repository
-public or publish a binary before FLU-43 is answered** (and, if he chooses so, FLU-44 has
-rewritten those lines).
+2026-10-09, FLU-43). Clement chose not to ask that author (FLU-39), and to make the repository public only once
+those lines are rewritten (FLU-43, 2026-10-09: « public après réécriture »). **Never make the
+repository public or publish a binary before FLU-44 has rewritten them**; making it public is
+then still Clement's explicit call.
 
 ---
 

@@ -55,6 +55,7 @@ final class OnboardingWindow {
 @Observable
 final class OnboardingModel {
     enum Step: Int, CaseIterable, Identifiable {
+        /// `systemAudio` is the meetings step: call detection and the call's sound (FLU-34).
         case accessibility, microphone, systemAudio, calendar, ready
 
         var id: Int { rawValue }
@@ -63,7 +64,7 @@ final class OnboardingModel {
             switch self {
             case .accessibility: "Accessibilité"
             case .microphone: "Micro"
-            case .systemAudio: "Audio système"
+            case .systemAudio: "Réunions"
             case .calendar: "Calendrier"
             case .ready: "Prêt"
             }
@@ -256,6 +257,10 @@ private struct OnboardingView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, DS.Space.wide)
 
+            if model.step == .systemAudio {
+                DetectionSwitch().padding(.bottom, DS.Space.wide)
+            }
+
             if model.step == .ready {
                 if Self.requiredGranted(model) { ShortcutLegend() }
             } else {
@@ -383,12 +388,13 @@ private struct OnboardingView: View {
             )
         case .systemAudio:
             Page(
-                symbol: "speaker.wave.2.fill",
-                title: "Entendre l'autre côté d'un appel",
-                body: "Les notes de réunion enregistrent les autres participants à partir du son de votre Mac. La dictée n'en a pas besoin.",
+                symbol: "person.2.wave.2",
+                title: "Notes de réunion",
+                body: "Quand un appel commence, Fluence peut proposer de prendre des notes. Rien n'est enregistré sans votre clic. La dictée n'en a pas besoin.",
                 facts: [
-                    Fact(symbol: "clock", text: "Rien à faire maintenant : macOS le demande la première fois que vous prenez des notes de réunion."),
-                    Fact(symbol: "gearshape.fill", text: "Si vous avez refusé, c'est dans Réglages Système qu'on le change."),
+                    Fact(symbol: "speaker.wave.2.fill", text: "Les autres participants sont enregistrés à partir du son de votre Mac."),
+                    Fact(symbol: "doc.on.clipboard", text: "La carte de l'appel copie un avis à coller dans le chat, pour prévenir les participants."),
+                    Fact(symbol: "gearshape.fill", text: "Si vous avez refusé l'accès au son, c'est dans Réglages Système qu'on le change."),
                 ],
                 action: Action(title: "Ouvrir Réglages Système") { Permissions.openSystemAudioSettings() }
             )
@@ -422,5 +428,25 @@ private struct OnboardingView: View {
 
     private static func requiredGranted(_ model: OnboardingModel) -> Bool {
         model.status(of: .accessibility) == .granted && model.status(of: .microphone) == .granted
+    }
+}
+
+/// FLU-34: the one switch for call detection, on the meetings step — the same setting as
+/// Réglages › Réunions › Détecter les réunions.
+private struct DetectionSwitch: View {
+    @Bindable private var settings = NotetakerSettings.shared
+
+    var body: some View {
+        HStack(spacing: DS.Space.base) {
+            Text("Proposer de prendre des notes quand un appel commence")
+                .font(DS.Font.bodyEmphasis)
+                .foregroundStyle(DS.Color.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: DS.Space.base)
+            RowToggle(isOn: $settings.detectMeetings)
+        }
+        .padding(.horizontal, DS.Space.roomy)
+        .padding(.vertical, DS.Space.base)
+        .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }

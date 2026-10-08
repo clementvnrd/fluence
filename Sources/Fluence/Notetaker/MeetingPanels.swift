@@ -115,8 +115,12 @@ final class MeetingDetectionPanel: MeetingFloatingPanel {
     }
 }
 
+/// FLU-34: the card asks. Nothing records until *Enregistrer* is clicked, unless the user
+/// chose *Enregistrer sans clic* in Settings — then the ring counts down and the text says so.
 struct MeetingDetectionCard: View {
     @Bindable var controller: MeetingController
+    /// Briefly true after the consent notice was copied.
+    @State private var copied = false
 
     private var service: String {
         if case .detected(let detected) = controller.state { return detected.displayName }
@@ -125,12 +129,12 @@ struct MeetingDetectionCard: View {
 
     private var detail: String {
         if let seconds = controller.countdown {
-            return "Prise de notes dans \(seconds)\(FrenchFormat.space)s · tout reste sur ce Mac"
+            return "Enregistrement dans \(seconds)\(FrenchFormat.space)s si vous ne répondez pas."
         }
-        return "Prendre des notes ? Tout reste sur ce Mac."
+        return "Rien n'est enregistré sans votre clic."
     }
 
-    private var total: Int { max(1, NotetakerSettings.shared.countdownSeconds) }
+    private var total: Int { max(1, controller.countdownTotal ?? 1) }
 
     var body: some View {
         FloatCard(width: DS.MeetingPanel.cardWidth) {
@@ -153,6 +157,7 @@ struct MeetingDetectionCard: View {
                         .font(DS.Font.caption)
                         .foregroundStyle(DS.Color.inkSecondary)
                         .monospacedDigit()
+                        .fixedSize(horizontal: false, vertical: true)
                     if !controller.pendingDownloads.isEmpty {
                         Text("Première réunion : Fluence va télécharger ses modèles locaux depuis Hugging Face. Votre audio ne quitte jamais ce Mac.")
                             .font(DS.Font.caption)
@@ -164,12 +169,36 @@ struct MeetingDetectionCard: View {
                         PrimaryButton(title: "Enregistrer", systemImage: "record.circle", height: 28) {
                             controller.acceptDetection()
                         }
-                        CapButton(title: "Pas maintenant", height: 28) { controller.dismissDetection() }
+                        CapButton(title: "Pas cette fois", height: 28) { controller.dismissDetection() }
                     }
                     .padding(.top, 10)
+                    consentLink.padding(.top, 8)
                 }
             }
         }
+    }
+
+    /// French then English, to paste into the call's chat before recording: recording
+    /// people without telling them is an offence in France (Code pénal art. 226-1).
+    private var consentLink: some View {
+        Button {
+            NotetakerConsent.copyNotice(nil)
+            copied = true
+            Task {
+                try? await Task.sleep(for: DS.Library.flashDuration)
+                copied = false
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: copied ? "checkmark" : "doc.on.clipboard")
+                Text(copied ? "Copié — collez-le dans le chat de l'appel" : "Copier l'avis pour les participants")
+            }
+            .font(DS.Font.caption)
+            .foregroundStyle(DS.Color.accent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(NotetakerConsent.text(nil))
     }
 }
 

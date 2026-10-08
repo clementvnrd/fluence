@@ -93,7 +93,7 @@ private struct MeetingsList: View {
                     systemImage: model.store.summaries.isEmpty ? "person.2" : "magnifyingglass",
                     title: model.store.summaries.isEmpty ? "Aucune réunion pour l'instant" : "Aucun résultat",
                     detail: model.store.summaries.isEmpty
-                        ? "Quand un appel commence (Zoom, Teams, Meet…), Fluence propose de prendre des notes. Rien n'est enregistré sans vous. Vous pouvez aussi importer une ancienne transcription."
+                        ? Self.firstMeetingHint(NotetakerSettings.shared)
                         : "La recherche porte sur les titres, les noms, les notes et les transcriptions."
                 )
             } else {
@@ -146,6 +146,19 @@ private struct MeetingsList: View {
         } message: {
             Text("Chaque transcription, chaque ensemble de notes et chaque enregistrement conservé est effacé avec sa clé de chiffrement. Cette action est irréversible.")
         }
+    }
+
+    /// What happens when a call starts, exactly as the settings make it happen (FLU-34).
+    private static func firstMeetingHint(_ settings: NotetakerSettings) -> String {
+        let start = if !settings.detectMeetings {
+            "La détection des appels est désactivée : lancez la prise de notes avec « Prendre des notes »."
+        } else if settings.autoRecordSeconds > 0 {
+            "Quand un appel commence (Zoom, Teams, Meet…), Fluence propose de prendre des notes, et enregistre au bout de "
+                + "\(settings.autoRecordSeconds)\(FrenchFormat.space)s si vous ne répondez pas (Réglages › Réunions)."
+        } else {
+            "Quand un appel commence (Zoom, Teams, Meet…), Fluence propose de prendre des notes. Rien n'est enregistré sans votre clic."
+        }
+        return start + " Vous pouvez aussi importer une ancienne transcription."
     }
 }
 

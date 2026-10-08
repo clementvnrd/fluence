@@ -136,8 +136,8 @@ public sealed class MeetingPanel : UserControl
                 var service = _controller.Detected?.Service ?? "A";
                 _headline.Text = $"{service.ToUpperInvariant()} CALL DETECTED";
                 _detail.Text = _controller.Countdown is { } seconds
-                    ? string.Create(CultureInfo.InvariantCulture, $"Taking notes in {seconds} s — tell the others first. Not now to skip this call.")
-                    : "Take notes of this call? Tell the others first.";
+                    ? string.Create(CultureInfo.InvariantCulture, $"Recording in {seconds} s if you don't answer — tell the others first.")
+                    : "Nothing records until you click Record. Tell the others first.";
                 break;
             case MeetingState.Recording:
                 _headline.Text = "TAKING NOTES";

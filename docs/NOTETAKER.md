@@ -61,8 +61,9 @@ Wispr Flow Notetaker (macOS since 2026-08-05, Windows since 2026-09-15):
 - Consent: automatic notice posted in the meeting chat (default on).
 - 22 languages for Notetaker. Transcripts kept forever by default, audio 7 days.
 
-**We keep** the UX (detection card + countdown, You/Others by channel, names from the
-meeting window, rename-once, Recap/Next steps/Decisions, Markdown export, consent notice).
+**We keep** the UX (detection card, You/Others by channel, names from the meeting window,
+rename-once, Recap/Next steps/Decisions, Markdown export, consent notice). **We drop** the
+default countdown (FLU-34): our card asks and records nothing until a click.
 **We differ** on processing: everything on-device, audio discarded by default, encrypted
 storage, and real acoustic diarization of the remote side instead of relying on display
 names alone.
@@ -102,8 +103,14 @@ names alone.
   Recording.
 - EventKit: match an event with a conferencing URL in the current window; gives title and
   attendees.
-- UX: *Meeting detected* card, cancellable countdown, **never record silently**.
-  Reference implementation: Hyprnote/anarlog `crates/detect`.
+- UX: *Réunion détectée* card, **records only after a click** (FLU-34, decided in FLU-39):
+  *Enregistrer* / *Pas cette fois*, and a one-click copy of the FR/EN notice for the call's
+  chat. A card left alone records nothing. Recording on its own after 10–60 s exists only
+  as a setting the user turns on (*Enregistrer sans clic*); the card then counts down.
+  Ignoring a card is not consent: in France a recording is presumed accepted only when made
+  openly (Code pénal art. 226-1). The pure clock is `DetectionOffer` (FluenceMeetingCore,
+  tested); the old `notetaker.countdownSeconds` (10 s by default) is dropped, not carried
+  over. Reference implementation: Hyprnote/anarlog `crates/detect`.
 
 ### 2.2 Capture
 - System audio: **Core Audio process tap** (`CATapDescription.bundleIDs`, macOS 26) →
@@ -229,7 +236,7 @@ controller), `windows/src/Murmur.Speech` (sherpa-onnx), `windows/src/Murmur.Plat
 | System audio | **Process loopback** (`ActivateAudioInterfaceAsync("VAD\Process_Loopback")`, build ≥ 20348) on the call's process tree, trying 16 kHz float, 16 kHz s16, then 44.1 kHz stereo; falls back to **whole-system loopback** (the recording panel says so). NAudio stays on **2.3.0**: its public `IAudioClient` / `AudioCaptureClient.GetBuffer` with QPC timestamps are enough, and only `ActivateAudioInterfaceAsync` is P/Invoked (3.1 would also drag `System.Numerics.Tensors`, which the publish glob drops). Loopback delivers nothing during silence: a heartbeat pads the timeline up to 0.5 s ago — only once the loopback has been quiet that long, so late packets are never trimmed as overlaps — and packet timestamps place speech. |
 | Microphone | A second WASAPI capture beside dictation's, timed by sample count (not arrival). |
 | Detection | Every second: active WASAPI **capture sessions** → process names (Teams, Zoom, Webex, Slack, Discord, GoTo), and for browsers the **visible window titles** (Meet, Teams, Zoom, Webex…). One offer per call; "Not now" holds until the app releases the microphone. **No UI Automation**: a call in a background browser tab is missed. **No calendar** on Windows. |
-| Card and panel | Always-on-top panel: "<service> call detected", visible countdown (default 10 s, or wait for a click), Record / Not now; then the recording strip with the **red lamp lit only while recording**, counter, Stop, **Keep audio**, and **Consent FR / EN** keys copying the macOS `ConsentNotice` text word for word (a test compares it with the Swift source). The panel cannot be closed while recording. |
+| Card and panel | Always-on-top panel: "<service> call detected", waits for a click (FLU-34; "Record without a click" after 10 or 30 s is a setting, off by default, and the old `NotetakerCountdownSeconds` is not carried over), Record / Not now; then the recording strip with the **red lamp lit only while recording**, counter, Stop, **Keep audio**, and **Consent FR / EN** keys copying the macOS `ConsentNotice` text word for word (a test compares it with the Swift source). The panel cannot be closed while recording. |
 | Echo | **No echo canceller on Windows yet.** The text dedupe (`TranscriptMerger`) is the backstop, as on macOS. |
 | ASR | sherpa-onnx **1.13.8** (from 1.13.5): Silero VAD (512-sample hops into the ported segmenter; energy fallback when not installed) + Parakeet with token timestamps. Token durations from 1.13.8 are unreliable, so a word ends at the next token's start (capped). SentencePiece pieces are merged into words, then the dictionary corrects. |
 | Diarization | After the meeting, on the **system channel only**: `OfflineSpeakerDiarization` (pyannote segmentation 3.0 + WeSpeaker ResNet34-LM), cluster threshold **0.45** (measured on one two-speaker clip: 0.5 merged both, 0.4 split one), on the speech only. Word → speaker as on macOS. Without the models, remote speech stays "Others". |

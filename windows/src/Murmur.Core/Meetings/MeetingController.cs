@@ -28,8 +28,11 @@ public sealed record MeetingOptions
     /// <summary>Offer to record when a call starts.</summary>
     public bool DetectMeetings { get; init; } = true;
 
-    /// <summary>Seconds on the card before recording starts by itself; 0 waits for a click.</summary>
-    public int CountdownSeconds { get; init; } = 10;
+    /// <summary>
+    /// "Record without a click": seconds on the card before recording starts by itself. 0, the
+    /// default, waits for a click: ignoring the card is not consent (FLU-34, as on macOS).
+    /// </summary>
+    public int AutoRecordSeconds { get; init; }
 
     /// <summary>The "keep audio" checkbox's starting value.</summary>
     public bool KeepAudioByDefault { get; init; }
@@ -100,14 +103,15 @@ public sealed record MeetingServices
 /// </summary>
 /// <remarks>
 /// <code>
-/// Idle ──detected──► Detected ──Record / countdown──► Recording ──stop──► Processing ──► Idle
+/// Idle ──detected──► Detected ──Record (click)──► Recording ──stop──► Processing ──► Idle
 ///   ▲                   │ Not now                                                     │
 ///   └───────────────────┘◄─────────────────────── Failed (dismissable) ◄──────────────┘
 /// </code>
 /// <para>
-/// <b>Never records silently</b>: a recording starts from the card (Record, or its visible
-/// countdown) or from "Take meeting notes". While recording, a small window with a lit record
-/// lamp stays on screen.
+/// <b>Records only after a click</b> (FLU-34): Record on the card, or "Take meeting notes". A
+/// card left alone records nothing, unless the user chose a delay ("Record without a click",
+/// <see cref="MeetingOptions.AutoRecordSeconds"/>) — then the card shows it counting down.
+/// While recording, a small window with a lit record lamp stays on screen.
 /// </para>
 /// <para>
 /// Recording stops on Stop, the call's app releasing the microphone for 30 s, ten minutes of
@@ -336,7 +340,7 @@ public sealed class MeetingController : IAsyncDisposable
     private void Offer(DetectedMeeting detected, MeetingOptions options)
     {
         Detected = detected;
-        Countdown = options.CountdownSeconds > 0 ? options.CountdownSeconds : null;
+        Countdown = options.AutoRecordSeconds > 0 ? options.AutoRecordSeconds : null;
         Problem = null;
         State = MeetingState.Detected;
         Raise();

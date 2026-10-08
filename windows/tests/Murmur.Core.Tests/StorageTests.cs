@@ -487,6 +487,16 @@ public sealed class AppSettingsTests : IDisposable
     }
 
     [Fact]
+    public void An_old_meeting_countdown_is_not_carried_over()
+    {
+        // FLU-34: the old card recorded after 10 s by default; every install now waits for a click.
+        new AppSettings(_path).Data.NotetakerAutoRecordSeconds.ShouldBe(0);
+        File.WriteAllText(_path, """{ "PushToTalkKey": 163, "NotetakerCountdownSeconds": 10 }""");
+
+        new AppSettings(_path).Data.NotetakerAutoRecordSeconds.ShouldBe(0);
+    }
+
+    [Fact]
     public void Corrupt_settings_fall_back_to_defaults_rather_than_failing_to_launch()
     {
         File.WriteAllText(_path, "{ not json at all");
