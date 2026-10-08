@@ -28,13 +28,13 @@ actor WhisperModels {
         Variant(
             id: "openai_whisper-small",
             displayName: "Whisper Small (~480 Mo)",
-            sizeDescription: "Recommandé (~0.7s) • Équilibré & précis",
-            isRecommended: true
+            sizeDescription: "Rapide, imprécis en français (FLU-24)",
+            isRecommended: false
         ),
         Variant(
             id: "openai_whisper-large-v3_turbo",
             displayName: "Whisper Large Turbo (~1.5 Go)",
-            sizeDescription: "Précision maximale (~2-4s)",
+            sizeDescription: "Plus précis, mais plus lent que le temps réel sur M1/M2 (FLU-24)",
             isRecommended: false
         )
     ]

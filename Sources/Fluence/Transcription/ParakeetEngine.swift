@@ -157,12 +157,20 @@ actor ParakeetEngine: TranscriptionEngine {
 
 /// Process-wide model cache.
 ///
-/// Loading is expensive — ~470 MB downloaded on first ever run, then a few seconds from
+/// Loading is expensive — ~600 MB downloaded on first ever run, then a few seconds from
 /// disk per process — and the models are immutable once loaded, so every dictation shares
 /// one instance rather than paying that per utterance. Its own actor because `static var`
 /// on `ParakeetEngine` would be unprotected global mutable state under Swift 6.
 actor ParakeetModels {
     static let shared = ParakeetModels()
+
+    /// Parakeet Ultra (moondream's post-training of NVIDIA's v3): same architecture,
+    /// 25 languages and decoding as v3, better weights. On the French bench (FLU-24,
+    /// `docs/SPEECH-MODELS.md`) it is level with v3 on clean speech, better through a
+    /// distant webcam mic (11.5 % vs 14.7 % of words wrong in tech dictations), and faster.
+    static let version: AsrModelVersion = .ultra
+    /// FluidAudio's cache folder for `version`.
+    nonisolated static let folder = "parakeet-ultra"
 
     /// Whether the models are already on disk, checked without loading them.
     ///
@@ -172,7 +180,7 @@ actor ParakeetModels {
     nonisolated static var isDownloaded: Bool {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let encoder = support
-            .appendingPathComponent("FluidAudio/Models/parakeet-tdt-0.6b-v3/Encoder.mlmodelc")
+            .appendingPathComponent("FluidAudio/Models/\(folder)/Encoder.mlmodelc")
         return FileManager.default.fileExists(atPath: encoder.path)
     }
 
@@ -234,10 +242,10 @@ actor ParakeetModels {
             // ternary can't be passed directly as the argument.
             let stage = Self.isDownloaded
                 ? "loading models from disk"
-                : "downloading models (~470 MB, one time)"
+                : "downloading models (~600 MB, one time)"
             Log.speech.info("Parakeet: \(stage, privacy: .public)")
             let started = Date()
-            let models = try await AsrModels.downloadAndLoad(version: .v3, encoderPrecision: .int8)
+            let models = try await AsrModels.downloadAndLoad(version: Self.version)
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
             Log.speech.info("Parakeet: ready in \(Date().timeIntervalSince(started), format: .fixed(precision: 1))s")

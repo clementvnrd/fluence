@@ -264,15 +264,18 @@ Sources/
 
 ## Speech engines
 
-| | Apple SpeechTranscriber | Whisper (WhisperKit) | Parakeet v3 (FluidAudio) |
+| | Apple SpeechTranscriber | Whisper (WhisperKit) | Parakeet Ultra (FluidAudio) |
 |---|---|---|---|
 | Dependency | none (macOS 26) | SwiftPM (`argmax-oss-swift`) | SwiftPM |
-| Model download | OS-managed | Base ~140 MB / Small ~480 MB / Large Turbo ~1.5 GB, first use | ~470 MB, first use |
+| Model download | OS-managed | Base ~140 MB / Small ~480 MB / Large Turbo ~1.5 GB, first use | ~600 MB, first use |
+| French, words wrong (FLU-24 bench, M2) | 7.6 % clean, 24 % tech words via webcam | Small: 13 % / 45 % · Turbo: slower than real time | **6.7 % / 11.5 %**, 100× real time |
 | Live text while speaking | yes | no (on release) | no (on release) |
 | Languages | many — Réglages (Auto = the Mac's) | French, English, Auto-detect (code-switching) | 25 European, auto-detected or hinted |
 | Dictionary biasing | yes (`contextualStrings`) | one short sentence: the last sentence and up to 8 of your own terms (FLU-20) | opt-in CTC rescoring (~100 MB model) |
 
-The engine and the Whisper model are chosen in Réglages ▸ Général; the microphone too (any
+Parakeet is the engine to use in French (`docs/SPEECH-MODELS.md`: the bench, and why the
+newer models people suggest are not in). The engine and the Whisper model are chosen in
+Réglages ▸ Transcription; the microphone too (any
 input, without changing the Mac's default).
 
 **Compare mode** (menu bar) runs every engine on one recording and shows them side by side

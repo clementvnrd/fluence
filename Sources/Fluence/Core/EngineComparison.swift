@@ -45,7 +45,7 @@ enum EngineComparison {
             let stream = try await engine.start()
 
             // Clock starts *after* start() returns, deliberately. start() loads models —
-            // for Parakeet that's ~470 MB on a cold first run — and whichever engine the
+            // for Parakeet that's ~600 MB on a cold first run — and whichever engine the
             // menu happens to have selected was already warmed by the live pass. Timing
             // from before start() would report that menu setting as an engine difference.
             let started = Date()
