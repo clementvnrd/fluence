@@ -59,6 +59,7 @@ final class DictationController {
     private(set) var transcript = ""
     /// Smoothed 0…1 mic level for the waveform.
     private(set) var level: Float = 0
+    @ObservationIgnored private var levelFollower = LevelFollower()
 
     // MARK: FLU-5 input
     /// The dictation in progress keeps recording after the key comes up (double-tap, or
@@ -254,6 +255,7 @@ final class DictationController {
         state = .starting
         transcript = ""
         level = 0
+        levelFollower.reset()
 
         // Without a grant there's nothing to open yet; `prepare` asks first.
         if Permissions.hasMicrophone {
@@ -278,8 +280,8 @@ final class DictationController {
             try capture.start(
                 deviceUID: Settings.shared.selectedMicrophoneUID,
                 onBuffer: { chunk in input.yield(chunk) },
-                onLevel: { [weak self] level in
-                    Task { @MainActor in self?.updateLevel(level) }
+                onLevel: { [weak self] level, duration in
+                    Task { @MainActor in self?.updateLevel(level, over: duration) }
                 },
                 onInterrupted: { [weak self, weak session] reason in
                     Task { @MainActor in self?.captureInterrupted(session, reason: reason) }
@@ -385,6 +387,7 @@ final class DictationController {
         session.limitTask?.cancel()
         state = .finishing
         level = 0
+        levelFollower.reset()
 
         Task { await stopCaptureAfterPostRoll(session) }
         if session.isReady {
@@ -442,6 +445,14 @@ final class DictationController {
             } else {
                 end(session, as: .idle)
             }
+            return
+        }
+
+        // FLU-20: an engine stuck in a loop ("Node.js, Node.js, …") is not what was said.
+        // Typing it into the user's document is worse than typing nothing.
+        if TranscriptHealth.isDegenerate(raw) {
+            Log.speech.error("dictation dropped — the engine repeated itself (\(raw.count, privacy: .public) characters)")
+            fail("La transcription a tourné en boucle et n'a pas été collée. Réessayez ; si ça se répète, essayez un autre moteur dans Réglages › Transcription.")
             return
         }
 
@@ -575,6 +586,7 @@ final class DictationController {
         state = .idle
         transcript = ""
         level = 0
+        levelFollower.reset()
     }
 
     /// Stops everything a session started and forgets it. The engine is cancelled, not
@@ -709,12 +721,12 @@ final class DictationController {
         )
     }
 
-    /// Light smoothing so the waveform glides instead of strobing at buffer rate.
-    private func updateLevel(_ new: Float) {
+    /// Rises fast when you speak, falls back over a few hundred milliseconds (FLU-23).
+    private func updateLevel(_ new: Float, over duration: TimeInterval) {
         // Post-roll and stray late buffers keep arriving after release; the meter has
         // already dropped to zero by then and should stay there.
         guard state == .starting || state == .listening else { return }
-        level += (new - level) * 0.35
+        level = levelFollower.update(target: new, dt: duration)
     }
 
     private func fail(_ message: String) {
@@ -725,6 +737,7 @@ final class DictationController {
         state = .error(message)
         transcript = ""
         level = 0
+        levelFollower.reset()
 
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(3))

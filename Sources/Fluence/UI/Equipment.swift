@@ -186,13 +186,14 @@ struct VUMeter: View {
         let baseHeight: CGFloat = 4
         guard isActive else { return baseHeight }
 
-        // Center-weighted distribution for visual appeal
+        // The level scales a fixed, centre-weighted shape (FLU-23): the bars stand still and
+        // flat in silence and rise together with the voice, instead of reshuffling.
         let normalizedIndex = Double(index) / Double(Self.barCount - 1)
-        let centerWeight = 1.0 - abs(normalizedIndex - 0.5) * 1.4
-        let variation = sin(Double(index) * 1.2 + Double(level) * 8.0) * 0.35 + 0.65
-        let dynamic = CGFloat(Double(max(level, 0.08)) * variation * max(centerWeight, 0.3))
+        let centerWeight = max(1.0 - abs(normalizedIndex - 0.5) * 1.4, 0.3)
+        let texture = 0.85 + 0.15 * sin(Double(index) * 2.1)
+        let dynamic = CGFloat(Double(level) * centerWeight * texture)
 
-        return min(38, baseHeight + dynamic * 42)
+        return min(38, baseHeight + dynamic * 34)
     }
 
     private func barGradient(for index: Int) -> LinearGradient {

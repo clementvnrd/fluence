@@ -273,3 +273,46 @@ struct MeetingSummaryFLU12Tests {
         #expect(SpeakerLabel.french(displayName: "Speakers") == "Speakers")
     }
 }
+
+/// FLU-22: telling the app two voices are one person.
+struct SpeakerMergeTests {
+    private func meeting() -> Meeting {
+        var meeting = Meeting(title: "Point", startedAt: Date(timeIntervalSince1970: 0))
+        meeting.speakers = [.me(named: "Clément"), Speaker(id: "S1", name: "Alice Martin", nameSource: .user), Speaker(id: "S2"), Speaker(id: "S3")]
+        meeting.segments = [
+            TranscriptSegment(source: .system, speakerID: "S1", start: 0, end: 2, text: "Bonjour."),
+            TranscriptSegment(source: .system, speakerID: "S2", start: 2, end: 4, text: "Oui."),
+            TranscriptSegment(source: .microphone, speakerID: "me", start: 4, end: 6, text: "Ok."),
+            TranscriptSegment(source: .system, speakerID: "S3", start: 6, end: 8, text: "Merci."),
+        ]
+        return meeting
+    }
+
+    @Test("a voice renamed to an existing name finds that speaker, whatever the case or accents")
+    func findsTheSamePerson() {
+        let meeting = meeting()
+        #expect(meeting.speaker(named: "alice  MARTIN", other: "S2")?.id == "S1")
+        #expect(meeting.speaker(named: "clement", other: "S2")?.id == "me")
+        #expect(meeting.speaker(named: "Alice Martin", other: "S1") == nil)
+        #expect(meeting.speaker(named: "Bob", other: "S2") == nil)
+        #expect(meeting.speaker(named: "  ", other: "S2") == nil)
+    }
+
+    @Test("merging moves every line and removes the extra voice")
+    func mergesLines() {
+        var meeting = meeting()
+        meeting.mergeSpeaker("S2", into: "S1")
+        #expect(meeting.speakers.map(\.id) == ["me", "S1", "S3"])
+        #expect(meeting.segments.map(\.speakerID) == ["S1", "S1", "me", "S3"])
+        meeting.mergeSpeaker("S3", into: "me")
+        #expect(meeting.segments.map(\.speakerID) == ["S1", "S1", "me", "me"])
+    }
+
+    @Test("the user's own voice is never merged away")
+    func keepsMe() {
+        var meeting = meeting()
+        meeting.mergeSpeaker("me", into: "S1")
+        #expect(meeting.speakers.contains { $0.isMe })
+        #expect(meeting.segments.map(\.speakerID) == ["S1", "S2", "me", "S3"])
+    }
+}

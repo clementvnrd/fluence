@@ -105,6 +105,16 @@ final class DictionaryStore {
 
     var biasPhrases: [String] { DictionaryCorrector.biasPhrases(from: entries) }
 
+    /// The user's own spellings for Whisper's prompt, newest first (FLU-20). The built-in
+    /// tech lexicon is left out: it is generic, the corrections still fix its spellings after
+    /// transcription, and a prompt full of it is what made Whisper loop.
+    var promptTerms: [String] {
+        let lexicon = Set(TechLexicon.defaultEntries.map { $0.write.lowercased() })
+        return entries.reversed()
+            .filter { $0.isEnabled && !lexicon.contains($0.write.lowercased()) }
+            .map(\.write)
+    }
+
     /// How many of the tech lexicon's entries the dictionary lacks.
     var missingTechLexiconCount: Int {
         DictionaryEntry.missing(TechLexicon.defaultEntries, from: entries).count

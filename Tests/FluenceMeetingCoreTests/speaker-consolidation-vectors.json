@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "about": "Behavioural contract for consolidating the diarizer's voices before word attribution (FLU-22): merge near-duplicate voices (cosine >= 0.68), absorb minor voices (< min(8 s, 3 % of remote speech)) into the closest major one by embedding, else the one speaking nearest in time, then merge the closest pair until the count fits the cap. The larger voice absorbs the smaller; on a tie, the one heard first. Rules in Sources/FluenceMeetingCore/SpeakerConsolidation.swift. macOS runs every case; the Windows port runs them once it gains the step. The Swift copy in Tests/FluenceMeetingCoreTests must stay identical to this file.",
+  "consolidate": [
+    {
+      "name": "one voice split by the call's audio merges back",
+      "turns": [
+        { "speaker": "A", "start": 0, "end": 60 },
+        { "speaker": "C", "start": 60, "end": 110 },
+        { "speaker": "B", "start": 110, "end": 140 }
+      ],
+      "embeddings": { "A": [1, 0, 0], "B": [0.9, 0.3, 0], "C": [0, 1, 0] },
+      "cap": null,
+      "mapping": { "A": "A", "B": "A", "C": "C" }
+    },
+    {
+      "name": "different people stay apart",
+      "turns": [
+        { "speaker": "A", "start": 0, "end": 60 },
+        { "speaker": "B", "start": 60, "end": 120 }
+      ],
+      "embeddings": { "A": [1, 0, 0], "B": [0.4, 0.9, 0] },
+      "cap": null,
+      "mapping": { "A": "A", "B": "B" }
+    },
+    {
+      "name": "a few seconds of voice join the closest speaker",
+      "turns": [
+        { "speaker": "A", "start": 0, "end": 100 },
+        { "speaker": "B", "start": 100, "end": 200 },
+        { "speaker": "C", "start": 200, "end": 202 }
+      ],
+      "embeddings": { "A": [1, 0, 0], "B": [0, 1, 0], "C": [0.1, 0.9, 0.2] },
+      "cap": null,
+      "mapping": { "A": "A", "B": "B", "C": "B" }
+    },
+    {
+      "name": "a minor voice without an embedding joins whoever speaks nearest",
+      "turns": [
+        { "speaker": "A", "start": 0, "end": 50 },
+        { "speaker": "B", "start": 50, "end": 110 },
+        { "speaker": "C", "start": 111, "end": 114 },
+        { "speaker": "A", "start": 120, "end": 170 }
+      ],
+      "embeddings": { "A": [1, 0, 0], "B": [0, 1, 0] },
+      "cap": null,
+      "mapping": { "A": "A", "B": "B", "C": "B" }
+    },
+    {
+      "name": "the call's participant count caps the voices: the closest pair merges",
+      "turns": [
+        { "speaker": "A", "start": 0, "end": 40 },
+        { "speaker": "B", "start": 40, "end": 60 },
+        { "speaker": "C", "start": 60, "end": 100 }
+      ],
+      "embeddings": { "A": [1, 0, 0], "B": [0.5, 0.866, 0], "C": [0, 0, 1] },
+      "cap": 2,
+      "mapping": { "A": "A", "B": "A", "C": "C" }
+    },
+    {
+      "name": "without a cap, distinct voices are all kept",
+      "turns": [
+        { "speaker": "A", "start": 0, "end": 40 },
+        { "speaker": "B", "start": 40, "end": 60 },
+        { "speaker": "C", "start": 60, "end": 100 }
+      ],
+      "embeddings": { "A": [1, 0, 0], "B": [0.5, 0.866, 0], "C": [0, 0, 1] },
+      "cap": null,
+      "mapping": { "A": "A", "B": "B", "C": "C" }
+    }
+  ],
+  "speakerCap": [
+    { "name": "window and calendar: the larger", "windowParticipants": 3, "attendees": 5, "cap": 5 },
+    { "name": "the window alone", "windowParticipants": 3, "attendees": 0, "cap": 3 },
+    { "name": "the calendar alone, plus an uninvited guest", "windowParticipants": 0, "attendees": 4, "cap": 5 },
+    { "name": "nothing known: no cap", "windowParticipants": 0, "attendees": 0, "cap": null }
+  ]
+}

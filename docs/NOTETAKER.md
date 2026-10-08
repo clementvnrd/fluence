@@ -144,6 +144,13 @@ On speakers, the mic hears the remote side → duplicated text attributed to "Me
   to check**: final model OpenMDW 1.1, preview evaluation-only; French untested).
 - Final, after the meeting: `OfflineDiarizerManager` (pyannote-style segmentation +
   WeSpeaker + VBx; 15.1 % DER on VoxConverse at 122× real-time) relabels everything.
+- **Consolidation before attribution (FLU-22)**, `FluenceMeetingCore/SpeakerConsolidation.swift`,
+  contract `shared/speaker-consolidation-vectors.json`: VoIP audio splits one person into
+  several clusters and a cough becomes a voice, so the diarizer's voices are merged when their
+  embeddings reach cosine 0.68, a voice heard less than min(8 s, 3 % of remote speech) joins
+  the closest major voice, and the count is capped by the call window's participants (or the
+  calendar's invitees + 1). The cap is also FluidAudio's `maxSpeakers`. The thresholds are a
+  first setting, to calibrate on the planned diarization bench (§5).
 - Word → speaker: each word goes to the speaker with the most activity over its time span.
 - Names, in order of confidence:
   1. Display names read from the Zoom/Teams/Meet window via Accessibility, matched to the
@@ -151,15 +158,23 @@ On speakers, the mic hears the remote side → duplicated text attributed to "Me
   2. Opt-in **voice prints** (256-d embeddings), matched by Hungarian assignment
      restricted to calendar attendees, confirmed by the user the first time.
   3. Calendar attendees as the candidate list and the speaker-count hint.
-  4. Manual rename, applied to every segment of that speaker and remembered.
+  4. Manual rename, applied to every segment of that speaker and remembered. Renaming a
+     voice to another speaker's name, or picking one under « Même personne que », **merges**
+     the two voices (FLU-22); the user's own voice can absorb another, never the reverse.
 - Voice prints are **biometric data (GDPR art. 9)**: explicit opt-in, per-person delete,
   never exported, wiped by "delete everything".
 
 ### 2.6 Notes
 - Apple Foundation Models: 4,096-token context shared by prompt and output → **map-reduce**.
-  Chunks of ~2.5 k tokens on speaker-turn boundaries; map = `@Generable` extraction
-  (decisions, action items with owner and due date, open questions, quotes with
-  timestamps); reduce = merge + final prose. Size chunks with `tokenCount(for:)`.
+  Chunks of ~2.2 k estimated tokens on speaker-turn boundaries, 1,000 tokens kept for the
+  answer; map = `@Generable` extraction (recap points, decisions, action items with owner
+  and due date, open questions; at most 6/8/6/5 per part); reduce = merge + final prose.
+  Size chunks with `tokenCount(for:)`.
+- **Long meetings (FLU-21)**: a part whose answer is cut off (`GeneratedContent.ParsingError`
+  since macOS 27), overflows or is refused is halved and redone, down to three levels; a
+  consolidation group that fails is merged in code; the final call is retried once on a
+  trimmed input. One hard part no longer fails a whole meeting. The log names the failing
+  call, its size and the error's kind — never content.
 - Output: Recap, Next steps, Decisions, full Transcript with speakers and timestamps, my
   side notes. Templates (1:1, client call, stand-up) as prompt presets.
 - Search across meetings (local full-text index). Export Markdown; copy uses concealed /
@@ -175,8 +190,10 @@ On speakers, the mic hears the remote side → duplicated text attributed to "Me
   `shared/transcript-import-vectors.json` (the Windows port runs it once it gains the import).
 - One confirmation per file: title (Markdown heading or file name), date (the file's), and
   which speaker is the user (guessed from the Mac account's name). Names from the file are
-  kept as typed by the user (`nameSource = user`); turns without a name share one numbered
-  speaker; untimed text is laid out at 150 words a minute.
+  kept as typed by the user (`nameSource = user`), one speaker per person however the file
+  spells them (case and accents ignored); section headings (« Workflow: », « Agenda : »,
+  « Prochaines étapes : »…) are never speakers (FLU-22); turns without a name share one
+  numbered speaker; untimed text is laid out at 150 words a minute.
 - Saved like any meeting (`trigger = imported`, `importedFrom` = the file name), encrypted,
   then notes are written by the same queue as for a recorded meeting. Logs carry the format
   and counts only.

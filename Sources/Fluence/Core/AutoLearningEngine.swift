@@ -1,3 +1,4 @@
+import FluenceCore
 import Foundation
 import MurmurDictionary
 
@@ -20,39 +21,17 @@ public final class AutoLearningEngine {
     /// Mémorise les termes et noms propres fréquemment employés par l'utilisateur.
     private var frequentTerms: [String: Int] = [:]
 
-    /// Construit le contexte de prompt dynamique pour Whisper (Attention Biasing).
-    /// Combine :
-    /// 1. Le contexte conversationnel immédiat (dernière phrase prononcée si récente < 45s)
-    /// 2. Le lexique personnel (DictionaryStore.shared.biasPhrases)
-    /// 3. Les termes appris au fur et à mesure de l'usage
-    public func buildPromptContext() -> String {
-        var promptItems: [String] = []
-
-        // 1. Contexte conversationnel immédiat (si la dernière dictée date de moins de 45 secondes)
-        if let lastDate = lastInjectedDate,
-           Date().timeIntervalSince(lastDate) < 45.0,
-           !lastInjectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let lastSnippet = lastInjectedText
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-                .last ?? ""
-            if !lastSnippet.isEmpty {
-                let words = lastSnippet.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-                let suffix = words.suffix(15).joined(separator: " ")
-                promptItems.append(suffix)
-            }
-        }
-
-        // 2. Lexique personnel (noms propres, termes techniques, corrections apprises)
-        let phrases = DictionaryStore.shared.biasPhrases
-        if !phrases.isEmpty {
-            let terms = phrases.prefix(35).joined(separator: ", ")
-            promptItems.append(terms)
-        }
-
-        return promptItems.joined(separator: ". ")
+    /// Le contexte donné à Whisper avant la transcription : la fin de la dernière dictée si
+    /// elle date de moins de 45 s, puis quelques termes du dictionnaire de l'utilisateur,
+    /// en une phrase courte (`WhisperPrompt`).
+    public func buildPromptContext() -> String? {
+        // FLU-20: one short sentence, not a list of 35 terms (see `WhisperPrompt`).
+        let recent = lastInjectedDate.map { Date().timeIntervalSince($0) < 45.0 } ?? false
+        return WhisperPrompt.build(
+            previous: recent ? lastInjectedText : nil,
+            terms: DictionaryStore.shared.promptTerms,
+            french: Settings.shared.dictationLanguage == .french
+        )
     }
 
     /// Enregistre une dictée terminée pour le suivi d'apprentissage.

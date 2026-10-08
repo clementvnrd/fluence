@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import FluenceCore
 import Foundation
 import Observation
 
@@ -49,9 +50,13 @@ final class MeetingController {
         didSet { meeting?.keepAudio = keepAudio }
     }
 
-    /// Someone spoke in the last moments, on either channel: animates the level in the
-    /// pill and the banner. There is no meeting level meter; speech is what it shows.
+    /// Someone spoke in the last moments, on either channel: colours the level bars.
     private(set) var isHearingSpeech = false
+
+    /// What the microphone and the call's audio actually sound like, 0…1, smoothed for the
+    /// bars in the pill and the banner (FLU-23): flat in silence, up when someone speaks.
+    private(set) var inputLevel: Float = 0
+    @ObservationIgnored private var levelFollower = LevelFollower()
 
     /// The recording panel shows the controls and the live transcript (mock-up 07, step 3)
     /// instead of the compact pill (step 2).
@@ -236,6 +241,7 @@ final class MeetingController {
         }
         Log.app.info("meeting recording started (\(meeting.trigger.rawValue, privacy: .public))")
         runTicker()
+        runLevelMeter()
     }
 
     private func fail(_ message: String) {
@@ -251,6 +257,26 @@ final class MeetingController {
         session.add(segment)
         meeting?.segments = session.allSegments
         liveSegments = session.visibleSegments
+    }
+
+    /// About 30 times a second, while recording: the loudest buffer since the last look,
+    /// through the meter's rise and fall.
+    private func runLevelMeter() {
+        levelFollower.reset()
+        inputLevel = 0
+        Task { [weak self] in
+            let interval = 1.0 / 30
+            while let self, self.state == .recording, let session = self.session {
+                try? await Task.sleep(for: .seconds(interval))
+                guard self.state == .recording, self.session === session else { break }
+                let level = self.levelFollower.update(target: session.inputLevel.take(), dt: interval)
+                // Only publish visible changes: the pill redraws on each one.
+                if abs(level - self.inputLevel) > 0.01 || (level == 0 && self.inputLevel != 0) {
+                    self.inputLevel = level
+                }
+            }
+            self?.inputLevel = 0
+        }
     }
 
     /// Once a second: elapsed time, stop conditions, the tap watchdog, autosave,
@@ -304,6 +330,7 @@ final class MeetingController {
         state = .processing
         lastStopReason = reason
         isHearingSpeech = false
+        inputLevel = 0
         isPanelExpanded = false
         recordingPanel?.dismiss()
         detector.keepPollingWhileRecording = false
@@ -343,7 +370,8 @@ final class MeetingController {
             meeting: meeting,
             systemSpool: spool,
             key: key,
-            corrector: DictionaryStore.shared.corrector
+            corrector: DictionaryStore.shared.corrector,
+            windowParticipantCount: windowParticipants.count
         )
         let output = await Task.detached(priority: .utility) { await MeetingFinalizer.attribute(input) }.value
         return (MeetingFinalizer.name(output, windowParticipants: windowParticipants), output.voices)
@@ -449,6 +477,7 @@ final class MeetingController {
         state = .recording
         elapsed = 767
         isHearingSpeech = true
+        inputLevel = 0.55
         if let path = ProcessInfo.processInfo.environment["FLUENCE_PREVIEW_MEETING_FILE"],
            let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
             let decoder = JSONDecoder()
@@ -480,6 +509,28 @@ final class MeetingController {
         guard isRecording else { return }
         isPanelExpanded = true
         showRecordingPanel()
+    }
+}
+
+/// The loudest level heard since the last `take()`, written by the audio consumers, read by
+/// the level meter.
+final class InputLevelBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var peak: Float = 0
+
+    func record(_ level: Float) {
+        lock.lock()
+        peak = max(peak, level)
+        lock.unlock()
+    }
+
+    /// The peak since the last call, then back to zero: silence reads as 0.
+    func take() -> Float {
+        lock.lock()
+        defer { lock.unlock() }
+        let value = peak
+        peak = 0
+        return value
     }
 }
 

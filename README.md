@@ -270,7 +270,7 @@ Sources/
 | Model download | OS-managed | Base ~140 MB / Small ~480 MB / Large Turbo ~1.5 GB, first use | ~470 MB, first use |
 | Live text while speaking | yes | no (on release) | no (on release) |
 | Languages | many — Réglages (Auto = the Mac's) | French, English, Auto-detect (code-switching) | 25 European, auto-detected or hinted |
-| Dictionary biasing | yes (`contextualStrings`) | prompt with your dictionary and the last sentence | opt-in CTC rescoring (~100 MB model) |
+| Dictionary biasing | yes (`contextualStrings`) | one short sentence: the last sentence and up to 8 of your own terms (FLU-20) | opt-in CTC rescoring (~100 MB model) |
 
 The engine and the Whisper model are chosen in Réglages ▸ Général; the microphone too (any
 input, without changing the Mac's default).

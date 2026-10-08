@@ -11,6 +11,8 @@ extension MeetingAudioSpoolReader: AudioSampleSource {}
 ///    (pyannote segmentation + WeSpeaker + VBx), reading the encrypted spool directly. The
 ///    mic is the user by construction, so their voice can never be split into clusters.
 ///    Calendar attendees give a speaker-count ceiling.
+/// 1b. Consolidate the voices (`SpeakerConsolidation`, FLU-22): merge near-duplicates,
+///    absorb voices heard for a few seconds, cap the count with the call's participants.
 /// 2. Attribute each system word to the voice most active over it, split segments where
 ///    the voice changes, relabel `S1…Sn` by first appearance (`SpeakerAssignment`).
 /// 3. Merge with the mic transcript, dropping mic echoes (`TranscriptMerger`).
@@ -25,6 +27,8 @@ enum MeetingFinalizer {
         var systemSpool: URL?
         var key: SymmetricKey?
         var corrector: DictionaryCorrector
+        /// Remote names the call window showed during the meeting (FLU-22: the cap).
+        var windowParticipantCount = 0
     }
 
     struct Output: Sendable {
@@ -45,7 +49,19 @@ enum MeetingFinalizer {
             do {
                 let reader = try MeetingAudioSpoolReader(url: url, key: key)
                 if reader.sampleCount >= 2 * MeetingAudioFormat.sampleRate {
-                    (turns, rawEmbeddings) = try await diarize(reader, attendees: meeting.attendees.count)
+                    let cap = SpeakerConsolidation.speakerCap(
+                        windowParticipants: input.windowParticipantCount,
+                        attendees: meeting.attendees.count
+                    )
+                    (turns, rawEmbeddings) = try await diarize(reader, cap: cap)
+                    let consolidated = SpeakerConsolidation.consolidate(turns: turns, embeddings: rawEmbeddings, cap: cap)
+                    Log.speech.info("""
+                        voices: \(Set(turns.map(\.speaker)).count, privacy: .public) from the diarizer, \
+                        \(Set(consolidated.turns.map(\.speaker)).count, privacy: .public) after consolidation \
+                        (cap \(cap.map(String.init) ?? "none", privacy: .public))
+                        """)
+                    turns = consolidated.turns
+                    rawEmbeddings = consolidated.embeddings
                 }
             } catch {
                 Log.speech.error("diarization failed, remote speech stays unattributed: \(error.localizedDescription, privacy: .public)")
@@ -98,13 +114,12 @@ enum MeetingFinalizer {
 
     private static func diarize(
         _ reader: MeetingAudioSpoolReader,
-        attendees: Int
+        cap: Int?
     ) async throws -> ([SpeakerTurn], [String: [Float]]) {
         var config = OfflineDiarizerConfig.default
-        if attendees > 0 {
-            // A ceiling, not an exact count: not every invitee speaks, and an uninvited
-            // colleague may join.
-            config.clustering.maxSpeakers = attendees + 1
+        if let cap {
+            // A ceiling, not an exact count: not everyone in the call speaks.
+            config.clustering.maxSpeakers = cap
         }
         let manager = OfflineDiarizerManager(config: config)
         try await manager.prepareModels()

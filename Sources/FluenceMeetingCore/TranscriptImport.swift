@@ -85,12 +85,59 @@ public enum TranscriptImport {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .first { !$0.isEmpty } ?? ""
         if first.hasPrefix("WEBVTT") {
-            return ImportedTranscript(format: .webVTT, turns: joined(readCues(lines)))
+            return ImportedTranscript(format: .webVTT, turns: joined(unified(readCues(lines))))
         }
         if lines.contains(where: { cueTiming($0) != nil }) {
-            return ImportedTranscript(format: .subRip, turns: joined(readCues(lines)))
+            return ImportedTranscript(format: .subRip, turns: joined(unified(readCues(lines))))
         }
-        return readText(lines)
+        var transcript = readText(lines)
+        transcript.turns = unified(transcript.turns)
+        return transcript
+    }
+
+    /// One speaker per person, however the file spells them (FLU-22): "Clément", "Clement"
+    /// and "CLÉMENT" are one voice, named the way the file first wrote it with a capital.
+    static func unified(_ turns: [ImportedTranscript.Turn]) -> [ImportedTranscript.Turn] {
+        func key(_ name: String) -> String {
+            name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+                .split(whereSeparator: \.isWhitespace)
+                .joined(separator: " ")
+        }
+        var names: [String: String] = [:]
+        for case let speaker? in turns.map(\.speaker) {
+            let k = key(speaker)
+            if let chosen = names[k], chosen.first?.isUppercase == true || speaker.first?.isUppercase != true { continue }
+            names[k] = speaker
+        }
+        return turns.map { turn in
+            var copy = turn
+            copy.speaker = turn.speaker.map { names[key($0)] ?? $0 }
+            return copy
+        }
+    }
+
+    /// Words that head a section of notes rather than name a person (FLU-22: a "Workflow:"
+    /// line became a speaker). Compared without case or accents.
+    static let sectionLabels: Set<String> = [
+        "workflow", "agenda", "ordre du jour", "note", "notes", "remarque", "remarques",
+        "action", "actions", "action items", "action item", "to do", "todo", "a faire",
+        "next steps", "prochaines etapes", "prochaine etape", "etapes", "decision", "decisions",
+        "question", "questions", "q", "r", "a", "summary", "resume", "recap", "recapitulatif",
+        "conclusion", "conclusions", "contexte", "context", "objectif", "objectifs", "goal", "goals",
+        "points", "points cles", "key points", "point", "sujet", "sujets", "topic", "topics",
+        "important", "attention", "exemple", "example", "update", "updates", "status", "statut",
+        "participants", "attendees", "presents", "date", "heure", "time", "lieu", "location",
+        "duree", "duration", "titre", "title", "transcript", "transcription", "compte rendu",
+        "minutes", "intro", "introduction", "highlights", "risques", "risks", "blockers", "bloquants",
+    ]
+
+    static func isSectionLabel(_ name: String) -> Bool {
+        let key = name
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .replacingOccurrences(of: "-", with: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        return sectionLabels.contains(key)
     }
 
     /// Cues are blocks separated by blank lines: an optional identifier, a timing line,
@@ -264,7 +311,7 @@ public enum TranscriptImport {
               !name.contains(where: { ":?!;,\"«»“”".contains($0) })
         else { return false }
         let words = name.split(whereSeparator: \.isWhitespace)
-        guard words.count <= 5 else { return false }
+        guard words.count <= 5, !isSectionLabel(name) else { return false }
         guard strict else { return true }
         let particles: Set<String> = ["de", "du", "des", "la", "le", "d'", "da", "di", "van", "von", "der", "den", "y", "e", "bin", "al"]
         return words.allSatisfy { word in

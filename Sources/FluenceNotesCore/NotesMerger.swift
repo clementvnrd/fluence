@@ -15,6 +15,14 @@ public enum NotesMerger {
     public static let maxQuestions = 8
     public static let maxQuotes = 3
 
+    // What one part of a meeting may return (FLU-21). Smaller than the caps above: a full
+    // list of every kind ran past the answer's token limit on dense meetings, and a cut-off
+    // answer cannot be read at all. Several parts together still fill the final notes.
+    public static let maxMapRecapPoints = 6
+    public static let maxMapActions = 8
+    public static let maxMapDecisions = 6
+    public static let maxMapQuestions = 5
+
     // MARK: - Cleaning one chunk's extraction
 
     /// Trims, drops placeholders and duplicates, and drops what the chunk does not support.

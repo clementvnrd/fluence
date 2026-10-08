@@ -139,7 +139,7 @@ public extension DictionaryCorrector {
     static let biasLimit = 40
 
     /// - Returns: the correct spellings — `.term` words and the *write* side of corrections —
-    ///   most recently useful first, capped at `biasLimit`.
+    ///   in dictionary order, capped at `biasLimit`.
     static func biasPhrases(from entries: [DictionaryEntry]) -> [String] {
         var seen = Set<String>()
         var phrases: [String] = []

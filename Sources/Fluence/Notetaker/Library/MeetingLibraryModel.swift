@@ -257,6 +257,26 @@ final class MeetingLibraryModel {
         save(meeting)
     }
 
+    /// The meeting's other voices, for "same person as…" in the rename popover (FLU-22).
+    /// The user's own voice can absorb another, but is never itself merged away.
+    var mergeTargets: [Speaker] {
+        guard let meeting, let renaming, !renaming.isMe else { return [] }
+        return meeting.speakers.filter { $0.id != renaming.id }
+    }
+
+    /// The speaker the typed name already belongs to: committing will merge into it.
+    var renameMergeTarget: Speaker? {
+        guard let meeting, let renaming, !renaming.isMe else { return nil }
+        return meeting.speaker(named: renameDraft, other: renaming.id)
+    }
+
+    func commitMerge(into target: Speaker) {
+        guard let speaker = renaming, var meeting else { return }
+        renaming = nil
+        meeting.mergeSpeakerKeepingNotes(speaker.id, into: target.id)
+        save(meeting)
+    }
+
     /// Calendar invitees not yet given to a speaker: the rename popover's suggestions.
     var renameSuggestions: [String] {
         guard let meeting else { return [] }

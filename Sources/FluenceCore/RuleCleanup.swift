@@ -57,7 +57,19 @@ public enum RuleCleanup {
     static func capitalizeSentences(_ text: String) -> String {
         var result = ""
         var capitalizeNext = true
+        // A full stop ends a sentence only when a space or a line break follows it: the dot
+        // in "Node.js", "v2.1" or "example.com" is inside a word (FLU-20: "Node.Js").
+        var afterTerminator = false
+        let closers: Set<Character> = ["»", ")", "\"", "”", "’", "'"]
         for character in text {
+            if afterTerminator {
+                if character.isWhitespace {
+                    capitalizeNext = true
+                    afterTerminator = false
+                } else if !closers.contains(character) {
+                    afterTerminator = false
+                }
+            }
             if capitalizeNext, character.isLetter {
                 result.append(contentsOf: character.uppercased())
                 capitalizeNext = false
@@ -68,7 +80,11 @@ public enum RuleCleanup {
                 capitalizeNext = false
             } else {
                 result.append(character)
-                if ".!?\n".contains(character) { capitalizeNext = true }
+                if character == "\n" {
+                    capitalizeNext = true
+                } else if ".!?".contains(character) {
+                    afterTerminator = true
+                }
             }
         }
         return result
