@@ -117,7 +117,7 @@ internal static class MeetingComposition
     public static MeetingOptions Options(SettingsData data) => new()
     {
         DetectMeetings = data.NotetakerDetectMeetings,
-        CountdownSeconds = Math.Clamp(data.NotetakerCountdownSeconds, 0, 60),
+        AutoRecordSeconds = Math.Clamp(data.NotetakerAutoRecordSeconds, 0, 60),
         KeepAudioByDefault = data.NotetakerKeepAudioByDefault,
         MaxDurationMinutes = Math.Clamp(data.NotetakerMaxMinutes, 5, 600),
         VoicePrints = data.NotetakerVoicePrints,

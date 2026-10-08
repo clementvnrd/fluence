@@ -100,24 +100,24 @@ struct MeetingSettingsSection: View {
             SettingsRow(
                 systemImage: "person.2.wave.2",
                 title: "Détecter les réunions",
-                info: "Repère les appels — Zoom, Teams, Meet ou un navigateur — et propose de prendre des notes. Fluence n'enregistre jamais sans l'afficher : la carte « Réunion détectée » apparaît, puis un point rouge tant que l'enregistrement dure."
+                info: "Repère les appels — Zoom, Teams, Meet ou un navigateur — et propose de prendre des notes. Rien n'est enregistré sans votre clic sur Enregistrer ; un point rouge reste visible tant que l'enregistrement dure."
             ) {
                 RowToggle(isOn: Bindable(settings).detectMeetings)
             }
             RowDivider()
             SettingsRow(
                 systemImage: "timer",
-                title: "Compte à rebours",
-                info: settings.countdownSeconds == 0
-                    ? "La carte attend que vous appuyiez sur Enregistrer."
-                    : "La carte enregistre après \(settings.countdownSeconds)\(FrenchFormat.space)s, sauf « Pas maintenant »."
+                title: "Enregistrer sans clic",
+                info: settings.autoRecordSeconds == 0
+                    ? "Jamais : la carte attend votre clic. Si vous ne répondez pas, rien n'est enregistré."
+                    : "Si vous ne répondez pas à la carte, l'enregistrement démarre seul après \(settings.autoRecordSeconds)\(FrenchFormat.space)s. Prévenez les participants."
             ) {
                 PillTabs(
-                    options: Self.countdowns,
-                    title: { $0 == 0 ? "Aucun" : "\($0)\(FrenchFormat.space)s" },
-                    selection: settings.countdownSeconds,
+                    options: DetectionOffer.autoRecordChoices,
+                    title: { $0 == 0 ? "Jamais" : "\($0)\(FrenchFormat.space)s" },
+                    selection: settings.autoRecordSeconds,
                     small: true
-                ) { settings.countdownSeconds = $0 }
+                ) { settings.autoRecordSeconds = $0 }
             }
             RowDivider()
             SettingsRow(systemImage: "stop.circle", title: "Arrêter après", info: "Un enregistrement s'arrête de lui-même au bout de cette durée.") {
@@ -199,7 +199,6 @@ struct MeetingSettingsSection: View {
         }
     }
 
-    private static let countdowns = [0, 5, 10, 20, 30, 60]
     private static let maxDurations = [60, 120, 180, 240]
 
     private static func storedNote(_ count: Int) -> String {

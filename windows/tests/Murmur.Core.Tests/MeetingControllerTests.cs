@@ -18,7 +18,7 @@ public sealed class MeetingControllerTests : IDisposable
     private readonly RecordingDiagnosticLog _log = new();
     private readonly MeetingVault _vault;
     private readonly MeetingStore _store;
-    private MeetingOptions _options = new() { CountdownSeconds = 3 };
+    private MeetingOptions _options = new() { AutoRecordSeconds = 3 };
     private ITimedTranscriber _transcriber = new FakeTimedTranscriber(_ => "hello there");
     private FakeDiarizer? _diarizer;
     private INotesModel _notes = NoNotesModel.Instance;
@@ -137,7 +137,7 @@ public sealed class MeetingControllerTests : IDisposable
     public async Task The_card_goes_away_when_the_call_ends_before_anyone_answers()
     {
         ZoomOnMic();
-        _options = _options with { CountdownSeconds = 0 };
+        _options = _options with { AutoRecordSeconds = 0 };
         await using var controller = Controller();
         await TickAsync(controller);
         controller.Countdown.ShouldBeNull();   // waits for a click
@@ -145,6 +145,25 @@ public sealed class MeetingControllerTests : IDisposable
         _signals.Sessions.Clear();
         await TickAsync(controller, 7);
         controller.State.ShouldBe(MeetingState.Idle);
+    }
+
+    [Fact]
+    public async Task By_default_a_card_left_alone_records_nothing()
+    {
+        // FLU-34: ignoring the card is not consent. Only a click, or a delay the user chose, records.
+        ZoomOnMic();
+        _options = new MeetingOptions();
+        _options.AutoRecordSeconds.ShouldBe(0);
+        await using var controller = Controller();
+
+        await TickAsync(controller, 600);
+        controller.State.ShouldBe(MeetingState.Detected);
+        controller.Countdown.ShouldBeNull();
+        controller.Current.ShouldBeNull();
+
+        await controller.AcceptAsync();
+        controller.State.ShouldBe(MeetingState.Recording);
+        await controller.StopAsync(StopReason.User);
     }
 
     [Fact]

@@ -37,8 +37,12 @@ public sealed record SettingsData
     /// <summary>Notetaker: offer to record when a call starts. On by default, as on macOS.</summary>
     public bool NotetakerDetectMeetings { get; init; } = true;
 
-    /// <summary>Notetaker: seconds on the "call detected" card before recording starts; 0 waits for a click.</summary>
-    public int NotetakerCountdownSeconds { get; init; } = 10;
+    /// <summary>
+    /// Notetaker, "record without a click": seconds on the "call detected" card before recording
+    /// starts by itself; 0, the default, waits for a click (FLU-34). Replaces
+    /// <c>NotetakerCountdownSeconds</c> (10 s by default), which is not carried over.
+    /// </summary>
+    public int NotetakerAutoRecordSeconds { get; init; }
 
     /// <summary>Notetaker: the "keep audio" checkbox's starting value. Off: audio is deleted after processing.</summary>
     public bool NotetakerKeepAudioByDefault { get; init; }

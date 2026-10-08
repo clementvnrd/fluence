@@ -39,7 +39,7 @@ public sealed class MeetingUiTests : IDisposable
         Transcriber = new FakeTimedTranscriber(_ => "hi"),
         CreateVoiceActivity = () => new EnergyVoiceActivity(),
         Correct = t => t,
-        Options = () => new MeetingOptions { CountdownSeconds = 10 },
+        Options = () => new MeetingOptions { AutoRecordSeconds = 10 },
         HostClock = _host,
         Clock = new FakeClock(),
         Log = NullDiagnosticLog.Instance,
@@ -140,11 +140,11 @@ public sealed class MeetingUiTests : IDisposable
 
         var window = new SettingsWindow(settings, meetings: _store);
         window.Show();
-        window.SelectCountdown(30);
+        window.SelectAutoRecord(30);
         window.SelectMeetingRetention(RetentionChoice.Quarter);
 
         var reloaded = new AppSettings(path).Data;
-        reloaded.NotetakerCountdownSeconds.ShouldBe(30);
+        reloaded.NotetakerAutoRecordSeconds.ShouldBe(30);
         reloaded.NotetakerRetentionDays.ShouldBe(90);
     }
 }

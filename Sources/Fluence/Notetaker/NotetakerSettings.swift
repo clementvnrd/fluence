@@ -13,10 +13,11 @@ final class NotetakerSettings {
         didSet { defaults.set(detectMeetings, forKey: Keys.detectMeetings) }
     }
 
-    /// Seconds the *Meeting detected* card counts down before recording. 0 = never start
-    /// on its own; the user must click. Recording never starts silently either way.
-    var countdownSeconds: Int {
-        didSet { defaults.set(countdownSeconds, forKey: Keys.countdownSeconds) }
+    /// *Enregistrer sans clic*: seconds after which the *Réunion détectée* card records on its
+    /// own. 0, the default, waits for a click (FLU-34, decided in FLU-39: ignoring the card
+    /// is not consent). With a delay the card shows it counting down.
+    var autoRecordSeconds: Int {
+        didSet { defaults.set(autoRecordSeconds, forKey: Keys.autoRecordSeconds) }
     }
 
     /// Decision FLU-9 #2: off by default. Per meeting, the user can still keep the audio.
@@ -54,7 +55,10 @@ final class NotetakerSettings {
 
     private enum Keys {
         static let detectMeetings = "notetaker.detectMeetings"
-        static let countdownSeconds = "notetaker.countdownSeconds"
+        static let autoRecordSeconds = "notetaker.autoRecordSeconds"
+        /// Before FLU-34: a countdown that recorded after 10 s by default. Dropped, not
+        /// carried over, so every install starts from "wait for a click".
+        static let oldCountdownSeconds = "notetaker.countdownSeconds"
         static let keepAudioByDefault = "notetaker.keepAudioByDefault"
         static let voicePrintsEnabled = "notetaker.voicePrintsEnabled"
         static let readNamesFromMeetingWindow = "notetaker.readNamesFromMeetingWindow"
@@ -65,7 +69,8 @@ final class NotetakerSettings {
 
     private init() {
         detectMeetings = defaults.object(forKey: Keys.detectMeetings) as? Bool ?? true
-        countdownSeconds = defaults.object(forKey: Keys.countdownSeconds) as? Int ?? 10
+        defaults.removeObject(forKey: Keys.oldCountdownSeconds)
+        autoRecordSeconds = max(0, defaults.integer(forKey: Keys.autoRecordSeconds))
         keepAudioByDefault = defaults.object(forKey: Keys.keepAudioByDefault) as? Bool ?? false
         voicePrintsEnabled = defaults.object(forKey: Keys.voicePrintsEnabled) as? Bool ?? false
         readNamesFromMeetingWindow = defaults.object(forKey: Keys.readNamesFromMeetingWindow) as? Bool ?? true

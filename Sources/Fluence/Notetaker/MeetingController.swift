@@ -7,14 +7,16 @@ import Observation
 /// Orchestrates the Notetaker's capture half: detection → card → recording → final pass.
 ///
 /// ```
-/// idle ──detected──► detected ──Record / countdown──► recording ──stop──► processing ──► idle
-///   ▲                   │ Not now                                                    │
+/// idle ──detected──► detected ──Record (click)──► recording ──stop──► processing ──► idle
+///   ▲                   │ Not this time                                              │
 ///   └───────────────────┘◄──────────────────────── failed (dismissable) ◄────────────┘
 /// ```
 ///
-/// Never records silently: a recording starts from the card (Record, or its visible
-/// countdown) or from the menu. While recording, the menu bar icon changes and a small
-/// panel with a lit record lamp and the elapsed time stays on screen.
+/// Records only after a click (FLU-34): *Enregistrer* on the card, or *Prendre des notes*.
+/// A card left alone records nothing, unless the user chose a delay in Settings
+/// (*Enregistrer sans clic*) — then the card shows it counting down (`DetectionOffer`).
+/// While recording, the menu bar icon changes and a small panel with a lit record lamp and
+/// the elapsed time stays on screen.
 ///
 /// Recording stops on: Stop, the meeting app releasing the mic for 30 s (call ended),
 /// 10 minutes of silence on both channels, `maxDurationMinutes`, screen lock or sleep.
@@ -36,6 +38,8 @@ final class MeetingController {
     private(set) var state: State = .idle
     /// Seconds left on the detection card; `nil` waits for a click.
     private(set) var countdown: Int?
+    /// The delay `countdown` started from, for the card's ring.
+    private(set) var countdownTotal: Int?
     /// The meeting being recorded, with its live transcript.
     private(set) var meeting: Meeting?
     /// What the live transcript window shows: mic echoes of the remote side hidden.
@@ -114,42 +118,45 @@ final class MeetingController {
     private func offer(_ detected: DetectedMeeting) {
         guard state == .idle || isFailed else { return }
         state = .detected(detected)
-        let seconds = NotetakerSettings.shared.countdownSeconds
-        countdown = seconds > 0 ? seconds : nil
+        let initial = DetectionOffer(autoRecordSeconds: NotetakerSettings.shared.autoRecordSeconds)
+        countdown = initial.remaining
+        countdownTotal = initial.total
         showDetectionPanel()
 
         countdownTask?.cancel()
         countdownTask = Task { [weak self] in
+            var offer = initial
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard let self, !Task.isCancelled, case .detected = self.state else { return }
-                // The call ended before anyone answered the card.
-                if !self.detector.isOnMicrophone(detected.app) {
-                    self.dismissDetection()
-                    return
-                }
-                guard let remaining = self.countdown else { continue }
-                if remaining <= 1 {
+                switch offer.tick(callOngoing: self.detector.isOnMicrophone(detected.app)) {
+                case .wait:
+                    self.countdown = offer.remaining
+                case .record:
                     self.countdown = 0
                     self.record(detected, trigger: .detected)
                     return
+                case .withdraw:
+                    // The call ended before anyone answered the card.
+                    self.dismissDetection()
+                    return
                 }
-                self.countdown = remaining - 1
             }
         }
     }
 
-    /// "Record" on the card.
+    /// "Enregistrer" on the card.
     func acceptDetection() {
         guard case .detected(let detected) = state else { return }
         record(detected, trigger: .detected)
     }
 
-    /// "Not now" on the card. The app is not offered again until it releases the mic.
+    /// "Pas cette fois" on the card. The app is not offered again until it releases the mic.
     func dismissDetection() {
         countdownTask?.cancel()
         countdownTask = nil
         countdown = nil
+        countdownTotal = nil
         detectionPanel?.dismiss()
         if case .detected = state { state = .idle }
     }
@@ -463,15 +470,19 @@ final class MeetingController {
     /// FLU-12: `FLUENCE_PREVIEW_RECORDING_PANEL=expanded` opens the panel expanded, and
     /// `FLUENCE_PREVIEW_MEETING_FILE` names a JSON `Meeting` (synthetic, in the scratch
     /// folder) whose title, app and segments stand in for a live one. `=detected` shows the
-    /// detection card instead.
+    /// detection card instead, as it waits for a click; `=countdown` shows it counting down
+    /// from 10 s, as with *Enregistrer sans clic* (FLU-34).
     func previewRecordingPanelIfRequested() {
         guard AppPaths.override != nil, state == .idle,
               let mode = ProcessInfo.processInfo.environment["FLUENCE_PREVIEW_RECORDING_PANEL"]
         else { return }
-        if mode == "detected" {
+        if mode == "detected" || mode == "countdown" {
             let app = MeetingApps.native[0]
             state = .detected(DetectedMeeting(app: app, service: app.name, pid: nil))
-            countdown = 8
+            if mode == "countdown" {
+                countdownTotal = 10
+                countdown = 8
+            }
             showDetectionPanel()
             return
         }
