@@ -9,9 +9,10 @@ import Foundation
 ///   meeting the user confirmed it in.
 /// - `enroll(meetingID:speakerID:name:)` enrols a voice from its meeting's *candidates*
 ///   (the per-voice embeddings of that meeting). Candidates are **not collected** (FLU-27):
-///   no screen enrols a voice yet, and biometric data nothing uses is not kept. The rename
-///   UI (FLU-33) brings them back, deleted with their meeting. Those sealed by earlier
-///   versions are deleted at launch (`removeCandidates()`).
+///   no screen enrols a voice yet, and biometric data nothing uses is not kept. Enrolling
+///   on rename (`docs/ROADMAP.md`, v0.3, after the FLU-33 bench) brings them back, deleted
+///   with their meeting. Those sealed by earlier versions are deleted at launch
+///   (`removeCandidates()`).
 /// - Turning the setting off deletes everything (`deleteAll()`); the controller does it.
 @MainActor
 final class VoicePrintStore {

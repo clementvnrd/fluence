@@ -164,8 +164,8 @@ On speakers, the mic hears the remote side → duplicated text attributed to "Me
 - Voice prints are **biometric data (GDPR art. 9)**: explicit opt-in, per-person delete,
   never exported, wiped by "delete everything" (the whole `VoicePrints` folder).
   No screen enrols a voice yet, so the per-meeting voice embeddings an enrolment would
-  start from are **not kept** (FLU-27); they come back with the rename UI (FLU-33),
-  deleted with their meeting.
+  start from are **not kept** (FLU-27); they come back with enrolment on rename
+  (`ROADMAP.md`, v0.3, after the FLU-33 bench), deleted with their meeting.
 
 ### 2.6 Notes
 - Apple Foundation Models: 4,096-token context shared by prompt and output → **map-reduce**.
