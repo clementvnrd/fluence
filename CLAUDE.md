@@ -13,10 +13,9 @@ linked to that issue. A **project** is a large stream of work (`list_projects`),
 phase of a project, the **Reviews** tab lists the pull requests waiting for a review; cycles are not
 used.
 
-Labels available today on the team: `Bug`, `Improvement`, `Feature`. The labels `Decision`,
-`Owner action`, `Process` and an `Area` group (for example `macOS` / `Windows` / `Shared`) do not exist
-yet. Do not invent them silently: propose creating them (`save_issue_label`) and wait for Clement's
-answer.
+Labels on the team (the extra ones created after Clement's answer on FLU-9): type `Bug`, `Improvement`,
+`Feature`; area `macOS`, `Windows`, `Shared`; and `Decision`, `Owner action`, `Process`. Any other
+label: propose it (`save_issue_label`) and wait for Clement's answer, never create it silently.
 
 ### 1. Start of every reply: read Clement's answers first
 Before anything else, list the issues in `Needs Input`, the open issues labelled `Decision` or

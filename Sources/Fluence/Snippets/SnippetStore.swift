@@ -105,7 +105,7 @@ final class SnippetStore {
     /// has been read they are merged in, sealed, and only then is the plaintext removed — a
     /// failed seal leaves it in place for the next launch (FLU-11).
     private func importLegacySnippets() {
-        guard AppPaths.override == nil else { return }
+        guard !AppPaths.isIsolated else { return }
         let legacy = LegacyMigration.legacySnippetsFile
         guard FileManager.default.fileExists(atPath: legacy.path) else { return }
         let imported: [Snippet]

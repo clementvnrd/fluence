@@ -540,6 +540,15 @@ extension SpeechEngineChoice {
 
 struct AboutSettingsSection: View {
     @Environment(\.openWindow) private var openWindow
+    /// Mirrors Sparkle's setting, which SwiftUI cannot observe.
+    @State private var checksAutomatically = AppUpdater.shared.checksAutomatically
+
+    /// "Vérifié aujourd'hui, 09:12", or "Jamais vérifié".
+    private var lastCheckText: String {
+        guard let date = AppUpdater.shared.lastCheck else { return "Jamais vérifié" }
+        let when = FrenchDates.relativeDayTime(date, now: .now, calendar: .current)
+        return "Vérifié " + when.prefix(1).lowercased() + when.dropFirst()
+    }
 
     private var version: String {
         let info = Bundle.main.infoDictionary
@@ -563,6 +572,29 @@ struct AboutSettingsSection: View {
                 Spacer()
             }
             .padding(DS.Space.wide)
+        }
+
+        // FLU-26: hidden in a build without an update feed.
+        if AppUpdater.shared.isRunning {
+            SectionCard {
+                SettingsRow(systemImage: "arrow.down.circle", title: "Mises à jour", subtitle: lastCheckText) {
+                    CapButton(title: "Rechercher…", height: 24) { AppUpdater.shared.checkNow() }
+                }
+                RowDivider()
+                SettingsRow(
+                    systemImage: "arrow.triangle.2.circlepath",
+                    title: "Rechercher automatiquement",
+                    info: "Une fois par jour, Fluence regarde sur GitHub si une nouvelle version existe et la télécharge. Elle n'est installée qu'avec votre accord, ou quand vous quittez Fluence. Rien d'autre n'est envoyé."
+                ) {
+                    RowToggle(isOn: Binding(
+                        get: { checksAutomatically },
+                        set: { on in
+                            checksAutomatically = on
+                            AppUpdater.shared.checksAutomatically = on
+                        }
+                    ))
+                }
+            }
         }
 
         SectionCard {

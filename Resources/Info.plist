@@ -16,10 +16,20 @@
 	<string>io.github.clementvnrd.fluence</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<!-- The one place the version is written (FLU-26). The build number is derived from it —
+	     major × 10000 + minor × 100 + patch — and a test checks it; Sparkle compares it. -->
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>100</string>
+	<!-- The app is in French. Declaring it is what makes system menus and Sparkle's update
+	     window French too: a framework only speaks a language its app declares. -->
+	<key>CFBundleDevelopmentRegion</key>
+	<string>fr</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>fr</string>
+	</array>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<!-- `fluence://show` raises the comparison window. Deliberately nothing destructive:
@@ -53,6 +63,23 @@
 	<string>Fluence enregistre les autres participants de votre appel, uniquement pendant la prise de notes de réunion. L'audio reste sur votre Mac.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Fluence lit l'événement en cours pour titrer vos notes de réunion et nommer les intervenants. Rien ne quitte votre Mac.</string>
+	<!-- In-app updates (FLU-26), Sparkle 2. SUFeedURL is stamped by the Makefile (one variable,
+	     FEED_URL), so a build without a feed never checks. The private half of this key lives
+	     in the release machine's login Keychain only (docs/RELEASING.md). -->
+	<key>SUPublicEDKey</key>
+	<string>N19h9dNndaT9SXnPf7k17VzMbptIFNosW2kiS6TypwY=</string>
+	<!-- Check at launch and once a day, without first asking for permission. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<!-- Download in the background; Fluence then asks « Installer / Plus tard », and « Plus
+	     tard » installs it on quit (AppUpdater). -->
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<!-- No system profile, ever: the request carries nothing about this Mac. -->
+	<key>SUEnableSystemProfiling</key>
+	<false/>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Fluence transcrit votre voix directement sur votre Mac pour insérer le texte là où vous écrivez.</string>
 </dict>
