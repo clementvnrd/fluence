@@ -22,7 +22,7 @@ new uses (v0.3).
 |---|---|---|
 | **v0.1** (2026-10-08) | Versioned build, `make release`, one-click updates (Sparkle 2), signed not notarized; installed on Clement's Mac on 2026-10-09 with the trust fixes inside | FLU-26, FLU-27, FLU-41, decisions FLU-39 |
 | **v0.1.x** | Trust fixes (cleanup that deleted real words, names that never reached the engine, meetings index overwrite, import crash, double instance, voice prints kept for nothing): merged before 0.1.0 was built, so they shipped in it. The first update through Sparkle is the next version, once the repository is public | FLU-27, FLU-43 |
-| **v0.2** | Record only after a click (FLU-34, first); right engine and honest feedback (FLU-29, FLU-30); meetings that survive real calls (FLU-32); a speaker bench (FLU-33); diagnostics and CI that launches the app (FLU-35); data you don't lose and an encrypted backup (FLU-36); first dictation without a doubt and accessibility (FLU-37, FLU-38); public distribution, never notarized (FLU-28, after FLU-43) | |
+| **v0.2** | Record only after a click (FLU-34, first); meetings prepared before the first call, not during it (FLU-45); right engine and honest feedback (FLU-29, FLU-30); meetings that survive real calls (FLU-32); a speaker bench (FLU-33); diagnostics and CI that launches the app (FLU-35); data you don't lose and an encrypted backup (FLU-36); first dictation without a doubt and accessibility (FLU-37, FLU-38); public distribution, never notarized (FLU-28, after FLU-43) | |
 | **v0.3** | Faster and lighter (FLU-31); regular voices (opt-in); next steps to Reminders, pre-meeting brief, Markdown export | FLU-31, ideas below |
 
 ## Decisions (Clement, 2026-10-08, FLU-39)
@@ -34,7 +34,7 @@ new uses (v0.3).
 | The code Fluence started from | Do not ask its author; Fluence's own code under a licence that forbids copying, changing and selling | PolyForm Strict 1.0.0 (`LICENSE.md`, FLU-42); ~17 % of the lines are still that author's: publish after rewriting them or now (FLU-43, FLU-44) |
 | Developer ID | Never | No notarization (`docs/RELEASING.md`) |
 | Parakeet as the French default for new installs | Yes | FLU-29 |
-| Meetings record only after a click | Yes | FLU-34, next |
+| Meetings record only after a click | Yes | FLU-34: the card asks; recording without a click is a setting, off by default (`docs/NOTETAKER.md` §2.1) |
 | Encrypted backup of the user's data | Yes | FLU-36 |
 | Update-signing key backed up | Done, by Clement | — |
 | Internship / networking companion | No, ever: another project | Removed from this roadmap |
@@ -133,7 +133,8 @@ probes) is in each issue.
 | U2/R12 | Text only copied, success sound plays | P1 | S | FLU-27 |
 | M1 | Back-to-back calls not offered | P1 | S | FLU-32 |
 | M5/R3, R2, M13 | Quit/crash loses audio; failed save or transcription deletes it | P1 | S–M | FLU-32 |
-| U10/D8 | Meetings auto-record after 10 s while the app says nothing records without you | P1 | S | FLU-34 (decided) |
+| U10/D8 | Meetings auto-record after 10 s while the app says nothing records without you | P1 | S | FLU-34 |
+| M17 | A first meeting asks the microphone, calendar and system-audio permissions and downloads the models during the call | P2 | M | FLU-45 |
 | U3/F7 | Model download invisible, inside a dictation | P1 | M | FLU-29 |
 | U4/U5 | Errors cut at the start, English, no action | P1 | S | FLU-29 |
 | U6–U8 | VoiceOver, keyboard focus, AA contrast | P1 | M | FLU-38 |
@@ -182,7 +183,7 @@ Status on 2026-10-09, after Clement's answers (FLU-39) and the install (FLU-41).
 9. ~~Known word deletions ship in 0.1.0~~: FLU-27 was merged before 0.1.0 was built, so the
    installed 0.1.0 has the fixes. The updater's first real use moves to the next version.
 10. **Meetings still auto-record after 10 s** (U10/D8) in 0.1.0: decided against, fixed by
-   FLU-34 (next).
+   FLU-34; installed copies get it with the next version.
 
 ## Could not be verified
 
