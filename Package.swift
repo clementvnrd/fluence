@@ -11,6 +11,10 @@ let package = Package(
         // OpenAI Whisper as CoreML on Apple Silicon (WhisperKit). Optional at runtime too:
         // its model is downloaded the first time Whisper is chosen.
         .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.1.0"),
+        // In-app updates (FLU-26): checks the feed in Info.plist, verifies the EdDSA signature
+        // and the code signature, installs on quit or on the user's click. A binary framework,
+        // embedded in Contents/Frameworks by the Makefile.
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
     ],
     targets: [
         // The dictionary is its own target so it can be tested directly, and because its
@@ -47,6 +51,7 @@ let package = Package(
                 "FluenceCore",
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
+                .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/Fluence",
             swiftSettings: [

@@ -193,6 +193,21 @@ Settings entirely (⌘Q) before reopening; the Privacy pane caches its list.
 **Don't run the `.app` from the repo folder.** It's iCloud-synced and the sync engine can
 corrupt the signature. `make install` puts the running copy in `/Applications`.
 
+**Releases and updates (FLU-26) — `docs/RELEASING.md`.** The version lives only in
+`Resources/Info.plist`; the build number is derived from it (a test checks). Sparkle 2 updates
+the app from the feed baked in at build time (`FEED_URL`; empty in dev builds, so no updater).
+Facts measured on 2026-10-08, not assumptions:
+
+* Sparkle refuses a `file://` feed ("must use http or https"): a feed needs an http(s) host.
+* An update installed by Sparkle carries no quarantine and launches although `spctl` rejects
+  an Apple Development signature; only a first copy downloaded by a browser meets Gatekeeper.
+* The update question is shown only while Fluence is the active app and nothing records;
+  *Plus tard* installs at quit without relaunching.
+* The EdDSA private key is in the login Keychain (account `ed25519`), never in the repo.
+* Test updates only with another bundle ID (`make … BUNDLE_ID=io.github.clementvnrd.fluence.updatetest`),
+  which gets its own data folder, settings and Keychain item — never over
+  `/Applications/Fluence.app`.
+
 ---
 
 ## Windows specifics

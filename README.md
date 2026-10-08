@@ -180,9 +180,18 @@ name, dependencies and branch.
 | HUD | | Excluded from screen sharing and recordings. |
 | Last transcript (⌃⌘V / ⌃⌘C) | memory only | Gone at quit; never written to disk, whatever the history setting. ⌃⌘C copies to this Mac only. |
 
-Network: none, except the one-time Parakeet model downloads from Hugging Face — the
-transcription model when that engine is chosen, and the ~100 MB CTC model when dictionary
-boosting is turned on.
+Network — every outgoing connection, and nothing else:
+
+* **Speech models, once, on first use**, from Hugging Face: Parakeet (when that engine is
+  chosen, plus the ~100 MB CTC model when dictionary boosting is on), Whisper (when chosen),
+  and the meeting models (voice activity, speaker separation) at the first meeting. Apple's
+  French speech asset is downloaded by macOS itself.
+* **Updates** (release builds only, FLU-26): the feed baked into the app (`SUFeedURL`) is read
+  at launch and once a day, then the new version's archive is downloaded. No system profile is
+  sent (`SUEnableSystemProfiling` off); like any HTTP request it carries a User-Agent with the
+  app and Sparkle versions. Réglages › À propos turns it off. See `docs/RELEASING.md`.
+
+Never sent: audio, transcripts, names, history, meeting notes.
 
 ---
 

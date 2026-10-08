@@ -42,6 +42,37 @@ endif
 ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
+## A secure timestamp needs Apple's server: day-to-day builds skip it, `make release` asks for
+## it (notarization will require it).
+TIMESTAMP ?= --timestamp=none
+
+## Version (FLU-26). Resources/Info.plist is the one place it is written; the build number is
+## derived from it — major × 10000 + minor × 100 + patch, as FluenceCore.ReleaseVersion does
+## and a test checks. APP_VERSION=x.y.z stamps another version into the bundle without
+## touching the repo (the update test builds).
+PLIST_VERSION := $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
+APP_VERSION   ?= $(PLIST_VERSION)
+APP_BUILD     := $(shell echo "$(APP_VERSION)" | awk -F. 'NF == 3 { print $$1 * 10000 + $$2 * 100 + $$3 }')
+
+## Another bundle ID makes a copy with its own data folder, settings, Keychain item and
+## permissions (AppPaths.isolatedBundleID) — never Clement's. For update tests and screenshots.
+BUNDLE_ID ?=
+
+## Updates (FLU-26, docs/RELEASING.md). FEED_URL is the appcast Sparkle reads, baked into the
+## bundle (empty, the default: no updater in this build). `make release` writes the new version
+## and its appcast into RELEASE_FEED, to be uploaded where FEED_URL and DOWNLOAD_URL_PREFIX
+## point. Sparkle only reads http(s): a file:// feed is refused (tested on 2026-10-08).
+## One folder per version: generate_appcast gives every archive in the folder the same
+## DOWNLOAD_URL_PREFIX, and a GitHub release has one download path per tag.
+RELEASE_FEED        ?= $(HOME)/Library/Fluence Releases/$(APP_VERSION)
+FEED_URL            ?=
+DOWNLOAD_URL_PREFIX ?=
+
+## Sparkle's framework and tools, fetched by SwiftPM with the package.
+SPARKLE_ARTIFACT := $(SCRATCH)/artifacts/sparkle/Sparkle
+SPARKLE_SRC      := $(SPARKLE_ARTIFACT)/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework
+SPARKLE_DST      := $(CONTENTS)/Frameworks/Sparkle.framework
+SPARKLE_BIN      := $(SPARKLE_ARTIFACT)/bin
 
 ## SwiftUI's macros only ship with Xcode. When the active developer directory is the
 ## Command Line Tools but Xcode is installed, use Xcode for this build without asking for
@@ -52,7 +83,7 @@ export DEVELOPER_DIR := /Applications/Xcode.app/Contents/Developer
 endif
 endif
 
-.PHONY: all build app run install clean icon
+.PHONY: all build app run install clean icon release
 
 all: app
 
@@ -67,23 +98,43 @@ icon:
 ## Assemble a real .app bundle. TCC (microphone + Accessibility) keys on bundle identity
 ## and code signature, so the raw SwiftPM binary can't be used directly.
 app: build
+	@test -n "$(APP_BUILD)" || { echo "APP_VERSION must look like 1.2.3, not '$(APP_VERSION)'"; exit 1; }
 	@rm -rf "$(BUNDLE)"
-	@mkdir -p "$(CONTENTS)/MacOS" "$(CONTENTS)/Resources"
+	@mkdir -p "$(CONTENTS)/MacOS" "$(CONTENTS)/Resources" "$(CONTENTS)/Frameworks"
 	@cp $(BUILD) "$(CONTENTS)/MacOS/$(EXEC)"
 	@cp Resources/Info.plist "$(CONTENTS)/Info.plist"
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(APP_VERSION)" \
+		-c "Set :CFBundleVersion $(APP_BUILD)" "$(CONTENTS)/Info.plist"
+	@if [ -n "$(BUNDLE_ID)" ]; then /usr/libexec/PlistBuddy \
+		-c "Set :CFBundleIdentifier $(BUNDLE_ID)" "$(CONTENTS)/Info.plist"; fi
+	@if [ -n "$(FEED_URL)" ]; then /usr/libexec/PlistBuddy \
+		-c "Add :SUFeedURL string $(FEED_URL)" "$(CONTENTS)/Info.plist"; fi
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(CONTENTS)/Resources/"; fi
 	@# The brand mark is drawn (`AquaOrbView`, FLU-12); Resources/AquaOrb.png is the artwork
 	@# it was drawn from and is not shipped.
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"
+	@# Sparkle (FLU-26), found by the binary through this rpath. Its XPC services exist for
+	@# sandboxed apps only; Fluence is not sandboxed, so they are left out.
+	@ditto "$(SPARKLE_SRC)" "$(SPARKLE_DST)"
+	@rm -rf "$(SPARKLE_DST)/Versions/B/XPCServices" "$(SPARKLE_DST)/XPCServices"
+	@otool -l "$(CONTENTS)/MacOS/$(EXEC)" | grep -q "@executable_path/../Frameworks" \
+		|| install_name_tool -add_rpath "@executable_path/../Frameworks" "$(CONTENTS)/MacOS/$(EXEC)"
 	@# Belt and braces: the staging dir isn't synced, but the copied binary can still carry
 	@# xattrs inherited from the synced .build directory.
 	@xattr -cr "$(BUNDLE)"
+	@# Inside out, every piece with this app's identity and the hardened runtime: library
+	@# validation then accepts the framework, and Sparkle's check that an update is signed
+	@# like the running app compares like with like. Never --deep.
+	@codesign --force --sign "$(SIGN_ID)" --options runtime $(TIMESTAMP) "$(SPARKLE_DST)/Versions/B/Autoupdate"
+	@codesign --force --sign "$(SIGN_ID)" --options runtime $(TIMESTAMP) "$(SPARKLE_DST)/Versions/B/Updater.app"
+	@codesign --force --sign "$(SIGN_ID)" --options runtime $(TIMESTAMP) "$(SPARKLE_DST)"
 	@codesign --force --sign "$(SIGN_ID)" \
 		--entitlements Resources/$(EXEC).entitlements \
 		--options runtime \
-		--timestamp=none \
+		$(TIMESTAMP) \
 		"$(BUNDLE)"
-	@echo "built $(BUNDLE)  [signed: $(SIGN_ID)]"
+	@codesign --verify --strict --deep "$(BUNDLE)"
+	@echo "built $(BUNDLE)  [$(APP_VERSION) ($(APP_BUILD)), signed: $(SIGN_ID)]"
 
 ## Only ever targets the Fluence executable — never another dictation app.
 run: app
@@ -99,6 +150,32 @@ install: app
 	@cp -R "$(BUNDLE)" "/Applications/$(APPNAME)"
 	@open "/Applications/$(APPNAME)"
 	@echo "installed to /Applications/$(APPNAME)"
+
+## A release (FLU-26, docs/RELEASING.md): the signed app zipped with ditto (keeps symlinks and
+## the signature intact), its SHA-256, and appcast.xml signed with the EdDSA key kept in this
+## Mac's login Keychain — all written into RELEASE_FEED, to be uploaded where FEED_URL and
+## DOWNLOAD_URL_PREFIX point. The notes are docs/releases/<version>.html (French, shown by the
+## app) and .md (FR + EN, for the GitHub release). Nothing is uploaded or published here.
+RELEASE_ZIP := Fluence-$(APP_VERSION).zip
+
+release:
+	@test "$(SIGN_ID)" != "-" || { echo "make release needs a stable signing identity: an ad-hoc signature changes every build, and macOS would drop the permissions on every update"; exit 1; }
+	@case "$(FEED_URL)" in https://*|http://localhost:*|http://127.0.0.1:*) ;; \
+		*) echo "make release needs FEED_URL=https://… (http://localhost only for a test; see docs/RELEASING.md)"; exit 1;; esac
+	@test -n "$(DOWNLOAD_URL_PREFIX)" || { echo "make release needs DOWNLOAD_URL_PREFIX (see docs/RELEASING.md)"; exit 1; }
+	@test -f "docs/releases/$(APP_VERSION).html" || { echo "missing docs/releases/$(APP_VERSION).html"; exit 1; }
+	@test -f "docs/releases/$(APP_VERSION).md" || { echo "missing docs/releases/$(APP_VERSION).md"; exit 1; }
+	@test -z "$$(git status --porcelain --untracked-files=no)" -o -n "$(ALLOW_DIRTY)" \
+		|| { echo "uncommitted changes: commit first (ALLOW_DIRTY=1 for a test build)"; exit 1; }
+	@$(MAKE) --no-print-directory app TIMESTAMP=--timestamp
+	@mkdir -p "$(RELEASE_FEED)"
+	@rm -f "$(RELEASE_FEED)/$(RELEASE_ZIP)"
+	@ditto -c -k --sequesterRsrc --keepParent "$(BUNDLE)" "$(RELEASE_FEED)/$(RELEASE_ZIP)"
+	@cp "docs/releases/$(APP_VERSION).html" "$(RELEASE_FEED)/Fluence-$(APP_VERSION).html"
+	@"$(SPARKLE_BIN)/generate_appcast" --download-url-prefix "$(DOWNLOAD_URL_PREFIX)" "$(RELEASE_FEED)"
+	@cd "$(RELEASE_FEED)" && shasum -a 256 "$(RELEASE_ZIP)" > "$(RELEASE_ZIP).sha256"
+	@echo "release $(APP_VERSION) ($(APP_BUILD)) in $(RELEASE_FEED)"
+	@cat "$(RELEASE_FEED)/$(RELEASE_ZIP).sha256"
 
 clean:
 	@rm -rf .build "$(STAGE)" "$(SCRATCH)"

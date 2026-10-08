@@ -20,6 +20,8 @@ struct FluenceApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .appInfo) {
+                // FLU-26: under « À propos de Fluence », where macOS apps keep it.
+                UpdateMenuButton()
                 Button("Afficher le fichier du dictionnaire") {
                     NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
                 }
@@ -129,6 +131,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         observeState()
 
+        // FLU-26: in-app updates, held back while a dictation or a meeting is in progress.
+        AppUpdater.shared.start()
+        observeBusy()
+
         // MARK: Notetaker (capture)
         // Watches for calls and offers to take notes; nothing records without the user.
         MeetingController.shared.start()
@@ -211,6 +217,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Tells the updater when a dictation or a meeting (recording or being processed) is in
+    /// progress, so no update question or relaunch lands in the middle of one (FLU-26).
+    private func observeBusy() {
+        // Read under tracking, written outside it: the updater's own reads (when it offers
+        // an update as the recording ends) must not become part of what is observed here.
+        let busy = withObservationTracking {
+            UpdatePolicy.isBusy(
+                dictating: controller.state.isActive,
+                meetingInProgress: MeetingController.shared.isBusy
+            )
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeBusy() }
+        }
+        if AppUpdater.shared.isBusy != busy { AppUpdater.shared.isBusy = busy }
+    }
+
     private func retryActivation() {
         Task { @MainActor in
             while !Permissions.hasAccessibility {
@@ -218,6 +240,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             controller.reloadHotkey()
             Log.app.info("Accessibility granted — event tap armed")
+        }
+    }
+}
+
+/// « Rechercher des mises à jour… », or « Installer Fluence x.y.z… » once a new version is
+/// downloaded (FLU-26). Hidden in a build without an update feed.
+private struct UpdateMenuButton: View {
+    private let updater = AppUpdater.shared
+
+    var body: some View {
+        if updater.isRunning {
+            Button(updater.readyVersion.map { "Installer Fluence \($0)…" } ?? "Rechercher des mises à jour…") {
+                updater.checkNow()
+            }
         }
     }
 }
@@ -382,6 +418,7 @@ private struct MenuContent: View {
 
         // MARK: FLU-5 input
         Button("Configurer Fluence…") { OnboardingWindow.shared.show() }
+        UpdateMenuButton()
 
         if !Permissions.hasAccessibility {
             Button("Autoriser l'Accessibilité…") { Permissions.openAccessibilitySettings() }

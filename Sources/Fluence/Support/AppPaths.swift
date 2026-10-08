@@ -17,11 +17,30 @@ enum AppPaths {
     static let override: URL? = ProcessInfo.processInfo.environment["FLUENCE_SUPPORT_DIRECTORY"]
         .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
 
+    /// The identity of the app Clement uses. TCC grants, the Keychain item and the data folder
+    /// all belong to it.
+    static let productionBundleID = "io.github.clementvnrd.fluence"
+
+    /// A copy built under another bundle ID — an update test (FLU-26), a screenshot build. It
+    /// keeps its data in its own folder for good, even after Sparkle relaunches it without the
+    /// environment `FLUENCE_SUPPORT_DIRECTORY` came from. Settings and the Keychain item are
+    /// already per bundle ID.
+    static let isolatedBundleID: String? = Bundle.main.bundleIdentifier
+        .flatMap { $0 == productionBundleID ? nil : $0 }
+
+    /// This copy must never read, move or merge the production app's files.
+    static var isIsolated: Bool { override != nil || isolatedBundleID != nil }
+
     /// `~/Library/Application Support/Fluence`.
     static let support: URL = {
         if let override {
             protect(override)
             return override
+        }
+        if let isolatedBundleID {
+            let directory = applicationSupport.appendingPathComponent("Fluence-\(isolatedBundleID)", isDirectory: true)
+            protect(directory)
+            return directory
         }
         let directory = applicationSupport.appendingPathComponent("Fluence", isDirectory: true)
         protect(directory)
@@ -92,7 +111,7 @@ enum LegacyMigration {
     /// `HistoryFile` seals them and removes each only once its runs are written.
     static func legacyRunFiles(in support: URL) -> [URL] {
         var files = [support.appendingPathComponent("runs.jsonl")]
-        if AppPaths.override == nil {
+        if !AppPaths.isIsolated {
             files.insert(legacySupport.appendingPathComponent("runs.jsonl"), at: 0)
         }
         return files.filter { FileManager.default.fileExists(atPath: $0.path) }
@@ -153,7 +172,7 @@ enum LegacyMigration {
     /// Copies settings the user had set under the old identity. Never overwrites a value
     /// already set under the new one, and runs once per version of the copy.
     static func migrateDefaults(into defaults: UserDefaults = .standard) {
-        guard AppPaths.override == nil else { return }
+        guard !AppPaths.isIsolated else { return }
         guard !defaults.bool(forKey: doneKey) else { return }
         defer {
             defaults.set(true, forKey: doneKey)
