@@ -358,7 +358,7 @@ private struct MenuContent: View {
         // MARK: Notetaker (library)
         MeetingsMenuButton()
 
-        // Downloading ~470 MB on the first hold would look like a hang, so offer to do it
+        // Downloading ~600 MB on the first hold would look like a hang, so offer to do it
         // deliberately instead.
         if settings.engine == .parakeet {
             Button(parakeetStatus) { preloadParakeet() }

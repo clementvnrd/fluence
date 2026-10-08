@@ -417,6 +417,9 @@ struct TranscriptionSettingsSection: View {
                     settings.engine = $0
                 }
             }
+            if let engineCaveat {
+                RowNote(text: engineCaveat, color: DS.Color.meterAmber)
+            }
             if settings.engine == .whisper {
                 RowDivider()
                 SettingsRow(
@@ -487,6 +490,15 @@ struct TranscriptionSettingsSection: View {
         }
     }
 
+    /// FLU-24: on the French bench, Parakeet makes half Apple's errors on tech words and a
+    /// quarter of Whisper Small's through a webcam mic. Said where the choice is made.
+    private var engineCaveat: String? {
+        guard settings.engine != .parakeet,
+              settings.dictationLanguage == .french || settings.dictationLanguage == .auto
+        else { return nil }
+        return "Parakeet est plus précis en français."
+    }
+
     private static let boostInfo = "Un petit modèle repère les mots de votre dictionnaire dans ce que Parakeet entend. Environ 100 Mo, une fois ; réglé pour l'anglais."
 
     /// The download's state, when there is one to tell (FLU-19: the explanation is in ⓘ).
@@ -517,9 +529,9 @@ struct TranscriptionSettingsSection: View {
 extension SpeechEngineChoice {
     var explanation: String {
         switch self {
-        case .apple: "Apple : le texte s'affiche pendant que vous parlez. Rien à télécharger."
-        case .whisper: "Whisper : très précis, ponctue tout seul ; le texte arrive au relâchement."
-        case .parakeet: "Parakeet : le plus rapide sur la puce Apple ; le texte arrive au relâchement."
+        case .apple: "Apple : le texte s'affiche pendant que vous parlez. Rien à télécharger ; moins précis sur les mots techniques."
+        case .whisper: "Whisper : le texte arrive au relâchement. Plus lent et moins précis que Parakeet en français."
+        case .parakeet: "Parakeet Ultra : le plus précis et le plus rapide, en français comme en anglais. Le texte arrive au relâchement. Recommandé."
         }
     }
 }

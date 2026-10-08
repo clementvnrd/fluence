@@ -1,0 +1,16 @@
+t01	Peux-tu ouvrir une pull request sur GitHub et me mettre le lien dans Linear ?
+t02	Le déploiement sur Vercel a échoué parce que la variable d'environnement n'était pas définie.
+t03	On passe le back-end en TypeScript et on garde Node.js pour les scripts.
+t04	Claude doit relire le code avant le merge, puis lancer les tests sur la CI.
+t05	Il faut que la dictée colle le texte directement dans Slack ou dans Notion.
+t06	Je veux une réunion de trente minutes demain matin avec l'équipe produit.
+t07	Le modèle tourne en local sur le Mac grâce au Neural Engine, sans connexion internet.
+t08	Ajoute une issue dans le backlog avec la priorité haute et le label bug.
+t09	Les notes de réunion doivent lister les décisions, les actions et les questions ouvertes.
+t10	On a un souci de latence quand le micro de la webcam est trop loin du clavier.
+t11	Envoie un mail à Sophie pour lui dire que la démo est décalée à jeudi après-midi.
+t12	Le fichier JSON contient les vecteurs de test partagés entre macOS et Windows.
+t13	Est-ce que tu peux résumer ce document en trois points et proposer une prochaine étape ?
+t14	La transcription doit garder la ponctuation, les majuscules et les noms propres.
+t15	Quand je relâche la touche, le texte doit apparaître en moins d'une seconde.
+t16	On compare Whisper, Parakeet et le moteur d'Apple sur des phrases en français.

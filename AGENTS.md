@@ -16,7 +16,7 @@ on-device. Two independent implementations:
 |---|---|---|
 | Language | Swift 6 | C# / .NET 10 |
 | UI | SwiftUI | Avalonia |
-| Speech | Apple `SpeechAnalyzer`, Whisper via WhisperKit, or Parakeet via FluidAudio | Parakeet via sherpa-onnx |
+| Speech | Apple `SpeechAnalyzer`, Whisper via WhisperKit, or Parakeet Ultra via FluidAudio | Parakeet v3 via sherpa-onnx |
 | Location | repo root | `windows/` |
 
 **The macOS app works and was in daily use** under its previous name, "Murmur YouTube".
@@ -105,6 +105,12 @@ If you see this error, wait a few seconds and retry.
 **Compare mode doesn't type anything.** By design — `Settings.compareMode` runs every engine
 on one recording and shows them side by side. If both injected, two transcripts would fight
 over one text field. This is the single most confusing behaviour in the app.
+
+**Speech models are chosen by measurement, in French.** Clement dictates mostly in French,
+often through a webcam mic. `bench/french` runs every engine the way the app runs it on
+public and synthetic French audio (never anyone's recordings); `docs/SPEECH-MODELS.md` has
+the numbers and the verdict on each model proposed so far. A new model or a new default
+goes through that bench first, and the result is written there (FLU-24).
 
 **The timing column isn't comparing like with like.** Apple and Parakeet are timed on local
 compute with the clock started *after* model load. Wispr Flow's number is its own
