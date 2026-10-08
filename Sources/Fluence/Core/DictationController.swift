@@ -490,16 +490,19 @@ final class DictationController {
         if session.source == .button { await restoreFocusIfNeeded() }
         guard self.session === session else { return }
         if Settings.shared.learnFromEdits { EditWatcher.shared.willInsert(output) }
-        TextInjector.insert(output)
+        let outcome = TextInjector.insert(output)
         // Clement's Whisper context and (opt-in) term learning. In memory only.
         AutoLearningEngine.shared.recordInjectedText(output)
         lastTranscript = output  // MARK: FLU-5 input
         if Settings.shared.learnFromEdits { EditWatcher.shared.didInsert() }
-        if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
+        // The success sound only when the text landed (FLU-27).
+        if outcome == .inserted, Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
 
         // Text arrived, but the engine also failed partway: type what there is, and say so.
         if let error = session.engineError {
             fail("La transcription s'est arrêtée trop tôt : \(error.localizedDescription)")
+        } else if outcome == .onClipboard {
+            end(session, notice: Self.clipboardNotice)
         } else {
             end(session, as: .idle)
         }
@@ -808,6 +811,8 @@ extension DictationController {
 
     /// The notice an Esc cancel leaves on the HUD; the HUD draws it as its "Annulé" state.
     static let cancelledNotice = "Annulé"
+    /// The text only reached the clipboard: no Accessibility grant (FLU-27).
+    static let clipboardNotice = "Copié — collez avec ⌘V"
 
     /// ⌃⌘V types the last transcript again; ⌃⌘C puts it on the pasteboard.
     fileprivate func handleLastTranscript(_ action: LastTranscriptAction) {

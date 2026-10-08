@@ -27,8 +27,18 @@ enum TextInjector {
     /// second is ample for a responsive app; a frozen one falls through to the paste path.
     private static let axTimeout: Float = 0.5
 
-    static func insert(_ text: String) {
-        guard !text.isEmpty else { return }
+    /// Where the text went, so the HUD and the sound tell the truth (FLU-27).
+    enum Outcome: Equatable {
+        /// Typed into the focused field, or pasted there.
+        case inserted
+        /// Only put on the clipboard: without the Accessibility grant no paste can land, and
+        /// the user has to press ⌘V.
+        case onClipboard
+    }
+
+    @discardableResult
+    static func insert(_ text: String) -> Outcome {
+        guard !text.isEmpty else { return .inserted }
         // On the system-wide element this sets the timeout for every AX call the app makes.
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), axTimeout)
 
@@ -36,9 +46,17 @@ enum TextInjector {
         case .inserted:
             Log.inject.info("inserted via AX (\(text.count) chars)")
         case .unverified(let reason):
+            guard AXIsProcessTrusted() else {
+                // A posted ⌘V would be dropped: the dictation stays on the pasteboard (still
+                // concealed and transient) for the user's own ⌘V.
+                Log.inject.error("no Accessibility grant — transcript left on the pasteboard")
+                putOnPasteboard(text)
+                return .onClipboard
+            }
             Log.inject.info("AX insert not verified (\(reason, privacy: .public)) — pasting")
             insertViaPasteboard(text)
         }
+        return .inserted
     }
 
     private enum AXOutcome {
@@ -133,7 +151,11 @@ enum TextInjector {
     private static let pasteWindow: Duration = .seconds(1)
     private static let pastePoll: Duration = .milliseconds(50)
 
-    private static func insertViaPasteboard(_ text: String) {
+    /// Writes the dictation to the pasteboard, marked transient and concealed, this Mac only.
+    ///
+    /// - Returns: what the pasteboard held before, and the generation of our write.
+    @discardableResult
+    private static func putOnPasteboard(_ text: String) -> (saved: [[NSPasteboard.PasteboardType: Data]], generation: Int) {
         let pasteboard = NSPasteboard.general
         let saved = pasteboard.pasteboardItems?.compactMap { item -> [NSPasteboard.PasteboardType: Data] in
             var copy: [NSPasteboard.PasteboardType: Data] = [:]
@@ -155,7 +177,12 @@ enum TextInjector {
         // the dictation to every device signed in to the same account.
         pasteboard.prepareForNewContents(with: .currentHostOnly)
         pasteboard.writeObjects([item])
-        let ours = pasteboard.changeCount
+        return (saved, pasteboard.changeCount)
+    }
+
+    private static func insertViaPasteboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        let (saved, ours) = putOnPasteboard(text)
         let caretBefore = focusedSelection()
 
         Task { @MainActor in
