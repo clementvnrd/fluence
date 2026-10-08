@@ -25,8 +25,8 @@ FEED_URL=https://github.com/clementvnrd/fluence/releases/latest/download/appcast
 DOWNLOAD_URL_PREFIX=https://github.com/clementvnrd/fluence/releases/download/v<version>/
 ```
 
-**Not live yet.** The repository stays private until FLU-43 is answered (about 17 % of the
-lines are still another author's). Meanwhile the feed answers 404: a background check finds
+**Not live yet.** The repository stays private until the lines still written by another author
+(about 17 %) are rewritten (FLU-44; decided 2026-10-09 in FLU-43: public after the rewrite). Meanwhile the feed answers 404: a background check finds
 nothing and shows nothing (the log says `updates: check ended — SUSparkleErrorDomain 2001`); a
 manual *Rechercher des mises à jour…* shows an error.
 
