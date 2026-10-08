@@ -28,9 +28,13 @@ pull request #1 on `per-simmons/murmur-youtube`): it did not transcribe at all u
 five fixes, which are merged here. The later audit fixes have not been on hardware yet.
 Describe it that way — not as "working", not as "unfinished".
 
-The repository is `clementvnrd/fluence` (private). It started as a copy of the public
-`per-simmons/murmur-youtube`, which has **no licence**; ask its author for one before
-distributing Fluence.
+The repository is `clementvnrd/fluence` (private). Fluence's own code is under the **PolyForm
+Strict 1.0.0** licence (`LICENSE.md`, FLU-42): readable and usable for non-commercial purposes,
+no distribution, no changes. It started as a copy of the public `per-simmons/murmur-youtube`,
+which has **no licence**, and about 17 % of the lines are still its author's (measured
+2026-10-09, FLU-43). Clement chose not to ask that author (FLU-39). **Never make the repository
+public or publish a binary before FLU-43 is answered** (and, if he chooses so, FLU-44 has
+rewritten those lines).
 
 ---
 
@@ -281,8 +285,9 @@ lookahead, `\p{L}`, and `$1`–`$9` in replacements. Nothing else.
 ## What isn't built
 
 1. **Context awareness** — reading the text around the caret (opt-in) to spell names right.
-2. **Notarization** (macOS) and **code signing** (Windows). Both apps are unsigned for
-   distribution, so Windows users will meet SmartScreen.
+2. **Code signing** (Windows): unsigned for distribution, so Windows users will meet
+   SmartScreen. macOS **notarization is not planned**: no Developer ID, decided 2026-10-08
+   (FLU-39); a first copy on another Mac needs *Open Anyway* once.
 3. **An installer** for Windows, and model download from inside the app rather than by
    following `docs/PARAKEET-WINDOWS.md` by hand.
 

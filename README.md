@@ -310,4 +310,23 @@ target on each pull request.
 Tracked in Linear (team FLU):
 
 1. **Context awareness** — reading the text around the caret to spell names right (opt-in).
-2. **Notarization**, for distribution beyond this machine.
+
+Not planned: **notarization**. There is no Developer ID (decided 2026-10-08, FLU-39), so the
+first copy of Fluence on another Mac opens only after System Settings › Privacy & Security ›
+*Open Anyway*; the updates it then receives install without that step.
+
+---
+
+## Licence
+
+**Français.** Fluence est sous licence **PolyForm Strict 1.0.0** (`LICENSE.md`) : vous pouvez lire
+le code et utiliser l'application pour vous-même, sans but commercial ; vous ne pouvez ni la
+redistribuer, ni la modifier, ni la vendre. Ce n'est pas une licence « open source » : le code est
+visible, il n'est pas libre.
+
+**English.** Fluence is licensed under the **PolyForm Strict License 1.0.0** (`LICENSE.md`): you may
+read the code and use the software for non-commercial purposes; you may not distribute it, change
+it or build on it. Source-available, not open source.
+
+The lines still carried over from the project Fluence started from are not covered by this
+licence (see `LICENSE.md`).

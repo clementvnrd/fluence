@@ -10,21 +10,25 @@ first: the signing identity is what keeps macOS permissions (TCC) across updates
 | Version | `Resources/Info.plist` (`CFBundleShortVersionString`) | The one place it is written. The build number is derived: major × 10000 + minor × 100 + patch (0.1.0 → 100). A test (`ReleaseVersionTests`) fails if `CFBundleVersion` does not match. |
 | Updater | Sparkle 2 (SwiftPM, `Package.swift`), `Support/AppUpdater.swift` | Checks at launch and once a day, downloads in the background, asks *Installer / Plus tard* only while Fluence is the active app and nothing records. *Plus tard*: installed when Fluence quits, no relaunch. |
 | Update signing key | EdDSA, private half in the **login Keychain** of the release Mac (account `ed25519`, created by Sparkle's `generate_keys`); public half in `Info.plist` (`SUPublicEDKey`) | Never in the repo, never printed. |
-| Code signature | `make` picks a Developer ID if there is one, else **Apple Development** | v0.1 is signed with Apple Development and **not notarized**. |
+| Code signature | `make` picks a Developer ID if there is one, else **Apple Development** | Signed with Apple Development and **not notarized**, for good: no Developer ID (decided 2026-10-08, FLU-39). |
 | Feed | `FEED_URL` / `DOWNLOAD_URL_PREFIX`, stamped into the bundle | Empty by default: a dev build (`make app`, `make install`) has no updater. `make release` refuses anything but `https://` (or `http://localhost` for a test). |
 
-## Where the feed lives (Clement decides — grouped Decision issue under FLU-25)
+## Where the feed lives (decided 2026-10-08: the `fluence` repository)
 
 Sparkle downloads the feed and the archive **without a password, over http(s)**. A `file://`
-feed is refused ("The download request URL must use http or https", tested 2026-10-08), and the
-source repository is private (its release files answer 404 without a token).
+feed is refused ("The download request URL must use http or https", tested 2026-10-08), and a
+token inside the app to read a private repository was rejected (a secret in every copy).
+Clement chose to make `clementvnrd/fluence` public (FLU-39), so every build uses:
 
-| Option | Updates work for | What it needs |
-|---|---|---|
-| A public **`fluence-releases`** repository holding only the releases (recommended once the licence question is settled) | Anyone with the app | The binary becomes downloadable by anyone: upstream licence and third-party notices first. `FEED_URL=https://github.com/clementvnrd/fluence-releases/releases/latest/download/appcast.xml`, `DOWNLOAD_URL_PREFIX=https://github.com/clementvnrd/fluence-releases/releases/download/v<version>/` |
-| `clementvnrd/fluence` made public | Anyone | Same prerequisites, and the source becomes public. |
-| No feed yet | — | Each version is installed by hand. |
-| A token inside the app to read the private repo | — | Rejected: a secret in every copy. |
+```
+FEED_URL=https://github.com/clementvnrd/fluence/releases/latest/download/appcast.xml
+DOWNLOAD_URL_PREFIX=https://github.com/clementvnrd/fluence/releases/download/v<version>/
+```
+
+**Not live yet.** The repository stays private until FLU-43 is answered (about 17 % of the
+lines are still another author's). Meanwhile the feed answers 404: a background check finds
+nothing and shows nothing (the log says `updates: check ended — SUSparkleErrorDomain 2001`); a
+manual *Rechercher des mises à jour…* shows an error.
 
 The feed URL is baked into each build: a copy only ever looks where its own build said. A copy
 built with no feed, or with another feed, needs one manual install of a build that points to
@@ -48,21 +52,20 @@ installed apps: nothing reaches them until the release is published.
    Keychain key (no prompt) and writes `appcast.xml` — all into
    `~/Library/Fluence Releases/<version>/`. It refuses an ad-hoc signature (every update would
    then lose the permissions), a feed that is not https, and uncommitted changes.
-3. Upload, as a **draft** first: `gh release create v<version> --draft --repo <feed repo>
-   --notes-file docs/releases/<version>.md <zip> <zip>.sha256 appcast.xml`. Publishing it is
-   Clement's call; installed copies see it at their next check (launch, once a day, or
-   *Rechercher des mises à jour…*).
+3. Upload, as a **draft** first: `gh release create v<version> --draft --repo clementvnrd/fluence
+   --target <commit> --notes-file docs/releases/<version>.md <zip> <zip>.sha256 appcast.xml`.
+   A draft creates no tag; publishing does. Publishing is Clement's call; installed copies see
+   it at their next check (launch, once a day, or *Rechercher des mises à jour…*).
 
 The first copy that contains Sparkle has to be installed by hand once (copy `Fluence.app` to
 `/Applications`); every later version updates itself.
 
 ## Keys: keep the EdDSA key safe
 
-* Losing the private key while the app is signed with Apple Development strands every
-  installed copy: Sparkle accepts an update when **either** the EdDSA key **or** the
-  code-signing identity is unchanged, and the recovery path through a notarized disk image
-  needs a Developer ID.
-* Back it up once, into a password manager, never into the repo:
+* Losing the private key strands every installed copy: Sparkle accepts an update when
+  **either** the EdDSA key **or** the code-signing identity is unchanged, and the recovery path
+  through a notarized disk image needs a Developer ID, which Fluence will not have (FLU-39).
+* Back it up once, into a password manager, never into the repo (Clement did, 2026-10-08):
   `generate_keys -x fluence-sparkle-key.txt`, store the file's content, then delete the file.
   (`generate_keys` is in SwiftPM's artifacts:
   `~/Library/Caches/FluenceBuild/<checkout>/scratch/artifacts/sparkle/Sparkle/bin/`.)
@@ -80,11 +83,20 @@ The first copy that contains Sparkle has to be installed by hand once (copy `Flu
   `com.apple.quarantine`, so Gatekeeper never assesses it. A first copy downloaded by a browser
   *is* quarantined and is refused until System Settings › Privacy & Security › *Open Anyway*
   (not re-tested here).
-* Notarization (v0.2) needs a **Developer ID Application** certificate (paid Apple Developer
-  Program), a secure timestamp (`make release` already asks for one), then
-  `xcrun notarytool submit Fluence-<v>.zip --keychain-profile <profile> --wait`,
-  `xcrun stapler staple Fluence.app`, re-zip, and `spctl -a -vv Fluence.app` must say
-  *accepted, source=Notarized Developer ID*.
+* **No notarization** (decided 2026-10-08, FLU-39: no Developer ID, ever). It would need a
+  paid Developer ID Application certificate. A first copy on another Mac therefore needs
+  *Open Anyway* once; its updates do not.
+
+## Installing the first updatable copy on Clement's Mac (2026-10-09, FLU-41)
+
+0.1.0 was built from `main` @ 5e2cb5b with the feed above and installed from its own archive,
+in this order: no dictation or meeting in progress (no `recording.marker`, no log activity);
+the previous app copied to `~/Fluence-app-backup-2026-10-09/`; Fluence quit with a normal
+*quit* (no kill); the archive's `Fluence.app` copied into `/Applications`; launched. Checked:
+the designated requirement is identical to the previous app's, the event tap installed
+(Accessibility kept), data unchanged (dictionary, history, 5 meetings, 3 snippets), the update
+check runs (404 while private). Not checked: the Microphone grant (the TCC database is not
+readable without Full Disk Access).
 
 ## Testing an update without touching the installed app
 
