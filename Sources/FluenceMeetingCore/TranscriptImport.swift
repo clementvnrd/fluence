@@ -269,16 +269,20 @@ public enum TranscriptImport {
     // MARK: - Pieces
 
     /// `00:00:01.000 --> 00:00:03.500` (VTT) or `00:00:01,000 --> 00:00:03,500` (SRT); cue
-    /// settings after the end time are ignored.
-    static func cueTiming(_ line: String) -> (start: TimeInterval, end: TimeInterval)? {
-        guard let match = line.firstMatch(of: #/^\s*((?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3})\s*-->\s*((?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3})/#),
-              let start = seconds(String(match.1)),
-              let end = seconds(String(match.2))
+    /// settings after the end time are ignored. A time past `longestStamp` is dropped, the
+    /// cue kept: it then follows the cue before it.
+    static func cueTiming(_ line: String) -> (start: TimeInterval?, end: TimeInterval?)? {
+        guard let match = line.firstMatch(of: #/^\s*((?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3})\s*-->\s*((?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3})/#)
         else { return nil }
-        return (start, end)
+        return (seconds(String(match.1)), seconds(String(match.2)))
     }
 
-    /// `h:mm:ss`, `mm:ss`, with an optional `.ttt` or `,ttt` fraction.
+    /// No meeting runs 100 hours: a later time comes from a damaged file, and is dropped
+    /// rather than stretching the meeting to it (FLU-27).
+    static let longestStamp: TimeInterval = 100 * 3600
+
+    /// `h:mm:ss`, `mm:ss`, with an optional `.ttt` or `,ttt` fraction; nil past
+    /// `longestStamp`.
     static func seconds(_ stamp: String) -> TimeInterval? {
         let parts = stamp.replacingOccurrences(of: ",", with: ".").split(separator: ":")
         guard (2...3).contains(parts.count) else { return nil }
@@ -287,7 +291,7 @@ public enum TranscriptImport {
             guard let value = Double(part), value >= 0 else { return nil }
             total = total * 60 + value
         }
-        return total
+        return total <= longestStamp ? total : nil
     }
 
     /// `Name: text`, `Name (00:12): text`, `Name [00:12] : text`. The colon must be

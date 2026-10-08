@@ -103,6 +103,22 @@ struct TranscriptImportMeetingTests {
         #expect(meeting.duration == 3)
     }
 
+    @Test("a damaged timestamp is ignored: the meeting keeps its text and a sane length (FLU-27)")
+    func damagedTimestamps() {
+        let file = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nAlice: Salut.\n\n"
+            + "99999999999999999999:00:00.000 --> 99999999999999999999:00:01.000\nBob: Fin.\n"
+        let meeting = TranscriptImport.meeting(from: TranscriptImport.parse(file), title: "T", startedAt: start, me: nil)
+
+        #expect(meeting.segments.map(\.text) == ["Salut.", "Fin."])
+        #expect(meeting.duration < 60)
+        #expect(meeting.transcriptText == "[00:01] Alice: Salut.\n[00:02] Bob: Fin.")
+    }
+
+    @Test("a clock never crashes on a number no meeting has", arguments: [Double.nan, .infinity, -.infinity, 1e300])
+    func clockOfAnyNumber(_ value: Double) {
+        #expect(Meeting.clock(value) == Meeting.clock(value.isFinite && value > 0 ? Double(Int32.max) : 0))
+    }
+
     @Test("out-of-order cues are sorted by time")
     func sorted() {
         let transcript = ImportedTranscript(format: .text, turns: [

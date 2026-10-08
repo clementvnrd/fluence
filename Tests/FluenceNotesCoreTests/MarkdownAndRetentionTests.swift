@@ -103,6 +103,14 @@ struct MarkdownTests {
         #expect(DurationText.format(45 * 60) == "45 min")
         #expect(DurationText.format(2 * 3600 + 5 * 60) == "2 h 05 min")
     }
+
+    /// A damaged imported transcript can carry any number (FLU-27): none may crash.
+    @Test(arguments: [Double.nan, .infinity, -.infinity, -1e300, 1e300, .greatestFiniteMagnitude])
+    func anyNumberFormatsWithoutCrashing(_ value: Double) {
+        let shown = value.isFinite && value > 0 ? Double(Int32.max) : 0
+        #expect(DurationText.format(value) == DurationText.format(shown))
+        #expect(Clock.format(value) == Clock.format(shown))
+    }
 }
 
 struct RetentionTests {

@@ -237,8 +237,11 @@ public struct Meeting: Codable, Sendable, Identifiable {
         }.joined(separator: "\n")
     }
 
+    /// NaN, the infinities and negatives read as 0, anything past `Int32.max` seconds
+    /// (68 years) as that: converting a larger `Double` to `Int` crashes (FLU-27).
     public static func clock(_ seconds: TimeInterval) -> String {
-        let total = max(0, Int(seconds.rounded(.down)))
+        let shown = seconds.isFinite ? min(max(0, seconds), TimeInterval(Int32.max)) : 0
+        let total = Int(shown.rounded(.down))
         let (h, m, s) = (total / 3600, (total % 3600) / 60, total % 60)
         return h > 0
             ? String(format: "%d:%02d:%02d", h, m, s)
