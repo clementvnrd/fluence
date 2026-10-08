@@ -28,18 +28,26 @@ public struct TranscriptLine: Sendable, Hashable, Codable {
 /// Tape-counter time, the same format as `Meeting.clock`.
 public enum Clock {
     public static func format(_ seconds: TimeInterval) -> String {
-        let total = seconds.isFinite ? max(0, Int(seconds.rounded(.down))) : 0
+        let total = Int(shown(seconds).rounded(.down))
         let (h, m, s) = (total / 3600, (total % 3600) / 60, total % 60)
         return h > 0
             ? String(format: "%d:%02d:%02d", h, m, s)
             : String(format: "%02d:%02d", m, s)
+    }
+
+    /// NaN, the infinities and negatives read as 0, anything past `Int32.max` seconds
+    /// (68 years) as that: converting a larger `Double` to `Int` crashes, and a damaged
+    /// imported transcript can carry any number (FLU-27).
+    static func shown(_ seconds: TimeInterval) -> TimeInterval {
+        seconds.isFinite ? min(max(0, seconds), TimeInterval(Int32.max)) : 0
     }
 }
 
 /// A meeting length in words, for the list and the export: "45 min", "1 h 05 min".
 public enum DurationText {
     public static func format(_ seconds: TimeInterval) -> String {
-        let minutes = seconds.isFinite ? max(0, Int((seconds / 60).rounded())) : 0
+        let seconds = Clock.shown(seconds)
+        let minutes = Int((seconds / 60).rounded())
         if seconds > 0 && minutes == 0 { return "< 1 min" }
         if minutes < 60 { return "\(minutes) min" }
         return String(format: "%d h %02d min", minutes / 60, minutes % 60)

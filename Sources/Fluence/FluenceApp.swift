@@ -6,6 +6,11 @@ import SwiftUI
 struct FluenceApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
+    init() {
+        // FLU-27: a second copy hands over to the running one before anything starts.
+        SingleInstance.handOverIfRunning()
+    }
+
     var body: some Scene {
         // The main window. A `Window` rather than a `WindowGroup`: this app has one front
         // panel, and letting ⌘N spawn a second copy of it makes no sense.

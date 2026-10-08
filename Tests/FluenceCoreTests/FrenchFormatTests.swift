@@ -45,6 +45,15 @@ struct FrenchFormatTests {
         #expect(FrenchFormat.timecode(3723) == "01:02:03")
     }
 
+    /// A damaged imported transcript can hand the UI any number (FLU-27): none may crash it.
+    @Test(arguments: [Double.nan, .infinity, -.infinity, -1e300, 1e300, .greatestFiniteMagnitude])
+    func anyNumberFormatsWithoutCrashing(_ value: Double) {
+        let shown = value.isFinite && value > 0 ? Double(Int32.max) : 0
+        #expect(FrenchFormat.duration(value) == FrenchFormat.duration(shown))
+        #expect(FrenchFormat.clock(value) == FrenchFormat.clock(shown))
+        #expect(FrenchFormat.timecode(value) == FrenchFormat.timecode(shown))
+    }
+
     @Test func countsTakeTheSingularForZeroAndOne() {
         #expect(FrenchFormat.count(0, "réunion") == "0\(nbsp)réunion")
         #expect(FrenchFormat.count(1, "réunion") == "1\(nbsp)réunion")

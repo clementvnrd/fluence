@@ -103,17 +103,20 @@ final class DictionaryStore {
     /// regexes is cheap next to transcription, and caching it invites staleness.
     var corrector: DictionaryCorrector { DictionaryCorrector(entries: entries) }
 
-    var biasPhrases: [String] { DictionaryCorrector.biasPhrases(from: entries) }
+    /// For Apple and Parakeet: the user's own entries first, newest first, then the tech
+    /// lexicon (FLU-27).
+    var biasPhrases: [String] { DictionaryCorrector.biasPhrases(from: entries, seeded: Self.lexiconSpellings) }
 
     /// The user's own spellings for Whisper's prompt, newest first (FLU-20). The built-in
     /// tech lexicon is left out: it is generic, the corrections still fix its spellings after
     /// transcription, and a prompt full of it is what made Whisper loop.
     var promptTerms: [String] {
-        let lexicon = Set(TechLexicon.defaultEntries.map { $0.write.lowercased() })
-        return entries.reversed()
-            .filter { $0.isEnabled && !lexicon.contains($0.write.lowercased()) }
+        entries.reversed()
+            .filter { $0.isEnabled && !Self.lexiconSpellings.contains($0.write.lowercased()) }
             .map(\.write)
     }
+
+    private static let lexiconSpellings = Set(TechLexicon.defaultEntries.map { $0.write.lowercased() })
 
     /// How many of the tech lexicon's entries the dictionary lacks.
     var missingTechLexiconCount: Int {

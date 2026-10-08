@@ -85,6 +85,21 @@ struct VectorTests {
         #expect(Set(phrases).count == phrases.count)
     }
 
+    @Test("the user's own entries reach the engine before a seeded lexicon")
+    func biasPrefersOwnEntries() {
+        // 88 seeded lines at the top of the file, as the macOS tech lexicon writes them,
+        // then two names the user added (FLU-27).
+        let seeded = (0..<88).map { DictionaryEntry.term("Lexicon\($0)") }
+        let entries = seeded + [DictionaryEntry.term("Veniard"), DictionaryEntry.correction(hear: "venard", write: "Clément")]
+        let phrases = DictionaryCorrector.biasPhrases(from: entries, seeded: Set(seeded.map(\.write)))
+
+        #expect(phrases.count == DictionaryCorrector.biasLimit)
+        #expect(Array(phrases.prefix(2)) == ["Clément", "Veniard"])
+        #expect(phrases[2] == "Lexicon0")
+        // In plain file order they never made it.
+        #expect(!DictionaryCorrector.biasPhrases(from: entries).contains("Veniard"))
+    }
+
     @Test("disabled entries are excluded from biasing")
     func biasSkipsDisabled() {
         let entries = [

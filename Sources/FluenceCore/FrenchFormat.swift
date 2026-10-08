@@ -17,9 +17,17 @@ public enum FrenchFormat {
         return text + space + "s"
     }
 
+    /// Whole seconds to show. NaN, the infinities and negatives read as 0, anything past
+    /// `Int32.max` seconds (68 years) as that: converting a larger `Double` to `Int` crashes,
+    /// and a damaged imported transcript can carry any number (FLU-27).
+    static func wholeSeconds(_ interval: TimeInterval, _ rule: FloatingPointRoundingRule) -> Int {
+        guard interval.isFinite else { return 0 }
+        return Int(min(max(0, interval), TimeInterval(Int32.max)).rounded(rule))
+    }
+
     /// A meeting length: "45 s", "42 min", "1 h", "1 h 05".
     public static func duration(_ interval: TimeInterval) -> String {
-        let total = interval.isFinite ? max(0, Int(interval.rounded())) : 0
+        let total = wholeSeconds(interval, .toNearestOrAwayFromZero)
         if total < 60 { return "\(total)\(space)s" }
         let minutes = total / 60
         if minutes < 60 { return "\(minutes)\(space)min" }
@@ -32,7 +40,7 @@ public enum FrenchFormat {
 
     /// A running clock: "00:42", "12:47", "1:02:03".
     public static func clock(_ interval: TimeInterval) -> String {
-        let total = interval.isFinite ? max(0, Int(interval.rounded(.down))) : 0
+        let total = wholeSeconds(interval, .down)
         let (h, m, s) = (total / 3600, (total % 3600) / 60, total % 60)
         return h > 0
             ? String(format: "%d:%02d:%02d", h, m, s)
@@ -41,7 +49,7 @@ public enum FrenchFormat {
 
     /// A position in a transcript, always with hours: "00:00:04".
     public static func timecode(_ interval: TimeInterval) -> String {
-        let total = interval.isFinite ? max(0, Int(interval.rounded(.down))) : 0
+        let total = wholeSeconds(interval, .down)
         return String(format: "%02d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
     }
 

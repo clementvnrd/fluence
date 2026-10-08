@@ -16,13 +16,20 @@ import Observation
 ///
 /// Deleting a meeting removes its directory, wrapped key included — any fragment of its
 /// files left on the SSD becomes unreadable.
+///
+/// The folders are the truth and the index a cache of their summaries: the list is rebuilt
+/// from the folders wherever the index lacks a meeting, and the index is written only while
+/// it lists every meeting on disk (`MeetingIndex`, FLU-27).
 @MainActor
 @Observable
 final class MeetingStore {
     static let shared = MeetingStore()
 
+    private var index = MeetingIndex()
     /// Newest first.
-    private(set) var summaries: [MeetingSummary] = []
+    var summaries: [MeetingSummary] { index.summaries }
+    /// Every meeting on disk, the unreadable ones included.
+    var meetingIDs: Set<UUID> { index.ids }
     /// Set when the store could not be read (Keychain locked or denied). Shown in the UI —
     /// the store never falls back to writing plaintext.
     private(set) var lastError: String?
@@ -70,33 +77,40 @@ final class MeetingStore {
         let data = try Self.encoder.encode(meeting)
         try Vault.write(data, to: directory(for: meeting.id).appendingPathComponent("meeting.enc"), with: key)
 
-        summaries.removeAll { $0.id == meeting.id }
-        summaries.append(MeetingSummary(meeting))
-        summaries.sort { $0.startedAt > $1.startedAt }
+        // The Keychain may have opened since launch: read the meetings that were not.
+        if !index.isComplete { loadIndex() }
+        index.saved(MeetingSummary(meeting))
         try saveIndex()
     }
 
     func delete(_ id: UUID) {
         try? FileManager.default.removeItem(at: directory(for: id))
-        summaries.removeAll { $0.id == id }
+        index.deleted(id)
         try? saveIndex()
     }
 
-    /// Every meeting, every spooled audio file, and the index.
+    /// Every meeting folder on disk — listed or not, readable or not — with its spooled audio,
+    /// and the index.
     func deleteAll() {
-        for summary in summaries {
-            try? FileManager.default.removeItem(at: directory(for: summary.id))
+        for id in MeetingIndex.meetingIDs(in: folderNames() ?? []) {
+            try? FileManager.default.removeItem(at: directory(for: id))
         }
-        summaries = []
+        index = MeetingIndex()
+        lastError = nil
         try? FileManager.default.removeItem(at: indexURL)
     }
 
-    /// Deletes meetings older than `days`. `nil` keeps everything.
+    /// Deletes meetings older than `days`, the unreadable ones by their folder's date.
+    /// `nil` keeps everything.
     func purge(olderThan days: Int?) {
         guard let days else { return }
         let cutoff = Date().addingTimeInterval(-Double(days) * 86_400)
-        for summary in summaries where summary.startedAt < cutoff {
-            delete(summary.id)
+        var folderDates: [UUID: Date] = [:]
+        for id in index.unreadable {
+            folderDates[id] = try? directory(for: id).resourceValues(forKeys: [.creationDateKey]).creationDate
+        }
+        for id in index.expired(before: cutoff, folderDates: folderDates) {
+            delete(id)
         }
     }
 
@@ -126,20 +140,50 @@ final class MeetingStore {
 
     private var indexURL: URL { root.appendingPathComponent("index.enc") }
 
+    /// Reads the index, checks it against the meeting folders, and decrypts only the meetings
+    /// it lacks. A stale index is rewritten once every meeting could be read.
     private func loadIndex() {
-        guard FileManager.default.fileExists(atPath: indexURL.path) else { return }
-        do {
-            summaries = try Self.decoder.decode([MeetingSummary].self, from: Vault.read(indexURL))
-                .sorted { $0.startedAt > $1.startedAt }
-            lastError = nil
-        } catch {
-            lastError = "Les réunions n'ont pas pu être déchiffrées : \(error)"
-            Log.app.error("meeting index unreadable: \(String(describing: error), privacy: .public)")
+        var saved: [MeetingSummary]?
+        if FileManager.default.fileExists(atPath: indexURL.path) {
+            do {
+                saved = try Self.decoder.decode([MeetingSummary].self, from: Vault.read(indexURL))
+            } catch {
+                Log.app.error("meeting index unreadable, rebuilding from the folders: \(String(describing: error), privacy: .public)")
+            }
         }
+        let folders = folderNames().map { names in
+            MeetingIndex.meetingIDs(in: names).filter {
+                FileManager.default.fileExists(atPath: directory(for: $0).appendingPathComponent("meeting.enc").path)
+            }
+        }
+        index = MeetingIndex(index: saved, folders: folders) { id in
+            (try? load(id)).map { MeetingSummary($0) }
+        }
+
+        switch index.unreadable.count {
+        case 0: lastError = nil
+        case 1: lastError = "Une réunion n'a pas pu être déchiffrée. Elle est conservée, rien n'est effacé."
+        case let count: lastError = "\(count) réunions n'ont pas pu être déchiffrées. Elles sont conservées, rien n'est effacé."
+        }
+        if !index.unreadable.isEmpty {
+            Log.app.error("\(self.index.unreadable.count) meetings unreadable; the index is left as it is")
+        }
+        if index.isStale { try? saveIndex() }
     }
 
+    /// Writes nothing while a meeting on disk is missing from the list: an index written
+    /// then would hide it for good.
     private func saveIndex() throws {
+        guard let summaries = index.indexToWrite else {
+            Log.app.info("meeting index not written: \(self.index.unreadable.count) meetings unreadable")
+            return
+        }
         try Vault.write(Self.encoder.encode(summaries), to: indexURL)
+    }
+
+    /// The names in the meetings folder; nil when it cannot be listed.
+    private func folderNames() -> [String]? {
+        try? FileManager.default.contentsOfDirectory(atPath: root.path)
     }
 
     private static let encoder: JSONEncoder = {

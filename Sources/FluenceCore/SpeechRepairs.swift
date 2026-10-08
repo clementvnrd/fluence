@@ -53,8 +53,76 @@ public enum SpeechRepairs {
             result = String(result[scratch.upperBound...])
                 .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ",.;:")))
         }
-        let revision = #"(?i)\b([\p{L}0-9_]+)\s*(?:,\s*actually|,\s*en fait|\s+no wait|\s+make that|\s+i meant|\s+or actually|\s+non attends|\s+ou plutôt|\s+je voulais dire)\s+([\p{L}0-9_]+)\b"#
-        return result.replacingOccurrences(of: revision, with: "$2", options: .regularExpression)
+        return reviseSameKind(result)
+    }
+
+    private static let revision = try? NSRegularExpression(
+        pattern: #"(?i)\b([\p{L}0-9_]+)\s*(?:,\s*actually|,\s*en fait|\s+no wait|\s+make that|\s+i meant|\s+or actually|\s+non attends|\s+ou plutôt|\s+je voulais dire)\s+([\p{L}0-9_]+)\b"#
+    )
+
+    /// "mardi, en fait mercredi" → "mercredi", but only when both words are the same kind of
+    /// thing — two numbers, two days, two months, two names. These cues are ordinary French
+    /// and English the rest of the time: "c'était facile, en fait c'est compliqué" and "je
+    /// voulais dire que…" are not corrections, and replacing the word before the cue there
+    /// deleted what was said (FLU-27, measured in 8 clips out of 8).
+    static func reviseSameKind(_ text: String) -> String {
+        guard let revision else { return text }
+        var result = text
+        let matches = revision.matches(in: result, range: NSRange(result.startIndex..., in: result))
+        for match in matches.reversed() {
+            guard let whole = Range(match.range, in: result),
+                  let old = Range(match.range(at: 1), in: result),
+                  let new = Range(match.range(at: 2), in: result)
+            else { continue }
+            let startsSentence = result[..<old.lowerBound]
+                .last(where: { !$0.isWhitespace })
+                .map { ".!?\n".contains($0) } ?? true
+            guard let kind = RevisionKind(String(result[old]), startsSentence: startsSentence),
+                  kind == RevisionKind(String(result[new]), startsSentence: false)
+            else { continue }
+            result.replaceSubrange(whole, with: String(result[new]))
+        }
+        return result
+    }
+
+    /// What a word is, as far as a spoken self-correction cares.
+    enum RevisionKind: Equatable {
+        case number, weekday, month, name
+
+        init?(_ word: String, startsSentence: Bool) {
+            let lowered = word.lowercased()
+            if Self.weekdays.contains(lowered) {
+                self = .weekday
+            } else if Self.months.contains(lowered) {
+                self = .month
+            } else if word.contains(where: \.isNumber) || Self.numberWords.contains(lowered) {
+                self = .number
+            } else if !startsSentence, word.first?.isUppercase == true {
+                // A capital mid-sentence is a name; at a sentence start it says nothing.
+                self = .name
+            } else {
+                return nil
+            }
+        }
+
+        static let weekdays: Set<String> = [
+            "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche",
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        ]
+        static let months: Set<String> = [
+            "janvier", "février", "fevrier", "mars", "avril", "mai", "juin", "juillet", "août",
+            "aout", "septembre", "octobre", "novembre", "décembre", "decembre",
+            "january", "february", "march", "april", "may", "june", "july", "august",
+            "september", "october", "november", "december",
+        ]
+        static let numberWords: Set<String> = [
+            "zéro", "zero", "un", "une", "deux", "trois", "quatre", "cinq", "six", "sept", "huit",
+            "neuf", "dix", "onze", "douze", "treize", "quatorze", "quinze", "seize", "vingt",
+            "trente", "quarante", "cinquante", "soixante", "cent", "mille",
+            "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+            "eleven", "twelve", "fifteen", "twenty", "thirty", "forty", "fifty", "hundred",
+            "thousand", "noon", "midnight", "midi", "minuit",
+        ]
     }
 
     // MARK: - Repeated words and stutters
@@ -98,17 +166,39 @@ public enum SpeechRepairs {
         return current
     }
 
-    /// Short words that are words, not the start of a stuttered one.
+    /// Short words that are words, not the start of a stuttered one. A real stutter is a
+    /// fragment ("pro problème"); a common word before a longer one that happens to start the
+    /// same way is speech ("on va valider", "celui qui quitte", "il illustre", "be better"),
+    /// and removing it deleted what was said (FLU-27, measured in 8 clips out of 8).
     static let stutterStopWords: Set<String> = [
-        "le", "la", "de", "du", "en", "un", "au", "ce", "se", "me", "te", "ne", "si", "ni", "ou",
-        "et", "on", "ma", "ta", "sa", "in", "to", "at", "by", "is", "it", "as", "an", "or",
-        "so", "no", "my", "he", "we", "do", "go", "up", "us", "des", "les", "ces", "mes",
-        "tes", "ses", "nos", "vos", "ils", "par", "sur", "the", "and", "for", "are", "but", "not",
-        "you", "all", "any", "can", "had", "her", "was", "one", "our", "out", "day", "get", "has",
-        "him", "his", "how", "man", "new", "now", "old", "see", "two", "way", "who", "boy", "did",
-        "its", "let", "put", "say", "she", "too", "use",
-        // French words that also start longer ones: "pas passé", "mon monde", "tout toutes".
-        "pas", "mon", "ton", "son", "sans", "plus", "bien", "tout", "très", "pour", "dans", "avec",
+        // French: articles, pronouns, prepositions, conjunctions.
+        "le", "la", "les", "de", "du", "des", "un", "une", "au", "aux", "ce", "ces", "cet", "ça",
+        "ci", "se", "me", "te", "ne", "si", "ni", "ou", "où", "et", "en", "on", "ma", "ta", "sa",
+        "mes", "tes", "ses", "nos", "vos", "mon", "ton", "son", "je", "tu", "il", "ils", "elle",
+        "nous", "vous", "eux", "lui", "leur", "moi", "toi", "soi", "que", "qui", "quoi", "quel",
+        "dont", "par", "sur", "sous", "pour", "dans", "avec", "sans", "chez", "vers", "entre",
+        "mais", "donc", "car", "puis", "lors", "dès", "pas", "plus", "bien", "tout", "tous",
+        "très", "trop", "peu", "tant", "rien", "ici", "là", "oui", "non", "bon", "beau",
+        // French: short verb forms said every day.
+        "ai", "as", "est", "es", "ont", "été", "va", "vas", "vais", "vont", "fait", "fais",
+        "font", "dit", "dis", "suis", "sont", "sera", "peut", "peux", "veut", "veux", "doit",
+        "faut", "vu", "mis", "pris", "voir", "avez", "être",
+        // French: numbers and units.
+        "deux", "six", "sept", "huit", "neuf", "dix", "onze", "cent", "an", "ans", "mois",
+        "jour", "fois", "fin", "mal", "bas", "haut", "part", "coup", "nom", "mot",
+        // English.
+        "in", "to", "at", "by", "is", "it", "as", "an", "or", "so", "no", "my", "he", "we", "do",
+        "go", "up", "us", "be", "am", "if", "of", "on", "me", "the", "and", "for", "are", "but",
+        "not", "you", "all", "any", "can", "had", "her", "was", "one", "our", "out", "day",
+        "get", "got", "has", "him", "his", "how", "man", "new", "now", "old", "see", "two",
+        "way", "who", "boy", "did", "its", "let", "put", "say", "she", "too", "use", "off",
+        "yes", "why", "few", "own", "set", "run", "end", "big", "top", "this", "that", "than",
+        "then", "them", "they", "what", "when", "with", "will", "have", "been", "were", "from",
+        "into", "just", "like", "make", "more", "most", "must", "only", "over", "said", "some",
+        "such", "take", "very", "want", "well", "went", "your", "also", "back", "call", "come",
+        "each", "even", "find", "give", "good", "here", "long", "look", "many", "much", "need",
+        "next", "real", "same", "show", "sure", "tell", "time", "turn", "week", "year", "work",
+        "know", "does", "done",
     ]
 
     /// "pro problème" → "problème", "dél délétère" → "délétère".

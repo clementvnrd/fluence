@@ -32,6 +32,8 @@ struct HUDView: View {
         case command(text: String)
         case transcribing(text: String, command: Bool)
         case cancelled
+        /// The text is only on the clipboard (FLU-27).
+        case copied
         case learn(EditLearner.Proposal)
         case notice(String)
         case error(String)
@@ -47,8 +49,12 @@ struct HUDView: View {
             return .listen(text: controller.transcript)
         case .finishing:
             return .transcribing(text: controller.transcript, command: controller.isCommandMode)
+        case .notice(DictationController.cancelledNotice):
+            return .cancelled
+        case .notice(DictationController.clipboardNotice):
+            return .copied
         case .notice(let message):
-            return message == DictationController.cancelledNotice ? .cancelled : .notice(message)
+            return .notice(message)
         case .error(let message):
             return .error(message)
         case .idle:
@@ -139,6 +145,8 @@ struct HUDView: View {
             Image(systemName: "wand.and.stars").font(.system(size: 12, weight: .semibold)).foregroundStyle(DS.Color.accent)
         case .cancelled:
             Image(systemName: "xmark.circle").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.inkSecondary)
+        case .copied:
+            Image(systemName: "doc.on.clipboard").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.accent)
         case .learn:
             Image(systemName: "book.closed").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.accent)
         case .error:
@@ -156,6 +164,7 @@ struct HUDView: View {
         case .transcribing(let text, let command):
             command ? "Application de la consigne…" : (text.isEmpty ? "Transcription…" : text)
         case .cancelled: "Annulé"
+        case .copied: DictationController.clipboardNotice
         case .learn(let proposal): "Ajouter \(FrenchFormat.quoted(proposal.written)) au dictionnaire ?"
         case .notice(let message), .error(let message): message
         case .idle: "Fluence · prêt"
@@ -180,6 +189,8 @@ struct HUDView: View {
             "Sur ce Mac · \(settings.engine.shortName)"
         case .cancelled:
             "Rien n'a été collé"
+        case .copied:
+            "Accessibilité non autorisée"
         case .learn(let proposal):
             proposal.isCorrection
                 ? "Vous avez corrigé \(FrenchFormat.quoted(proposal.heard))"
@@ -287,7 +298,7 @@ private struct ProgressDots: View {
 
 /// Screenshots of the HUD's states without dictating (FLU-12): only with
 /// `FLUENCE_SUPPORT_DIRECTORY` set (a scratch folder) and `FLUENCE_PREVIEW_HUD` naming a
-/// state — `listen`, `handsFree`, `command`, `transcribing`, `cancelled` or `learn`.
+/// state — `listen`, `handsFree`, `command`, `transcribing`, `cancelled`, `copied` or `learn`.
 /// `FLUENCE_PREVIEW_HUD_TEXT` gives the live text; `…_HEARD` / `…_WRITTEN` the offer.
 struct HUDPreview {
     let content: HUDView.Content
@@ -304,6 +315,7 @@ struct HUDPreview {
         case "command": return HUDPreview(content: .command(text: text))
         case "transcribing": return HUDPreview(content: .transcribing(text: text, command: false))
         case "cancelled": return HUDPreview(content: .cancelled)
+        case "copied": return HUDPreview(content: .copied)
         case "learn":
             return HUDPreview(content: .learn(EditLearner.Proposal(
                 heard: env["FLUENCE_PREVIEW_HUD_HEARD"] ?? "",

@@ -153,4 +153,20 @@ public extension DictionaryCorrector {
 
         return phrases
     }
+
+    /// The same list when the dictionary was seeded with built-in entries (the macOS tech
+    /// lexicon writes ~88 lines at the top of the file): the user's own entries come first,
+    /// newest first, then the built-in ones in file order. In plain file order the seeded
+    /// lines filled the 40 places and a name the user added never reached the engine
+    /// (FLU-27: "Veniard" heard as "Venard" 4 times out of 4).
+    ///
+    /// - Parameter seeded: the built-in spellings (the *write* side), compared without case.
+    static func biasPhrases(from entries: [DictionaryEntry], seeded: Set<String>) -> [String] {
+        let builtIn = Set(seeded.map { $0.lowercased() })
+        let isSeeded = { (entry: DictionaryEntry) in
+            builtIn.contains(entry.write.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        }
+        let own = entries.reversed().filter { !isSeeded($0) }
+        return biasPhrases(from: own + entries.filter(isSeeded))
+    }
 }

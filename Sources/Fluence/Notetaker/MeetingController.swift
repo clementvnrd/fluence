@@ -105,6 +105,7 @@ final class MeetingController {
         detector.start()
         observeLockAndSleep()
         observeVoicePrintSetting()
+        VoicePrintStore.shared.removeCandidates()
         Task { await recoverInterruptedMeetings() }
     }
 
@@ -379,8 +380,8 @@ final class MeetingController {
 
     /// Saves the final meeting, drops the spool unless kept, announces it.
     private static func complete(_ result: (Meeting, [String: [Float]]), directory: URL) {
-        let (meeting, voices) = result
-        VoicePrintStore.shared.rememberCandidates(meetingID: meeting.id, voices: voices)
+        // The voices are not kept: nothing enrols one yet (FLU-27, see `VoicePrintStore`).
+        let (meeting, _) = result
         do {
             try MeetingStore.shared.save(meeting)
         } catch {

@@ -193,6 +193,13 @@ Settings entirely (⌘Q) before reopening; the Privacy pane caches its list.
 **Don't run the `.app` from the repo folder.** It's iCloud-synced and the sync engine can
 corrupt the signature. `make install` puts the running copy in `/Applications`.
 
+**A second copy quits at launch (FLU-27).** Two copies each typed every dictation. A copy
+whose bundle ID is already running brings that one forward and exits before anything starts
+(`SingleInstance`, rule in `FluenceCore/SingleInstancePolicy`). To run a build beside
+Clement's app, give it another bundle ID (`BUNDLE_ID=io.github.clementvnrd.fluence.updatetest`)
+or a scratch folder (`FLUENCE_SUPPORT_DIRECTORY`). `make run` / `make install` still work:
+a copy on its way out does not count.
+
 **Releases and updates (FLU-26) — `docs/RELEASING.md`.** The version lives only in
 `Resources/Info.plist`; the build number is derived from it (a test checks). Sparkle 2 updates
 the app from the feed baked in at build time (`FEED_URL`; empty in dev builds, so no updater).

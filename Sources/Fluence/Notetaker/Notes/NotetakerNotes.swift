@@ -13,7 +13,8 @@ enum NotetakerNotes {
     static func purgeExpired() {
         let store = MeetingStore.shared
         store.purge(olderThan: NotetakerSettings.shared.retentionDays)
-        NotesTemplateChoice.prune(keeping: Set(store.summaries.map(\.id)))
+        // Every meeting on disk: an unreadable one keeps its choice (FLU-27).
+        NotesTemplateChoice.prune(keeping: store.meetingIDs)
         MeetingLibraryModel.shared.reconcile()
     }
 }

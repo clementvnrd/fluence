@@ -150,6 +150,26 @@
       ]
     },
     {
+      "name": "vtt: a time past 100 hours is dropped, its cue kept (FLU-27)",
+      "input": "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nAlice: Salut.\n\n999:00:00.000 --> 999:00:01.000\nBob: Fin.\n",
+      "format": "vtt",
+      "title": null,
+      "turns": [
+        { "speaker": "Alice", "start": 1.0, "end": 2.0, "text": "Salut." },
+        { "speaker": "Bob", "start": null, "end": null, "text": "Fin." }
+      ]
+    },
+    {
+      "name": "text: a time past 100 hours is dropped, one just under it kept (FLU-27)",
+      "input": "[99:59:59] Alice: Presque.\n[999:00:00] Bob: Trop tard.\n",
+      "format": "text",
+      "title": null,
+      "turns": [
+        { "speaker": "Alice", "start": 359999.0, "end": null, "text": "Presque." },
+        { "speaker": "Bob", "start": null, "end": null, "text": "Trop tard." }
+      ]
+    },
+    {
       "name": "empty input",
       "input": "\n\n",
       "format": "text",
