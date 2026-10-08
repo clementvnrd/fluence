@@ -7,10 +7,11 @@ import Foundation
 ///   VoicePrints/` (owner-only, no backup, no Spotlight); never exported, never logged.
 /// - A print is a 256-d WeSpeaker embedding from the offline diarizer, averaged over every
 ///   meeting the user confirmed it in.
-/// - After each meeting the per-voice embeddings are kept as *candidates* for that meeting
-///   only, so a rename can enrol the voice ("confirmed by the user the first time")
-///   without re-processing audio. `enroll(meetingID:speakerID:name:)` is what the
-///   rename UI calls.
+/// - `enroll(meetingID:speakerID:name:)` enrols a voice from its meeting's *candidates*
+///   (the per-voice embeddings of that meeting). Candidates are **not collected** (FLU-27):
+///   no screen enrols a voice yet, and biometric data nothing uses is not kept. The rename
+///   UI (FLU-33) brings them back, deleted with their meeting. Those sealed by earlier
+///   versions are deleted at launch (`removeCandidates()`).
 /// - Turning the setting off deletes everything (`deleteAll()`); the controller does it.
 @MainActor
 final class VoicePrintStore {
@@ -29,7 +30,8 @@ final class VoicePrintStore {
     private var printsURL: URL { root.appendingPathComponent("prints.enc") }
     private var candidatesDirectory: URL { root.appendingPathComponent("candidates", isDirectory: true) }
 
-    init(root: URL = AppPaths.directory("VoicePrints")) {
+    /// The folder is created by the first print saved, not by opening the store.
+    init(root: URL = AppPaths.support.appendingPathComponent("VoicePrints", isDirectory: true)) {
         self.root = root
     }
 
@@ -44,6 +46,7 @@ final class VoicePrintStore {
     }
 
     private func save(_ prints: [VoicePrint]) throws {
+        AppPaths.protect(root)
         try Vault.write(JSONEncoder().encode(prints), to: printsURL)
     }
 
@@ -87,21 +90,14 @@ final class VoicePrintStore {
         try? save(all)
     }
 
-    /// Every print and every candidate. Called when the setting is turned off.
+    /// The whole folder: every print, every candidate. Called when the setting is turned off
+    /// and by « Tout effacer ».
     func deleteAll() {
-        try? FileManager.default.removeItem(at: printsURL)
-        try? FileManager.default.removeItem(at: candidatesDirectory)
+        try? FileManager.default.removeItem(at: root)
         Log.app.info("voice prints deleted")
     }
 
     // MARK: - Per-meeting candidates
-
-    func rememberCandidates(meetingID: UUID, voices: [String: [Float]]) {
-        guard NotetakerSettings.shared.voicePrintsEnabled, !voices.isEmpty else { return }
-        AppPaths.protect(candidatesDirectory)
-        let url = candidatesDirectory.appendingPathComponent(meetingID.uuidString + ".enc")
-        try? Vault.write(JSONEncoder().encode(voices), to: url)
-    }
 
     func candidates(for meetingID: UUID) -> [String: [Float]] {
         let url = candidatesDirectory.appendingPathComponent(meetingID.uuidString + ".enc")
@@ -109,9 +105,11 @@ final class VoicePrintStore {
         return (try? JSONDecoder().decode([String: [Float]].self, from: data)) ?? [:]
     }
 
-    /// Drops a meeting's candidates (when the meeting is deleted).
-    func forgetMeeting(_ meetingID: UUID) {
-        try? FileManager.default.removeItem(at: candidatesDirectory.appendingPathComponent(meetingID.uuidString + ".enc"))
+    /// Deletes the candidates earlier versions sealed after every meeting (FLU-27).
+    func removeCandidates() {
+        guard FileManager.default.fileExists(atPath: candidatesDirectory.path) else { return }
+        try? FileManager.default.removeItem(at: candidatesDirectory)
+        Log.app.info("unused voice candidates deleted")
     }
 
     // MARK: - Helpers
