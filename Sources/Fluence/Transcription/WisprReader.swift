@@ -1,24 +1,22 @@
 import Foundation
 import SQLite3
 
-/// Reads Wispr Flow's own result for an utterance out of its local database.
+/// Wispr Flow's result for an utterance, for compare mode.
 ///
-/// Wispr is a closed commercial app, so there's no API to ask. But it records every
-/// dictation to `~/Library/Application Support/Wispr Flow/flow.sqlite` — including the raw
-/// ASR text, the text after its own cleanup pass, and its end-to-end latency. That's the
-/// same split this app has (engine vs `TextFormatter`), which is what makes a real
-/// side-by-side possible instead of eyeballing two windows.
-///
-/// Strictly read-only. Wispr owns this file; we never write to it.
+/// Wispr Flow is closed and has no API, but it saves every dictation in a local SQLite file,
+/// `~/Library/Application Support/Wispr Flow/flow.sqlite`: the recognizer's raw text, the text
+/// after its own cleanup, and the end-to-end latency. That is Fluence's own split (engine, then
+/// `TextFormatter`), which is what makes a side-by-side fair. The file is Wispr's and is only
+/// ever opened read-only.
 enum WisprReader {
-    /// Wispr's cleanup runs in the cloud, so its row lands a beat after the key is released
-    /// — later than either local engine finishes. Hence polling rather than a single read.
+    /// Wispr cleans up in the cloud, so its row is complete only some time after release, later
+    /// than the local engines: the row is polled for.
     private static let pollInterval: Duration = .milliseconds(300)
 
-    /// How far *before* the hold began to look for Wispr's row. See `result(after:timeout:)`.
-    private static let startStampGrace: TimeInterval = 5
+    /// How far before or after the hold start Wispr's stamp may fall (why: `result(after:timeout:)`).
+    private static let window: TimeInterval = 5
 
-    static var databaseURL: URL {
+    private static var databaseURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Wispr Flow/flow.sqlite")
     }
@@ -27,58 +25,56 @@ enum WisprReader {
         FileManager.default.fileExists(atPath: databaseURL.path)
     }
 
-    /// Waits for the first Wispr row recorded after `holdStarted`.
+    /// Waits for Wispr's row for the utterance whose hold started at `holdStarted`.
     ///
-    /// - Returns: nil if Wispr wasn't triggered for this utterance, isn't installed, or
-    ///   didn't finish in time. A missing row is the normal case when only this app's
-    ///   hotkey was held, so it's not an error.
+    /// Nil when Wispr is not installed, was not triggered for this utterance, or had not finished
+    /// by `timeout`. When only Fluence's own key was held there is no row, which is normal.
     static func result(after holdStarted: Date, timeout: TimeInterval) async -> ComparisonResult? {
         guard isInstalled else { return nil }
 
-        // Wispr stamps a row with the START of the utterance, not the end — and the two
-        // hotkeys are never pressed on the same millisecond, so its row is routinely stamped
-        // slightly *before* our hold began. Searching forward from the hold start therefore
-        // skipped the matching row every time.
-        //
-        // The window is bounded on both sides rather than just widened backwards: Wispr
-        // creates the row (with null text) when the utterance starts and fills the text in
-        // afterwards, so an open-ended search would happily return the *previous*
-        // dictation's row on the first poll and report it as this one's result.
-        let lower = utcStamp(holdStarted.addingTimeInterval(-Self.startStampGrace))
-        let upper = utcStamp(holdStarted.addingTimeInterval(Self.startStampGrace))
+        // Wispr stamps a row with the moment its utterance began. The two keys never go down in
+        // the same millisecond, so that stamp often falls just before our hold start, and a search
+        // running forward from the hold start missed the row every time. Widening only towards
+        // the past would not do either: Wispr inserts the row as the utterance starts, text still
+        // null, and fills it in later, so the first poll would find the previous dictation's
+        // row. Hence a window bounded on both sides.
+        let lower = stamp(holdStarted.addingTimeInterval(-window))
+        let upper = stamp(holdStarted.addingTimeInterval(window))
         let deadline = Date().addingTimeInterval(timeout)
 
         while Date() < deadline {
-            if let row = fetchRow(between: lower, and: upper) { return row }
+            if let found = latestRow(between: lower, and: upper) { return found }
             try? await Task.sleep(for: pollInterval)
         }
         return nil
     }
 
-    private static func utcStamp(_ date: Date) -> String {
+    private static func stamp(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
-        formatter.timeZone = TimeZone(identifier: "UTC")
+        // Wispr's fixed text format: it must not follow the user's region.
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
         return formatter.string(from: date)
     }
 
-    private static func fetchRow(between lower: String, and upper: String) -> ComparisonResult? {
+    private static func latestRow(between lower: String, and upper: String) -> ComparisonResult? {
+        // The read-only flag and `mode=ro` together keep this connection from ever writing.
+        // No `immutable=1`: SQLite would take the file as frozen and miss the rows Wispr adds
+        // while we poll.
         var db: OpaquePointer?
-        // Read-only, and with the URI flag so the connection can never be upgraded to a
-        // writer. `immutable` is deliberately NOT set — it would cache the file and hide
-        // the rows Wispr is writing while we poll.
-        let uri = "file:\(databaseURL.path)?mode=ro"
-        guard sqlite3_open_v2(uri, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nil) == SQLITE_OK else {
+        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI
+        guard sqlite3_open_v2("file:\(databaseURL.path)?mode=ro", &db, flags, nil) == SQLITE_OK else {
+            // A failed open can still allocate a handle.
             sqlite3_close(db)
             return nil
         }
         defer { sqlite3_close(db) }
 
-        // formattedText is Wispr's post-cleanup output and asrText is raw; prefer the
-        // former but fall back, since the cleanup can still be in flight.
+        // Wispr's cleanup may still be running, so its raw text stands in until the cleaned
+        // text is there.
         let sql = """
-            SELECT COALESCE(NULLIF(formattedText, ''), asrText), duration, e2eLatency
+            SELECT COALESCE(NULLIF(formattedText, ''), asrText), e2eLatency
             FROM History
             WHERE substr(timestamp, 1, 23) > ?
               AND substr(timestamp, 1, 23) < ?
@@ -91,20 +87,22 @@ enum WisprReader {
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
         defer { sqlite3_finalize(statement) }
 
-        sqlite3_bind_text(statement, 1, (lower as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(statement, 2, (upper as NSString).utf8String, -1, nil)
-        guard sqlite3_step(statement) == SQLITE_ROW,
-              let raw = sqlite3_column_text(statement, 0) else { return nil }
+        // SQLITE_TRANSIENT, which Swift does not import: SQLite copies each string before the
+        // call returns, so the temporary C strings may go away.
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(statement, 1, lower, -1, transient)
+        sqlite3_bind_text(statement, 2, upper, -1, transient)
+        guard sqlite3_step(statement) == SQLITE_ROW, let column = sqlite3_column_text(statement, 0) else { return nil }
 
-        let text = String(cString: raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = String(cString: column).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
 
-        // e2eLatency is milliseconds and covers a network round trip — it is not comparable
-        // to the local engines' compute time, and the UI labels it accordingly.
+        // Milliseconds, end to end: a network round trip and Wispr's cleanup are in it, so it is
+        // not comparable with the local engines' compute time (the UI says so).
         return ComparisonResult(
             engine: "Wispr Flow",
             text: text,
-            seconds: sqlite3_column_double(statement, 2) / 1000
+            seconds: sqlite3_column_double(statement, 1) / 1000
         )
     }
 }

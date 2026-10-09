@@ -2,17 +2,15 @@ import FluenceCore
 import Foundation
 import FoundationModels
 
-/// Cleanup via Apple's on-device LLM (macOS 26 Foundation Models).
+/// Cleanup by Apple's on-device language model (Foundation Models, macOS 26).
 ///
-/// This is the pass that separates dictation from *usable* dictation: it removes fillers,
-/// restores punctuation and paragraphing, formats spoken lists, and — the thing rules can
-/// never do — honors mid-sentence corrections like "make that three, actually".
-///
-/// Three properties make it safe to put in the hot path:
-/// - **On-device.** Nothing leaves the Mac, so it's viable for anything you'd dictate.
-/// - **Bounded.** A timeout falls back to `RuleBasedFormatter`, because a stalled model
-///   must never cost you an utterance you already spoke.
-/// - **Guarded.** Output is rejected if it looks like the model answered the text instead
+/// Beyond the rules, it drops fillers, restores punctuation and paragraphs, lays out spoken
+/// lists, and applies a correction made halfway through a sentence ("ten, no, twelve"), which
+/// no rule can do. It is safe on the dictation path because it is:
+/// - private: it runs on the Mac and nothing leaves it, so anything may be dictated;
+/// - bounded: a stalled model must never cost words already spoken, so after a time limit the
+///   `RuleBasedFormatter` text is used instead;
+/// - checked: its output is refused when the model seems to have answered the text instead
 ///   of cleaning it — the classic failure when dictation reads as an instruction — or if it
 ///   dropped too much of what was said. See `CleanupGuard`.
 ///
@@ -28,11 +26,11 @@ struct FoundationModelFormatter: TextFormatter {
     /// back exactly once, or its output is not used.
     var placeholderCount = 0
 
-    /// Deterministic fallback used on timeout, unavailability, or a rejected response.
+    /// The deterministic answer, whenever the model is unavailable, too slow, failing or rejected.
     private var fallback: RuleBasedFormatter { RuleBasedFormatter(language: language) }
 
-    /// Past this, taking the raw text beats making the user wait.
-    private let timeout: Duration = .seconds(4)
+    /// Past this, the rules' text is worth more than the wait.
+    private static let timeout: Duration = .seconds(4)
 
     static var isAvailable: Bool {
         SystemLanguageModel.default.availability == .available
@@ -58,7 +56,7 @@ struct FoundationModelFormatter: TextFormatter {
         // Light first: the model starts from text with the fillers gone and the spoken
         // commands already turned into punctuation, and the fallback is that same text.
         let trimmed = await fallback.format(raw)
-        guard !trimmed.isEmpty else { return trimmed }
+        if trimmed.isEmpty { return trimmed }
 
         guard Self.isAvailable else {
             Log.speech.info("Foundation model unavailable — using rule-based cleanup")
@@ -76,11 +74,11 @@ struct FoundationModelFormatter: TextFormatter {
             var cleaned = try await withThrowingTaskGroup(of: String.self) { group in
                 group.addTask { try await Self.clean(prompt, instructions: instructions) }
                 group.addTask {
-                    try await Task.sleep(for: timeout)
-                    throw CleanupError.timedOut
+                    try await Task.sleep(for: Self.timeout)
+                    throw CleanupTimeout.expired
                 }
-                // Whichever finishes first wins; cancel the loser.
-                guard let first = try await group.next() else { throw CleanupError.timedOut }
+                // The first child to finish decides; the other one is cancelled.
+                guard let first = try await group.next() else { throw CleanupTimeout.expired }
                 group.cancelAll()
                 return first
             }
@@ -105,30 +103,30 @@ struct FoundationModelFormatter: TextFormatter {
             if language == .french { cleaned = FrenchTypography.apply(to: cleaned) }
             return cleaned
         } catch {
-            Log.speech.info("Foundation model cleanup failed (\(Self.describe(error), privacy: .public)) — falling back")
+            Log.speech.info("Foundation model cleanup failed (\(Self.describe(error), privacy: .public)) — using rule-based cleanup")
             return trimmed
         }
     }
 
-    /// Every failure here degrades to `RuleBasedFormatter` — the user still gets their
-    /// words. This exists to make the *reason* legible in the log, because the cases have
-    /// very different meanings: `guardrailViolation` and `refusal` are the model declining
-    /// content (expected occasionally, not a bug), while `assetsUnavailable` means the
-    /// feature is effectively off and the user should be told.
+    /// Why the model pass failed, in a few words for the log. The user keeps their words
+    /// whatever the case (the rules' text goes out), but the cases mean very different things:
+    /// a guardrail violation or a refusal is the model declining this content, which happens and
+    /// is no bug, while missing assets mean the feature is effectively off and the user should
+    /// be told.
     private static func describe(_ error: Error) -> String {
         guard let error = error as? LanguageModelSession.GenerationError else {
             return error.localizedDescription
         }
         switch error {
-        case .exceededContextWindowSize: return "input exceeded the context window"
+        case .exceededContextWindowSize: return "context window exceeded"
         case .assetsUnavailable: return "model assets unavailable"
-        case .guardrailViolation: return "blocked by safety guardrails"
-        case .unsupportedGuide: return "unsupported generation guide"
-        case .unsupportedLanguageOrLocale: return "unsupported language"
+        case .guardrailViolation: return "guardrail violation"
+        case .unsupportedGuide: return "unsupported guide"
+        case .unsupportedLanguageOrLocale: return "unsupported language or locale"
         case .decodingFailure: return "decoding failure"
         case .rateLimited: return "rate limited"
-        case .concurrentRequests: return "concurrent request on one session"
-        case .refusal: return "model refused the content"
+        case .concurrentRequests: return "concurrent requests"
+        case .refusal: return "refused by the model"
         @unknown default: return error.localizedDescription
         }
     }
@@ -139,9 +137,9 @@ struct FoundationModelFormatter: TextFormatter {
         let response = try await session.respond(
             to: prompt,
             options: GenerationOptions(
-                // Near-deterministic: this is a formatting pass, not a creative one.
+                // Formatting, not writing: as close to deterministic as it usefully gets.
                 temperature: 0.1,
-                // Cleanup should never be much longer than the input; this bounds a runaway.
+                // A cleanup is never much longer than what was said; this stops a runaway reply.
                 maximumResponseTokens: 1_200
             )
         )
@@ -161,8 +159,8 @@ struct FoundationModelFormatter: TextFormatter {
         }
     }
 
-    private enum CleanupError: LocalizedError {
-        case timedOut
+    private enum CleanupTimeout: LocalizedError {
+        case expired
         var errorDescription: String? { "on-device cleanup timed out" }
     }
 }

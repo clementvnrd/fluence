@@ -4,10 +4,9 @@ import AVFoundation
 import Foundation
 import Speech
 
-/// Streaming on-device transcription via macOS 26's `SpeechAnalyzer` / `SpeechTranscriber`.
-///
-/// No model ships with the app — the OS downloads and manages the assets, so the first
-/// run for a given locale may block briefly while `AssetInstallationRequest` completes.
+/// Live dictation with macOS 26's `SpeechAnalyzer` and a single `SpeechTranscriber`, entirely on
+/// the Mac. The app carries no model: macOS downloads and manages the assets of each locale, so
+/// the first dictation in a new language can wait a moment for them.
 actor AppleSpeechEngine: TranscriptionEngine {
     /// The locale asked for. Nil until first needed: then it comes from the language setting
     /// (FLU-5), read on the main actor where the setting lives.
@@ -15,12 +14,12 @@ actor AppleSpeechEngine: TranscriptionEngine {
 
     private var transcriber: SpeechTranscriber?
     private var analyzer: SpeechAnalyzer?
-    private var inputContinuation: AsyncStream<AnalyzerInput>.Continuation?
+    private var audioInput: AsyncStream<AnalyzerInput>.Continuation?
     private var resultsTask: Task<Void, Never>?
 
-    /// Text the engine has committed. Volatile results are appended on top for display
-    /// but discarded as soon as a final result covering the same range arrives.
-    private var finalizedText = ""
+    /// The finalized part of the transcript. Volatile text is shown after it but never kept
+    /// here: its final version arrives later and is appended instead.
+    private var committed = ""
 
     /// - Parameter locale: a fixed locale; nil (the default) follows Settings ▸ Language,
     ///   whose Auto is the system locale — what this engine always used before.
@@ -63,116 +62,109 @@ actor AppleSpeechEngine: TranscriptionEngine {
 
         try await Self.ensureModelInstalled(for: transcriber)
 
-        let (inputStream, inputContinuation) = AsyncStream<AnalyzerInput>.makeStream()
-        self.inputContinuation = inputContinuation
+        let (inputSequence, audioInput) = AsyncStream<AnalyzerInput>.makeStream()
+        self.audioInput = audioInput
 
-        // Bias the recognizer toward the dictionary's words before it hears anything. This
-        // is a nudge, not a guarantee — `DictionaryCorrector` is the pass that actually
-        // enforces spelling — but it's free and it catches things a post-hoc rewrite can't,
-        // like a name the engine would otherwise split into two ordinary words.
-        //
-        // The list is capped at `DictionaryCorrector.biasLimit`. A long context list makes
-        // these models drift: on quiet or ambiguous audio they start emitting the terms they
-        // were primed with, which is a far worse failure than the misspelling it prevents.
-        // Only the input-sequence initializers take a context up front, and this analyzer is
-        // fed by `analyzer.start(inputSequence:)` later — so the context is applied here
-        // instead. It must be set before any audio arrives to affect recognition.
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         self.analyzer = analyzer
-        if let context = await Self.context() {
+        // Leaning the recognizer toward the user's dictionary catches mishearings that no text
+        // correction can undo ("Supabase" heard as "super base"). The pull is soft: spelling
+        // stays `DictionaryCorrector`'s job. `biasLimit` keeps the list short, because a long
+        // one makes the model hallucinate its terms over silence or unclear audio, which is
+        // worse than a misspelling. A context only counts when it is in place before the first
+        // audio, and the analyzer initializers that accept one also want the input sequence,
+        // which this analyzer only gets in `start(inputSequence:)`; hence `setContext`.
+        if let context = await Self.dictionaryContext() {
             try? await analyzer.setContext(context)
         }
 
-        finalizedText = ""
+        committed = ""
 
-        let (chunks, chunkContinuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
+        let (output, outputContinuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
 
-        // Drain the transcriber's results into our simpler chunk stream.
         resultsTask = Task { [weak self] in
             do {
                 for try await result in transcriber.results {
                     guard let self else { break }
-                    let snapshot = await self.absorb(result)
-                    chunkContinuation.yield(TranscriptionChunk(text: snapshot, isFinal: false))
+                    let snapshot = await self.fold(result)
+                    outputContinuation.yield(TranscriptionChunk(text: snapshot, isFinal: false))
                 }
-                let final = await self?.finalizedText ?? ""
-                chunkContinuation.yield(TranscriptionChunk(text: final, isFinal: true))
-                chunkContinuation.finish()
+                let transcript = await self?.committed ?? ""
+                outputContinuation.yield(TranscriptionChunk(text: transcript, isFinal: true))
+                outputContinuation.finish()
             } catch {
-                Log.speech.error("results stream failed: \(error.localizedDescription)")
-                chunkContinuation.finish(throwing: error)
+                Log.speech.error("SpeechAnalyzer: results stream failed — \(error.localizedDescription)")
+                outputContinuation.finish(throwing: error)
             }
         }
 
-        try await analyzer.start(inputSequence: inputStream)
-        Log.speech.info("SpeechAnalyzer started for \(resolvedLocale.identifier)")
+        try await analyzer.start(inputSequence: inputSequence)
+        Log.speech.info("SpeechAnalyzer: started for \(resolvedLocale.identifier, privacy: .public)")
 
-        return chunks
+        return output
     }
 
     func feed(_ chunk: AudioChunk) async {
-        inputContinuation?.yield(AnalyzerInput(buffer: chunk.buffer))
+        audioInput?.yield(AnalyzerInput(buffer: chunk.buffer))
     }
 
     func finish() async {
-        inputContinuation?.finish()
-        inputContinuation = nil
+        audioInput?.finish()
+        audioInput = nil
 
+        // Cancelling would throw away the volatile tail; finalizing turns it into final results
+        // before the results end, so the last words make it into the final chunk.
         do {
             try await analyzer?.finalizeAndFinishThroughEndOfInput()
         } catch {
-            Log.speech.error("finalize failed: \(error.localizedDescription)")
+            Log.speech.error("SpeechAnalyzer: finalize failed — \(error.localizedDescription)")
             await analyzer?.cancelAndFinishNow()
         }
 
+        // The results task is not cancelled: it still owes the final chunk, which the
+        // controller waits for, and it ends by itself once the results do.
         analyzer = nil
         transcriber = nil
         resultsTask = nil
     }
 
     func cancel() async {
-        inputContinuation?.finish()
-        inputContinuation = nil
+        audioInput?.finish()
+        audioInput = nil
         await analyzer?.cancelAndFinishNow()
         analyzer = nil
         transcriber = nil
         resultsTask = nil
     }
 
-    // MARK: - Result accumulation
+    // MARK: Results
 
-    /// Folds one result into the running transcript and returns the full text to display.
-    ///
-    /// Final results are committed; a volatile result is shown appended to the committed
-    /// text but never stored, so the next revision replaces it cleanly.
-    private func absorb(_ result: SpeechTranscriber.Result) -> String {
+    /// The transcript once `result` is taken into account. Only a final result is kept; a
+    /// volatile one is shown after the committed text until its final version replaces it.
+    private func fold(_ result: SpeechTranscriber.Result) -> String {
         let text = String(result.text.characters)
         guard result.isFinal else {
-            return (finalizedText + text).trimmingCharacters(in: .whitespaces)
+            return (committed + text).trimmingCharacters(in: .whitespaces)
         }
-        finalizedText += text
-        return finalizedText.trimmingCharacters(in: .whitespaces)
+        committed += text
+        return committed.trimmingCharacters(in: .whitespaces)
     }
 
-    // MARK: - Setup helpers
+    // MARK: Setup
 
-    /// The dictionary's words, handed to the analyzer as contextual strings.
+    /// The user's dictionary phrases as recognition context; nil when there are none, so an
+    /// empty context is never set.
     ///
-    /// Reads the store on the main actor because that's where it lives; the resulting array
-    /// of strings is plain value data and crosses back safely.
-    /// - Returns: nil when the dictionary is empty, so an empty context is never set for
-    ///   nothing.
-    ///
-    /// Hops to the main actor rather than asserting it. The store is main-actor isolated and
-    /// this runs on the engine's own executor — `MainActor.assumeIsolated` here doesn't check
-    /// that claim, it asserts it, and takes the whole process down when it's false.
-    private static func context() async -> AnalysisContext? {
+    /// The store belongs to the main actor and this runs on the engine's, so the read hops over
+    /// with `MainActor.run`. `assumeIsolated` would not check that claim and would kill the
+    /// process here. What comes back is a plain array of strings, safe to carry across.
+    private static func dictionaryContext() async -> AnalysisContext? {
         let phrases = await MainActor.run { DictionaryStore.shared.biasPhrases }
         guard !phrases.isEmpty else { return nil }
 
         let context = AnalysisContext()
         context.contextualStrings[.general] = phrases
-        Log.speech.info("biasing with \(phrases.count, privacy: .public) dictionary phrase(s)")
+        Log.speech.info("SpeechAnalyzer: biased toward \(phrases.count) dictionary phrase(s)")
         return context
     }
 
@@ -180,25 +172,26 @@ actor AppleSpeechEngine: TranscriptionEngine {
         SpeechTranscriber(
             locale: locale,
             transcriptionOptions: [],
-            // `.volatileResults` is what makes live text appear while you're still talking.
+            // Partial text while the user is still speaking: the HUD's live line.
             reportingOptions: [.volatileResults],
             attributeOptions: []
         )
     }
 
     private static func ensureModelInstalled(for transcriber: SpeechTranscriber) async throws {
-        let installed = await SpeechTranscriber.installedLocales
-        let selected = transcriber.selectedLocales
-        let alreadyThere = selected.allSatisfy { locale in
-            installed.contains { $0.identifier(.bcp47) == locale.identifier(.bcp47) }
+        // Locales are compared by their BCP 47 strings: two `Locale` values for the same
+        // language can differ in ways that don't matter here.
+        let installed = await SpeechTranscriber.installedLocales.map { $0.identifier(.bcp47) }
+        let isInstalled = transcriber.selectedLocales.allSatisfy { locale in
+            installed.contains(locale.identifier(.bcp47))
         }
-        guard !alreadyThere else { return }
+        if isInstalled { return }
 
         do {
             if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-                Log.speech.info("downloading speech model…")
+                Log.speech.info("SpeechAnalyzer: downloading the speech model")
                 try await request.downloadAndInstall()
-                Log.speech.info("speech model installed")
+                Log.speech.info("SpeechAnalyzer: speech model installed")
             }
         } catch {
             throw TranscriptionError.modelInstallFailed(error.localizedDescription)

@@ -134,7 +134,7 @@ actor WhisperModels {
 
         Log.speech.info("""
             WhisperKit (\(language ?? "auto", privacy: .public)): \(audioSeconds, format: .fixed(precision: 1))s audio in \
-            \(elapsed, format: .fixed(precision: 2))s (\(audioSeconds / max(elapsed, 0.0001), format: .fixed(precision: 0))× realtime)
+            \(elapsed, format: .fixed(precision: 2))s (\(audioSeconds / max(elapsed, 0.001), format: .fixed(precision: 0))× realtime)
             """)
 
         return text

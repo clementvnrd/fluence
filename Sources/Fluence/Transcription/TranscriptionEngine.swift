@@ -1,42 +1,42 @@
 import AVFoundation
 import Foundation
 
-/// One buffer of captured audio, in transit from the audio thread to the speech engine.
+/// One buffer of captured audio, on its way to an engine.
 ///
-/// `AVAudioPCMBuffer` isn't `Sendable`, and `AVAudioEngine` recycles the buffer it hands
-/// to a tap the moment the callback returns. The unchecked conformance is only sound
-/// because `AudioCapture` allocates a **fresh** buffer for every chunk and never touches
-/// it again after handing it over — don't construct one of these around a borrowed buffer.
+/// `AVAudioPCMBuffer` is not `Sendable`, hence `@unchecked`. That is sound only because
+/// `AudioCapture` copies each tap callback into a buffer of its own and never touches it again
+/// once sent: `AVAudioEngine` reuses the tap's buffer as soon as the callback returns, so the
+/// tap's own buffer must never be wrapped in an `AudioChunk`.
 struct AudioChunk: @unchecked Sendable {
     let buffer: AVAudioPCMBuffer
 }
 
-/// A snapshot of the running transcript.
-///
-/// `text` is always the **full transcript so far**, not a delta — engines revise
-/// earlier words as more audio arrives, so consumers should replace rather than append.
+/// What an engine reports back.
 struct TranscriptionChunk: Sendable {
+    /// The whole transcript of the session so far, never a delta: engines revise words they
+    /// already reported, so a consumer replaces its copy rather than appending.
     let text: String
-    /// `true` once the engine has committed everything it will emit for this session.
+    /// Set on the session's last snapshot.
     let isFinal: Bool
 }
 
 /// The seam that keeps Fluence engine-agnostic.
 ///
-/// Apple's `SpeechAnalyzer` ships with macOS 26 and needs no model download, so it is
-/// the default. Parakeet (FluidAudio, CoreML/ANE) scores better on English and is the
-/// intended upgrade — implementing this protocol is the whole cost of switching.
+/// Every engine is an actor conforming to it: Apple's `SpeechAnalyzer` (the default, part of
+/// macOS 26, nothing to download), Parakeet through FluidAudio on Core ML and the Neural Engine,
+/// and Whisper through WhisperKit. Another engine is one more conformance.
 protocol TranscriptionEngine: Actor {
-    /// Audio format the engine wants buffers delivered in. `AudioCapture` converts to it.
+    /// The audio format the engine wants; `AudioCapture` converts the microphone to it. Nil
+    /// when the engine has none the app can use, and the controller fails with `noAudioFormat`.
     func preferredInputFormat() async -> AVAudioFormat?
 
-    /// Prepare models and open a session. Emits snapshots until `finish()` is called.
+    /// Loads the model or assets and opens a session. The stream ends after `finish()` or `cancel()`.
     func start() async throws -> AsyncThrowingStream<TranscriptionChunk, Error>
 
-    /// Feed one buffer of captured microphone audio, already in `preferredInputFormat()`.
+    /// One buffer, already converted to `preferredInputFormat()`.
     func feed(_ chunk: AudioChunk) async
 
-    /// Close the session and flush any pending final results.
+    /// No more audio: the final snapshot goes out, then the stream closes.
     func finish() async
 
     /// Close the session and throw away what it heard: no final result, no transcription
@@ -54,13 +54,13 @@ enum TranscriptionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .localeUnsupported(let locale):
-            return "Dictation isn't available for \(locale.identifier) on this Mac."
+            "Dictée indisponible sur ce Mac en \(locale.identifier)"
         case .modelInstallFailed(let detail):
-            return "Couldn't install the speech model: \(detail)"
+            "Modèle vocal non installé : \(detail)"
         case .noAudioFormat:
-            return "No compatible audio format available for the speech engine."
+            "Format audio non pris en charge par le moteur"
         case .notRunning:
-            return "The transcription engine isn't running."
+            "Moteur de transcription arrêté"
         }
     }
 }

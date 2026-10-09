@@ -1,12 +1,10 @@
 import FluenceCore
 import Foundation
 
-/// The cleanup pass between raw transcription and injection.
-///
-/// This is where Wispr Flow actually earns its keep — raw STT output is full of filler
-/// words, missing punctuation, and spoken corrections. Swapping in an LLM-backed
-/// formatter (Apple Foundation Models on-device, or Claude for the high-quality tier)
-/// is the point of keeping this behind a protocol.
+/// Raw speech-to-text keeps its fillers, has little or no punctuation and still carries the
+/// speaker's spoken self-corrections; this pass sits between the engine and the typing.
+/// Implemented by the rules (level Light), by Apple's on-device model (levels Medium and High),
+/// and by the test doubles injected through `DictationPipeline`.
 protocol TextFormatter: Sendable {
     func format(_ raw: String) async -> String
 }
@@ -25,7 +23,7 @@ struct RuleBasedFormatter: TextFormatter {
     }
 }
 
-/// No-op formatter, for comparing raw engine output against the cleanup pass.
+/// Hands the engine's text back as it came, only trimmed: raw output to set beside a cleanup.
 struct PassthroughFormatter: TextFormatter {
     func format(_ raw: String) async -> String {
         raw.trimmingCharacters(in: .whitespacesAndNewlines)

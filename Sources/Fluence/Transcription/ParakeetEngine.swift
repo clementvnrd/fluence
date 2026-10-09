@@ -3,14 +3,14 @@ import FluenceCore
 import FluidAudio
 import Foundation
 
-/// NVIDIA Parakeet TDT 0.6B, compiled to CoreML and run on the Neural Engine via FluidAudio.
+/// NVIDIA's Parakeet TDT 0.6B family (the Ultra weights, see `ParakeetModels.version`) through
+/// FluidAudio, on Core ML and the Neural Engine.
 ///
-/// **Batch, not streaming.** Audio is accumulated while the key is held and transcribed in
-/// one pass on release. That's a deliberate trade: at ~100× realtime a 30-second utterance
-/// resolves in roughly a third of a second, which is imperceptible for push-to-talk — but
-/// it means no live text in the HUD while you speak, unlike Apple's engine.
-/// FluidAudio's `SlidingWindowAsrManager` would restore live partials at the cost of a
-/// more complex integration; see the note in `docs`.
+/// Batch by design: samples pile up while the key is held and are transcribed in one pass on
+/// release. At about a hundred times real time (twelve seconds of speech in roughly 0.12 s) that
+/// pass goes unnoticed in push-to-talk; what it costs is the live HUD text the Apple engine
+/// shows. FluidAudio's sliding-window manager would give live partials, at the price of a much
+/// harder integration, and is not used.
 actor ParakeetEngine: TranscriptionEngine {
     private var samples: [Float] = []
     private var continuation: AsyncThrowingStream<TranscriptionChunk, Error>.Continuation?
@@ -22,11 +22,11 @@ actor ParakeetEngine: TranscriptionEngine {
     /// is on disk. Empty otherwise.
     private var boostPhrases: [String] = []
 
-    /// Defaults to 16 kHz mono float32 — exactly what Parakeet is trained on.
+    /// Out of the box it produces 16 kHz mono Float32, the format Parakeet was trained on.
     private let converter = AudioConverter()
 
     func preferredInputFormat() async -> AVAudioFormat? {
-        // Parakeet is trained on 16 kHz mono; AudioCapture converts to whatever we ask for.
+        // The model's native rate; getting the microphone there is `AudioCapture`'s job.
         AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)
     }
 
@@ -36,8 +36,8 @@ actor ParakeetEngine: TranscriptionEngine {
         let (stream, continuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
         self.continuation = continuation
 
-        // Force the (possibly very slow) first load to happen here rather than on release,
-        // so the user waits before speaking instead of losing an utterance to a timeout.
+        // A first load is slow (about 600 MB downloaded on the very first run, seconds from
+        // disk afterwards). Paying it here, before speech, means release never loses an utterance to it.
         _ = try await ParakeetModels.shared.manager()
 
         // MARK: FLU-5 text — read once per dictation, on the main actor where they live.
@@ -63,16 +63,11 @@ actor ParakeetEngine: TranscriptionEngine {
         let buffer = chunk.buffer
         guard buffer.frameLength > 0 else { return }
 
-        // Delegated to FluidAudio's own converter rather than hand-rolled, for one reason
-        // that matters more than tidiness: `AsrManager.transcribe(_ samples: [Float])`
-        // performs **no resampling and no rate validation**. Feed it the wrong sample rate
-        // and it doesn't throw — it silently transcribes garbage.
-        //
-        // That's a live risk here. In compare mode the capture format is dictated by
-        // Apple's analyzer, and `bestAvailableAudioFormat` may legitimately return 8 kHz
-        // as well as 16 kHz. `resampleBuffer` normalizes whatever arrives to the 16 kHz
-        // mono float32 the model expects, and its Int16→Float path is bit-identical to
-        // dividing by 32768, so nothing is lost versus doing it by hand.
+        // `AsrManager.transcribe` takes [Float] at face value: no resampling, no rate check,
+        // and audio at another rate comes back as confident nonsense without any error. Compare
+        // mode captures in Apple's format (Int16, 8 or 16 kHz), so every buffer goes through
+        // FluidAudio's converter, which normalizes anything to 16 kHz mono Float32; its Int16
+        // path is the same x / 32 768 a hand-written conversion would use.
         do {
             samples.append(contentsOf: try converter.resampleBuffer(buffer))
         } catch {
@@ -87,11 +82,10 @@ actor ParakeetEngine: TranscriptionEngine {
             samples.removeAll(keepingCapacity: true)
         }
 
-        // Parakeet's encoder needs a minimum window; a stray tap of the key isn't speech.
-        // Logged rather than silent — an unexpected drop to zero here is how the
-        // format bug above disguised itself as a fast, empty result.
+        // The encoder needs a minimum of input, and a key tap under 0.1 s holds no speech. Said in
+        // the log because the wrong-rate bug above once showed only as quick empty results.
         guard samples.count >= 1_600 else {
-            Log.speech.info("Parakeet: skipped — only \(self.samples.count) samples captured")
+            Log.speech.info("Parakeet: skipped — only \(self.samples.count) samples captured (< 0.1s)")
             return
         }
 
@@ -106,7 +100,8 @@ actor ParakeetEngine: TranscriptionEngine {
 
             Log.speech.info("""
                 Parakeet: \(audioSeconds, format: .fixed(precision: 1))s audio in \
-                \(elapsed, format: .fixed(precision: 2))s (\(audioSeconds / max(elapsed, 0.0001), format: .fixed(precision: 0))× realtime)
+                \(elapsed, format: .fixed(precision: 2))s \
+                (\(audioSeconds / max(elapsed, 0.001), format: .fixed(precision: 0))× realtime)
                 """)
 
             continuation?.yield(
@@ -155,12 +150,12 @@ actor ParakeetEngine: TranscriptionEngine {
     }
 }
 
-/// Process-wide model cache.
+/// The loaded Parakeet models, one copy for the whole process.
 ///
 /// Loading is expensive — ~600 MB downloaded on first ever run, then a few seconds from
-/// disk per process — and the models are immutable once loaded, so every dictation shares
-/// one instance rather than paying that per utterance. Its own actor because `static var`
-/// on `ParakeetEngine` would be unprotected global mutable state under Swift 6.
+/// disk, paid once per process. A loaded model is read-only, so every dictation and every
+/// meeting shares this one instance instead of reloading per utterance. It is an actor of its
+/// own because a mutable `static` on the engine would be unguarded global state in Swift 6.
 actor ParakeetModels {
     static let shared = ParakeetModels()
 
@@ -172,20 +167,17 @@ actor ParakeetModels {
     /// FluidAudio's cache folder for `version`.
     nonisolated static let folder = "parakeet-ultra"
 
-    /// Whether the models are already on disk, checked without loading them.
-    ///
-    /// `nonisolated` and filesystem-based on purpose: the menu needs this synchronously
-    /// while drawing, and an in-memory "have I loaded yet" flag would wrongly report
-    /// "not downloaded" on every fresh launch.
+    /// Whether the transcription model is on disk, without loading it. The menu asks while it
+    /// draws, hence `nonisolated` and a file check: an in-memory flag would read false after
+    /// every launch and misreport the download.
     nonisolated static var isDownloaded: Bool {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let encoder = support
+        let encoder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("FluidAudio/Models/\(folder)/Encoder.mlmodelc")
         return FileManager.default.fileExists(atPath: encoder.path)
     }
 
     private var loaded: AsrManager?
-    private var loadTask: Task<AsrManager, Error>?
+    private var loading: Task<AsrManager, Error>?
 
     // MARK: FLU-5 text — vocabulary boosting
 
@@ -232,14 +224,14 @@ actor ParakeetModels {
 
     var isLoaded: Bool { loaded != nil }
 
-    /// Loads once; concurrent callers await the same task rather than racing to download.
+    /// The shared manager, loaded on first use; callers that arrive during the load wait on the
+    /// same task, so nothing is downloaded twice.
     func manager() async throws -> AsrManager {
         if let loaded { return loaded }
-        if let loadTask { return try await loadTask.value }
+        if let loading { return try await loading.value }
 
         let task = Task<AsrManager, Error> {
-            // Built as a value first: os.Logger requires a literal interpolation, so a
-            // ternary can't be passed directly as the argument.
+            // `os.Logger` only takes an interpolation literal, so the ternary goes in a local.
             let stage = Self.isDownloaded
                 ? "loading models from disk"
                 : "downloading models (~600 MB, one time)"
@@ -248,19 +240,19 @@ actor ParakeetModels {
             let models = try await AsrModels.downloadAndLoad(version: Self.version)
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
-            Log.speech.info("Parakeet: ready in \(Date().timeIntervalSince(started), format: .fixed(precision: 1))s")
+            Log.speech.info("Parakeet: models ready in \(Date().timeIntervalSince(started), format: .fixed(precision: 1))s")
             return manager
         }
-        loadTask = task
+        loading = task
 
+        // A failure is not remembered: after a passing network error, the next dictation
+        // simply tries again.
         do {
             let manager = try await task.value
             loaded = manager
             return manager
         } catch {
-            // Don't cache a failed load — a transient download error shouldn't wedge the
-            // engine for the rest of the session.
-            loadTask = nil
+            loading = nil
             throw error
         }
     }
