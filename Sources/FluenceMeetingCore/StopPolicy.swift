@@ -6,8 +6,12 @@ public enum StopReason: String, Sendable, Codable {
     case callEnded
     case silence
     case maxDuration
+    /// No longer used to stop (FLU-32: a locked screen keeps recording); kept so a stored
+    /// value still decodes.
     case screenLocked
     case systemSleep
+    /// Another user took the Mac (fast user switching).
+    case userSwitched
     case captureFailed
 
     public var explanation: String {
@@ -18,13 +22,22 @@ public enum StopReason: String, Sendable, Codable {
         case .maxDuration: "Reached the maximum meeting length"
         case .screenLocked: "Stopped: screen locked"
         case .systemSleep: "Stopped: Mac going to sleep"
+        case .userSwitched: "Stopped: another user took the Mac"
         case .captureFailed: "Stopped: audio capture failed"
         }
     }
 }
 
+/// Something the Mac did while a meeting records.
+public enum SystemEvent: Sendable, Equatable {
+    case screenLocked
+    case displaySlept
+    case systemWillSleep
+    case userSwitchedOut
+}
+
 /// The automatic stop conditions that depend only on elapsed times. Event-driven ones
-/// (Stop button, screen lock, sleep) are handled by the controller directly.
+/// (Stop button, system events) are decided by `reason(for:)`.
 public struct StopPolicy: Sendable {
     /// The meeting app has stopped using the microphone for this long: the call ended.
     public var callEndedAfter: TimeInterval = 30
@@ -54,5 +67,23 @@ public struct StopPolicy: Sendable {
         if let appLastUsingMic, elapsed - appLastUsingMic >= callEndedAfter { return .callEnded }
         if elapsed - (lastSpeech ?? 0) >= silenceLimit { return .silence }
         return nil
+    }
+
+    /// FLU-32: a call goes on behind a locked or dark screen (an audio-only call, a phone
+    /// on the desk), so those keep recording; the app holds off idle sleep meanwhile. Real
+    /// sleep and another user taking the Mac end the capture, so the meeting is stopped and
+    /// saved first.
+    public static func reason(for event: SystemEvent) -> StopReason? {
+        switch event {
+        case .screenLocked, .displaySlept: nil
+        case .systemWillSleep: .systemSleep
+        case .userSwitchedOut: .userSwitched
+        }
+    }
+
+    /// After an automatic stop the call may still be going on: it is offered again. After
+    /// the user's own stop it is not, until the app leaves the microphone.
+    public static func offersAgain(after reason: StopReason) -> Bool {
+        reason != .user
     }
 }

@@ -2,6 +2,7 @@ import CryptoKit
 import FluenceCore
 import Foundation
 import FluenceDictionary
+import Synchronization
 
 /// One recording in progress: the two captures, their pipelines and spools, the live
 /// segments, and the system-audio watchdog. Owned by `MeetingController`.
@@ -34,10 +35,12 @@ final class MeetingSession {
     private var systemSegments: [TranscriptSegment] = []
     private var hiddenEchoes: Set<UUID> = []
 
-    // Watchdog.
-    private var lastRebuild: TimeInterval = 0
+    // Watchdog (FLU-32: backoff, no cap), counted within one stretch of silence.
+    private var lastRebuild: TimeInterval?
     private var rebuilds = 0
     private var warnedPermission = false
+    /// Audio blocks the bounded queues had to drop since the ticker last asked.
+    private let dropped: DroppedBlocks
 
     var hasSystemAudio: Bool { tap != nil }
     var systemSpoolURL: URL? { systemPipeline == nil ? nil : MeetingAudioSpool.url(in: directory, source: .system) }
@@ -45,6 +48,11 @@ final class MeetingSession {
 
     static func markerURL(in directory: URL) -> URL {
         directory.appendingPathComponent("recording.marker")
+    }
+
+    /// How many times recovery has tried this meeting (FLU-32), beside the marker.
+    static func recoveryAttemptsURL(in directory: URL) -> URL {
+        directory.appendingPathComponent("recovery.attempts")
     }
 
     init(
@@ -74,9 +82,11 @@ final class MeetingSession {
         startHost = MeetingAudioFormat.now
 
         // The system side first: whether it exists decides the mic's echo stage.
+        let dropped = DroppedBlocks()
+        self.dropped = dropped
         let tap = SystemAudioTap(app: app)
         do {
-            try tap.start { systemContinuation.yield($0) }
+            try tap.start { dropped.note(systemContinuation.yield($0)) }
             self.tap = tap
         } catch {
             Log.audio.error("system audio unavailable: \(error.localizedDescription, privacy: .public)")
@@ -124,7 +134,7 @@ final class MeetingSession {
 
         do {
             try mic.start(
-                onAudio: { micContinuation.yield($0) },
+                onAudio: { dropped.note(micContinuation.yield($0)) },
                 onFailure: { _ in Task { @MainActor in onFailure(.captureFailed) } }
             )
         } catch {
@@ -172,25 +182,47 @@ final class MeetingSession {
 
     // MARK: - Watchdog
 
+    enum WatchdogReport: Equatable {
+        case quiet
+        /// Something to tell the user.
+        case warn(String)
+        /// The call's sound is back: a watchdog message can go.
+        case recovered
+    }
+
     /// Called once a second. Rebuilds a tap that went silent while the app is playing (a
-    /// sample-rate change or AirPods sleeping can do that); a tap that never carried
-    /// anything while the app plays almost always means the permission was denied.
-    /// Returns a message for the user, if any.
-    func checkSystemAudio() -> String? {
-        guard let tap else { return nil }
+    /// sample-rate change or AirPods sleeping can do that), on `TapWatchdog`'s backoff and
+    /// for as long as the silence lasts; a tap that never carried anything while the app
+    /// plays almost always means the permission was denied.
+    func checkSystemAudio() -> WatchdogReport {
+        guard let tap else { return .quiet }
         let status = tap.signalStatus()
-        guard status.secondsSinceSignal >= 5, tap.isSourcePlaying() else { return nil }
+        guard status.secondsSinceSignal >= TapWatchdog.silenceThreshold, tap.isSourcePlaying() else {
+            guard rebuilds > 0, status.secondsSinceSignal < TapWatchdog.silenceThreshold else { return .quiet }
+            rebuilds = 0
+            lastRebuild = nil
+            Log.audio.info("system tap carries sound again")
+            return .recovered
+        }
+        let sinceLast = lastRebuild.map { elapsed - $0 }
+        guard TapWatchdog.isRebuildDue(silentFor: status.secondsSinceSignal, sinceLastRebuild: sinceLast, rebuilds: rebuilds) else {
+            return .quiet
+        }
+        rebuildTap()
 
         if !status.everHadSignal {
-            guard !warnedPermission else { return nil }
+            guard !warnedPermission else { return .quiet }
             warnedPermission = true
-            rebuildTap()
-            return "Fluence n'entend rien de l'appel. Autorisez-le dans Réglages Système › Confidentialité et sécurité › "
-                + "Enregistrement de l'écran et de l'audio système (Enregistrement audio du système uniquement), puis relancez l'enregistrement."
+            return .warn("Fluence n'entend rien de l'appel. Autorisez-le dans Réglages Système › Confidentialité et sécurité › "
+                + "Enregistrement de l'écran et de l'audio système (Enregistrement audio du système uniquement), puis relancez l'enregistrement.")
         }
-        guard elapsed - lastRebuild >= 15, rebuilds < 20 else { return nil }
-        rebuildTap()
-        return nil
+        // The first rebuild usually works unnoticed; say so only when it did not.
+        return rebuilds >= 2 ? .warn(TapWatchdog.notice(nextTryIn: TapWatchdog.delay(afterRebuilds: rebuilds))) : .quiet
+    }
+
+    /// Audio blocks dropped since the last call (never their content).
+    func takeDroppedBlocks() -> Int {
+        dropped.take()
     }
 
     private func rebuildTap() {
@@ -199,8 +231,9 @@ final class MeetingSession {
         tap?.stop()
         let replacement = SystemAudioTap(app: app)
         let continuation = systemContinuation
+        let dropped = dropped
         do {
-            try replacement.start { continuation.yield($0) }
+            try replacement.start { dropped.note(continuation.yield($0)) }
             tap = replacement
             Log.audio.info("system tap rebuilt")
         } catch {
@@ -230,5 +263,19 @@ final class MeetingSession {
         for consumer in consumers { await consumer.value }
         micSegments = await micPipeline.finish()
         if let systemPipeline { systemSegments = await systemPipeline.finish() }
+    }
+}
+
+/// Counts audio blocks a full queue dropped. Written from the capture callbacks, so it is
+/// a lock-free atomic rather than a lock.
+final class DroppedBlocks: Sendable {
+    private let count = Atomic<Int>(0)
+
+    func note(_ result: AsyncStream<CapturedAudio>.Continuation.YieldResult) {
+        if case .dropped = result { count.add(1, ordering: .relaxed) }
+    }
+
+    func take() -> Int {
+        count.exchange(0, ordering: .relaxed)
     }
 }
