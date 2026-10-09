@@ -1,5 +1,5 @@
 import AppKit
-import MurmurDictionary
+import FluenceDictionary
 import SwiftUI
 
 /// Fenêtre flottante élégante pour corriger rapidement la dernière dictée

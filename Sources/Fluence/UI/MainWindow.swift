@@ -1,6 +1,6 @@
 import AppKit
 import FluenceCore
-import MurmurDictionary
+import FluenceDictionary
 import SwiftUI
 
 /// Where the main window is: which sidebar item is selected (FLU-12, navigation B).

@@ -1,6 +1,6 @@
 import FluidAudio
 import Foundation
-import MurmurDictionary
+import FluenceDictionary
 
 /// The system channel's samples on the meeting timeline, for the mic's echo canceller.
 /// A bounded ring: the mic reads within a second of the system writing.

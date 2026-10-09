@@ -1,5 +1,5 @@
 import FluenceCore
-import MurmurDictionary
+import FluenceDictionary
 import AVFoundation
 import Foundation
 import Speech

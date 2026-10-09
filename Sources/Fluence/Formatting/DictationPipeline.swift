@@ -1,6 +1,6 @@
 import FluenceCore
 import Foundation
-import MurmurDictionary
+import FluenceDictionary
 
 /// From the engine's transcript to the text that gets typed (FLU-5 text).
 ///

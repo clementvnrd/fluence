@@ -1,4 +1,4 @@
-import MurmurDictionary
+import FluenceDictionary
 import Foundation
 import Observation
 

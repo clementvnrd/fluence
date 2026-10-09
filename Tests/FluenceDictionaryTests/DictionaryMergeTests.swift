@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import MurmurDictionary
+@testable import FluenceDictionary
 
 /// The « Lexique Tech » import adds only what the dictionary lacks, and says how many (FLU-17).
 struct DictionaryMergeTests {

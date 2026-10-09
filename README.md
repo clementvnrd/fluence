@@ -211,7 +211,7 @@ Never sent: audio, transcripts, names, history, meeting notes.
                      DictationPipeline: snippets → language → cleanup level
                             (rules, + Foundation Models + CleanupGuard, + style)
                                                ▼
-                                DictionaryCorrector (MurmurDictionary)
+                                DictionaryCorrector (FluenceDictionary)
                                                ▼  (snippet expansions restored)
                             TextInjector ─► focused app      RunLog ─► history.sealed
 ```
@@ -266,7 +266,7 @@ Sources/
 │                            snippet matching, edit learning, push-to-talk gestures,
 │                            Command Mode checks, speech gate, downmix, sealed history, retention,
 │                            Clement's speech repairs, the legacy-data merge
-└── MurmurDictionary/        the correction engine — a cross-platform contract
+└── FluenceDictionary/        the correction engine — a cross-platform contract
 ```
 
 ---

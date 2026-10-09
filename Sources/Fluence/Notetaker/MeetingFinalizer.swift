@@ -1,7 +1,7 @@
 import CryptoKit
 import FluidAudio
 import Foundation
-import MurmurDictionary
+import FluenceDictionary
 
 extension MeetingAudioSpoolReader: AudioSampleSource {}
 

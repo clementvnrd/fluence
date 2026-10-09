@@ -56,7 +56,7 @@ jobs:
         run: |
           status=0
           for pair in \
-            "shared/dictionary-test-vectors.json Tests/MurmurDictionaryTests/dictionary-test-vectors.json" \
+            "shared/dictionary-test-vectors.json Tests/FluenceDictionaryTests/dictionary-test-vectors.json" \
             "shared/meeting-test-vectors.json Tests/FluenceMeetingCoreTests/meeting-test-vectors.json" \
             "shared/transcript-import-vectors.json Tests/FluenceMeetingCoreTests/transcript-import-vectors.json" \
             "shared/speaker-consolidation-vectors.json Tests/FluenceMeetingCoreTests/speaker-consolidation-vectors.json"; do

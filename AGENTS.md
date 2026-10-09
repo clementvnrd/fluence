@@ -53,11 +53,11 @@ swift test --filter VectorTests                    # macOS side
 cd windows && dotnet test Murmur.CrossPlatform.slnf # Windows side, runs anywhere
 ```
 
-The Swift copy at `Tests/MurmurDictionaryTests/dictionary-test-vectors.json` is a copy, and
+The Swift copy at `Tests/FluenceDictionaryTests/dictionary-test-vectors.json` is a copy, and
 CI fails if it drifts from `shared/`. After editing the shared file:
 
 ```bash
-cp shared/dictionary-test-vectors.json Tests/MurmurDictionaryTests/
+cp shared/dictionary-test-vectors.json Tests/FluenceDictionaryTests/
 ```
 
 ---
@@ -83,7 +83,7 @@ These are product requirements, not style:
 The Command Line Tools cannot expand SwiftUI's `@State` macro, so `make` fails on a Mac
 without Xcode. CI builds the whole app on every pull request. Locally:
 
-- Pure logic lives in plain targets (`MurmurDictionary`, `FluenceCore`, and the Notetaker's
+- Pure logic lives in plain targets (`FluenceDictionary`, `FluenceCore`, and the Notetaker's
   `FluenceMeetingCore` / `FluenceNotesCore`) that build and `swift test` with the Command Line
   Tools. Swift Testing needs `-Xswiftc -plugin-path -Xswiftc
   /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing` on `swift build`;
