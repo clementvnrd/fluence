@@ -19,8 +19,8 @@ struct HUDView: View {
             Color.clear.frame(width: DS.HUD.size.width, height: DS.HUD.size.height)
             capsule
         }
-        .onChange(of: controller.state.isActive) { _, active in
-            startedAt = active ? Date() : nil
+        .onChange(of: controller.state.isActive) { _, isActive in
+            startedAt = isActive ? Date() : nil
         }
     }
 

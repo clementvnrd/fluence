@@ -5,8 +5,9 @@ import SwiftUI
 
 /// Dictionnaire (FLU-12): the words Fluence must write right — add, edit, delete, search.
 ///
-/// Both entry kinds live in one list rather than separate tabs — they're two shapes of the
-/// same idea and you want to see everything you've taught it at once. The kind is carried by
+/// A term and a correction are two ways of teaching Fluence the same word, and everything it
+/// was taught should be visible at once, so both kinds share one list with no tabs. The kind is
+/// shown by
 /// a tag on each row.
 struct DictionaryPanel: View {
     /// What the « Lexique Tech » button just did, shown on it for a moment (FLU-17).
@@ -78,9 +79,9 @@ struct DictionaryPanel: View {
                                 entry: entry,
                                 onEdit: { editing = entry },
                                 onToggle: {
-                                    var updated = entry
-                                    updated.isEnabled.toggle()
-                                    store.update(updated)
+                                    var flipped = entry
+                                    flipped.isEnabled.toggle()
+                                    store.update(flipped)
                                 },
                                 onDelete: { store.delete(entry) }
                             )
@@ -186,7 +187,7 @@ private struct DictionaryRow: View {
 
 // MARK: - Editor
 
-/// Add or edit one entry, with the false-positive warning shown live as you type.
+/// The add / edit sheet for one entry. Its warnings are recomputed on every keystroke.
 private struct DictionaryEditor: View {
     let entry: DictionaryEntry?
     let onSave: (DictionaryEntry) -> Void
@@ -205,11 +206,13 @@ private struct DictionaryEditor: View {
     }
 
     private var draft: DictionaryEntry {
-        DictionaryEntry(
+        let trimmedWrite = write.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedHear = hear.trimmingCharacters(in: .whitespacesAndNewlines)
+        return DictionaryEntry(
             id: entry?.id ?? UUID(),
             kind: kind,
-            write: write.trimmingCharacters(in: .whitespacesAndNewlines),
-            hear: kind == .correction ? hear.trimmingCharacters(in: .whitespacesAndNewlines) : "",
+            write: trimmedWrite,
+            hear: kind == .correction ? trimmedHear : "",
             isEnabled: entry?.isEnabled ?? true
         )
     }
@@ -217,7 +220,8 @@ private struct DictionaryEditor: View {
     private var warnings: [DictionaryWarning] { DictionaryWarning.check(draft) }
 
     private var isValid: Bool {
-        !draft.write.isEmpty && (kind == .term || !draft.hear.isEmpty)
+        let candidate = draft
+        return !candidate.write.isEmpty && (candidate.kind == .term || !candidate.hear.isEmpty)
     }
 
     var body: some View {
@@ -249,7 +253,7 @@ private struct DictionaryEditor: View {
                 .padding(DS.Space.snug)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.chip)
+                    RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)
                         .strokeBorder(DS.Color.selectionEdge, lineWidth: DS.Border.hairline)
                 )
             }
@@ -282,7 +286,7 @@ private struct DictionaryEditor: View {
                 }
                 .background {
                     if kind == candidate {
-                        RoundedRectangle(cornerRadius: DS.Radius.control).fill(DS.Color.selection)
+                        RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous).fill(DS.Color.selection)
                     }
                 }
             }
@@ -296,11 +300,10 @@ private struct DictionaryEditor: View {
                 .textFieldStyle(.plain)
                 .font(DS.Font.body)
                 .foregroundStyle(DS.Color.inkOnDeck)
-                .padding(.horizontal, DS.Space.snug)
-                .padding(.vertical, DS.Space.snug)
-                .background(DS.Color.deck, in: .rect(cornerRadius: DS.Radius.chip))
+                .padding(DS.Space.snug)
+                .background(DS.Color.deck, in: RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.chip)
+                    RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)
                         .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
                 )
         }

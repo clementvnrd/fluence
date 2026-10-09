@@ -12,7 +12,7 @@ import SwiftUI
 /// Amber and green are status (warnings, granted), never chrome.
 enum DS {
 
-    // MARK: - Color
+    // MARK: - Colour
 
     enum Color {
         /// Base window canvas: Luminous paper mist in light, deep midnight slate in dark.
@@ -88,6 +88,7 @@ enum DS {
 
         private static func swatch(_ hex: UInt32) -> SwiftUI.Color { SwiftUI.Color(hex: hex) }
 
+        /// Resolved by AppKit on every draw, so a window follows an appearance change at once.
         private static func face(light: UInt32, dark: UInt32) -> SwiftUI.Color {
             SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
                 let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -96,7 +97,7 @@ enum DS {
         }
     }
 
-    // MARK: - Material
+    // MARK: - Materials
 
     enum Material {
         static let grainLight: Double = 0.0
@@ -159,7 +160,7 @@ enum DS {
         static let panel: CGFloat = 24
     }
 
-    // MARK: - Radius
+    // MARK: - Corner radii
 
     enum Radius {
         static let none: CGFloat = 0
@@ -170,7 +171,7 @@ enum DS {
         static let pill: CGFloat = 999
     }
 
-    // MARK: - Border
+    // MARK: - Borders
 
     enum Border {
         static let hairline: CGFloat = 0.75
@@ -178,7 +179,7 @@ enum DS {
         static let bevel: CGFloat = 1
     }
 
-    // MARK: - Elevation
+    // MARK: - Shadows
 
     enum Shadow {
         static let raised = Spec(color: .black.opacity(0.04), radius: 6, x: 0, y: 2)
@@ -187,6 +188,7 @@ enum DS {
         static let window = Spec(color: .black.opacity(0.12), radius: 24, x: 0, y: 8)
         static let glow = Spec(color: SwiftUI.Color(hex: 0x0084FF).opacity(0.22), radius: 12, x: 0, y: 3)
 
+        /// One drop shadow, read field by field by `.shadow(color:radius:x:y:)`.
         struct Spec {
             let color: SwiftUI.Color
             let radius: CGFloat
@@ -307,20 +309,23 @@ extension DS {
     }
 }
 
-// MARK: - Hex helpers
+// MARK: - Colours from hex
 
 extension SwiftUI.Color {
+    /// A 24-bit `0xRRGGBB` value in sRGB, fully opaque.
     init(hex: UInt32) {
         self.init(
             .sRGB,
             red: Double((hex >> 16) & 0xFF) / 255,
             green: Double((hex >> 8) & 0xFF) / 255,
-            blue: Double(hex & 0xFF) / 255
+            blue: Double(hex & 0xFF) / 255,
+            opacity: 1
         )
     }
 }
 
 extension NSColor {
+    /// A 24-bit `0xRRGGBB` value in sRGB, fully opaque.
     convenience init(hex: UInt32) {
         self.init(
             srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,

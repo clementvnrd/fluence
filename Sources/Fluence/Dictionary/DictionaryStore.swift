@@ -2,24 +2,18 @@ import FluenceDictionary
 import Foundation
 import Observation
 
-/// The dictionary, persisted as a plain text file you can edit by hand.
+/// The dictionary, stored as `dictionary.txt` in the support folder.
 ///
-/// A text file rather than JSON, because the spec asks for something editable outside the UI
-/// and JSON is only nominally that — quoting, escaping and a trailing-comma trap for anyone
-/// adding a line in a hurry. The format is one entry per line:
+/// Plain text rather than JSON because people edit it by hand, and a line of text needs no
+/// quoting or escaping. One entry per line:
 ///
-/// ```
-/// Anthropic
-/// Vercel
-/// cloud code -> Claude Code
-/// # off: whisper flow -> Wispr Flow
-/// ```
+///     Ollivault                          a term
+///     nova tec -> Novatek                a correction: heard -> written
+///     # off: brume ware -> Brumeware     a disabled entry
 ///
-/// A bare line is a term. `X -> Y` is a correction. `#` starts a comment, and a disabled
-/// entry is written as a `# off:` comment so it survives a round trip through the file
-/// without silently disappearing.
-///
-/// The file is watched, so editing it in a text editor updates the UI live and vice versa.
+/// Any other `#` line is a comment. A disabled entry is written as a `# off:` comment so it
+/// comes back intact after a save and a read. The file is watched both ways: an outside edit
+/// appears in the app, and an edit in the app rewrites the file.
 @MainActor
 @Observable
 final class DictionaryStore {
@@ -27,8 +21,8 @@ final class DictionaryStore {
 
     private(set) var entries: [DictionaryEntry] = []
 
-    /// Bumped whenever entries change, so the engine can rebuild its bias list lazily
-    /// instead of on every transcription.
+    /// Lets a consumer rebuild what it derives from the entries (a bias list, say) only after
+    /// they changed. Bumped on each load from the file and on each save.
     private(set) var revision = 0
 
     /// Watches the file itself: catches editors that write in place.
@@ -90,17 +84,17 @@ final class DictionaryStore {
         save()
     }
 
-    /// Case- and diacritic-insensitive search across both sides of an entry.
+    /// The panel's search: both sides of each entry, blind to case and accents, in file order.
     func filtered(by query: String) -> [DictionaryEntry] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return entries }
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return entries }
         return entries.filter {
-            $0.write.localizedStandardContains(trimmed) || $0.hear.localizedStandardContains(trimmed)
+            $0.write.localizedStandardContains(needle) || $0.hear.localizedStandardContains(needle)
         }
     }
 
-    /// A corrector over the current entries. Rebuilt on demand — compiling a few dozen small
-    /// regexes is cheap next to transcription, and caching it invites staleness.
+    /// Built fresh on each access: a few dozen small patterns cost little beside a
+    /// transcription, and nothing cached can go stale.
     var corrector: DictionaryCorrector { DictionaryCorrector(entries: entries) }
 
     /// For Apple and Parakeet: the user's own entries first, newest first, then the tech
@@ -135,7 +129,7 @@ final class DictionaryStore {
         return newEntries.count
     }
 
-    // MARK: - Persistence
+    // MARK: - File
 
     private enum ReadResult {
         case text(String)
@@ -178,18 +172,18 @@ final class DictionaryStore {
     }
 
     static func parse(_ text: String) -> [DictionaryEntry] {
-        text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { rawLine in
-            var line = rawLine.trimmingCharacters(in: .whitespaces)
+        text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { raw -> DictionaryEntry? in
+            var line = raw.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { return nil }
 
-            // `# off:` is a disabled entry; any other comment is just a comment.
             var isEnabled = true
             if line.hasPrefix("#") {
-                let stripped = line.dropFirst().trimmingCharacters(in: .whitespaces)
-                guard stripped.lowercased().hasPrefix("off:") else { return nil }
-                line = stripped.dropFirst(4).trimmingCharacters(in: .whitespaces)
-                isEnabled = false
+                // `# off:` keeps a disabled entry; any other `#` line is only a comment.
+                let rest = line.dropFirst().trimmingCharacters(in: .whitespaces)
+                guard rest.prefix(4).lowercased() == "off:" else { return nil }
+                line = rest.dropFirst(4).trimmingCharacters(in: .whitespaces)
                 guard !line.isEmpty else { return nil }
+                isEnabled = false
             }
 
             if let arrow = line.range(of: "->") {
@@ -206,8 +200,7 @@ final class DictionaryStore {
     private func save() {
         revision += 1
 
-        let body = entries.map(\.fileLine).joined(separator: "\n")
-        let text = Self.header + body + "\n"
+        let text = Self.header + entries.map(\.fileLine).joined(separator: "\n") + "\n"
         do {
             try text.write(to: Self.fileURL, atomically: true, encoding: .utf8)
             lastText = text
@@ -221,15 +214,15 @@ final class DictionaryStore {
     private static let header = """
         # Fluence dictionary
         #
-        #   Anthropic                 a term — the engine is told this word exists
-        #   cloud code -> Claude Code a correction — when you hear X, write Y
-        #   # off: some rule -> Rule  a disabled entry
+        # Ollivault                          un terme : un mot que la dictée doit connaître
+        # nova tec -> Novatek                une correction : entendu, puis écrit
+        # # off: brume ware -> Brumeware     une entrée désactivée, gardée pour plus tard
         #
-        # Edit this file directly if you like; the app picks up changes immediately.
+        # Vous pouvez modifier ce fichier : Fluence recharge vos changements aussitôt.
 
         """
 
-    // MARK: - External edits
+    // MARK: - Outside edits
 
     /// Any change to the file or its directory schedules a reload, a beat later so the
     /// editor has finished; a file that's missing at that moment (mid-rename) is retried a
@@ -274,6 +267,7 @@ final class DictionaryStore {
         source.setEventHandler { [weak self] in
             self?.scheduleReload()
         }
+        // Re-arming cancels the old source; that is when its descriptor may be released.
         source.setCancelHandler { close(descriptor) }
         source.resume()
         return source

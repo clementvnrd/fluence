@@ -12,7 +12,7 @@ struct FluenceApp: App {
     }
 
     var body: some Scene {
-        // The main window. A `Window` rather than a `WindowGroup`: this app has one front
+        // A `Window` rather than a `WindowGroup`: Fluence has exactly one main
         // panel, and letting ⌘N spawn a second copy of it makes no sense.
         // FLU-12: a sidebar window (navigation B) — the sidebar runs under the hidden title
         // bar, the traffic lights float over it. The meetings library lives here too.
@@ -23,6 +23,7 @@ struct FluenceApp: App {
         .defaultSize(width: DS.Window.main.width, height: DS.Window.main.height)
         .windowResizability(.contentMinSize)
         .commands {
+            // ⌘N would create a second main window, which cannot exist: leave "New" empty.
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .appInfo) {
                 // FLU-26: under « À propos de Fluence », where macOS apps keep it.
@@ -41,14 +42,14 @@ struct FluenceApp: App {
         .defaultSize(width: 480, height: 320)
         .windowResizability(.contentSize)
 
-        // Fully qualified: this app has its own `Settings` type, which otherwise shadows
-        // SwiftUI's settings scene.
+        // Spelled with its module: inside this app, a bare `Settings` is our own preferences
+        // type, which shadows SwiftUI's scene.
         SwiftUI.Settings {
             SettingsWindow(controller: delegate.controller)
         }
         .windowStyle(.hiddenTitleBar)
 
-        // Secondary now: status and the hotkey while you're working in another app.
+        // Secondary since the main window exists: status and hotkey reminder from any app.
         MenuBarExtra {
             MenuContent(controller: delegate.controller)
         } label: {
@@ -80,9 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var stateObservation: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // A regular app now: dock icon, app menu, standard windows. The HUD is still a
-        // non-activating panel, so dictating into another app never steals its focus — that
-        // property belongs to the panel, not to the activation policy.
+        // Dock icon, app menu and ordinary windows. Dictating into another app still keeps
+        // that app focused: the HUD panel is non-activating whatever the policy says.
         NSApp.setActivationPolicy(.regular)
 
         hud = HUDPanel(controller: controller)
@@ -97,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !Permissions.hasAccessibility {
             // Carbon shortcuts already work; the event tap (Esc, ⌃⌘V, modifier-only
             // shortcuts) can only be created once the user grants Accessibility, and there's
-            // no notification for that — poll until it takes.
+            // no system notification when that happens, so poll until it does.
             // MARK: FLU-5 input — no bare system prompt here: the onboarding window below
             // explains Accessibility and raises the prompt from its button.
             retryActivation()
@@ -125,10 +125,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Settings.shared.prewarmCurrentEngine()
 
-        // Every `make install` relaunches the app and drops its windows. Restoring the
-        // window when it was open last time keeps it from vanishing on each rebuild.
+        // Each `make install` relaunches the app and its windows are lost; without this the
+        // comparison window would disappear on every rebuild.
         if UserDefaults.standard.bool(forKey: "comparisonWindowOpen") {
             Task { @MainActor in
+                // Give SwiftUI time to create the scene's window, or there is no title to find.
                 try? await Task.sleep(for: .milliseconds(400))
                 Self.showComparisonWindow()
             }
@@ -183,8 +184,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Raises the comparison window without needing SwiftUI's `openWindow` environment
-    /// value — usable from the app delegate and from a URL handler.
+    /// Goes through AppKit, not SwiftUI's `openWindow` (a view-only environment value), so
+    /// the delegate and the URL handler can call it too.
     static func showComparisonWindow() {
         showWindow(titled: comparisonTitle)
     }
@@ -203,13 +204,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WisprTrigger.release()
     }
 
-    /// Shows and hides the HUD in step with the controller's state.
+    /// Puts the HUD on screen while the dictation state wants it and takes it away after.
     /// FLU-12: also while the auto-learn offer is on the capsule.
     private func observeState() {
         withObservationTracking {
             _ = controller.state
             _ = LearnedWords.shared.spotlight
         } onChange: { [weak self] in
+            // Called before the new value is stored, maybe off the main actor: read it after.
             Task { @MainActor in
                 guard let self else { return }
                 if self.controller.state.showsHUD || LearnedWords.shared.spotlight != nil {
@@ -273,7 +275,7 @@ private struct MenuContent: View {
 
     private var parakeetStatus: String {
         if isPreloadingParakeet { return "Chargement des modèles Parakeet…" }
-        // Reflects what's actually on disk, not just what this menu instance has done.
+        // Ask the disk: the models may be there without this menu having fetched them.
         return parakeetOnDisk ? "Modèles Parakeet installés ✓" : "Télécharger les modèles Parakeet…"
     }
 
@@ -282,10 +284,11 @@ private struct MenuContent: View {
         isPreloadingParakeet = true
         Task {
             do {
+                // Loads the models, fetching them first (some 600 MB) when they are missing.
                 _ = try await ParakeetModels.shared.manager()
                 parakeetOnDisk = ParakeetModels.isDownloaded
             } catch {
-                Log.speech.error("Parakeet preload failed: \(error.localizedDescription)")
+                Log.speech.error("Parakeet models could not be prepared: \(error.localizedDescription)")
             }
             isPreloadingParakeet = false
         }
@@ -328,6 +331,7 @@ private struct MenuContent: View {
             get: { settings.pushToTalkKey },
             set: { key in
                 settings.pushToTalkKey = key
+                // The event tap listens for one key; move it to the new one.
                 controller.reloadHotkey()
             }
         )) {
@@ -400,7 +404,7 @@ private struct MenuContent: View {
         MeetingsMenuButton()
 
         // Downloading ~600 MB on the first hold would look like a hang, so offer to do it
-        // deliberately instead.
+        // beforehand, when the user asks for it.
         if settings.engine == .parakeet {
             Button(parakeetStatus) { preloadParakeet() }
                 .disabled(isPreloadingParakeet || parakeetOnDisk)

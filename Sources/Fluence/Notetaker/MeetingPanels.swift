@@ -38,6 +38,8 @@ class MeetingFloatingPanel: NSPanel {
         contentView = hosting
     }
 
+    // The user is in a call and typing in another app, so focus stays there; the buttons
+    // still react to the first click through `FirstClickHostingView`.
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 

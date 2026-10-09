@@ -17,7 +17,7 @@ struct TranscriptionsView: View {
     private var runs: [DictationRun] {
         let all = Array(store.runs.reversed())
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return all }
+        if trimmed.isEmpty { return all }
         return all.filter { $0.text.localizedStandardContains(trimmed) || ($0.rawText ?? "").localizedStandardContains(trimmed) }
     }
 
@@ -219,7 +219,7 @@ private struct CorrectionPills: View {
                 .padding(.vertical, 2)
                 .background(DS.Color.meterAmber.opacity(0.10), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
         .help("Corrections du dictionnaire appliquées à cette dictée")
     }

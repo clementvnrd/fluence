@@ -81,6 +81,8 @@ final class PCMConverter: @unchecked Sendable {
         var error: NSError?
         let status = converter.convert(to: output, error: &error) { _, outStatus in
             if supplied.take() {
+                // Not `.endOfStream`: that flushes and resets the converter, and the next
+                // buffer would no longer join this one. "Nothing more for now" keeps its state.
                 outStatus.pointee = .noDataNow
                 return nil
             }

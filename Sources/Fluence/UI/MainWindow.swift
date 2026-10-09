@@ -299,9 +299,13 @@ struct DictationHeaderControls: View {
             }
             button
         }
-        .onChange(of: controller.state.isActive) { _, active in
-            startedAt = active ? Date() : nil
-            if !active { elapsed = 0 }
+        .onChange(of: controller.state.isActive) { _, isActive in
+            if isActive {
+                startedAt = Date()
+            } else {
+                startedAt = nil
+                elapsed = 0
+            }
         }
         .task(id: startedAt) {
             guard let startedAt else { return }
