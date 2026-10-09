@@ -47,7 +47,7 @@ final class DictionaryStore {
         switch Self.read() {
         case .text(let text):
             lastText = text
-            entries = Self.parse(text)
+            entries = DictionaryFileFormat.parse(text)
             revision += 1
         case .missing:
             // First run (a legacy dictionary has already been moved or merged in by then):
@@ -160,7 +160,7 @@ final class DictionaryStore {
         case .text(let text):
             guard text != lastText else { return true }
             lastText = text
-            entries = Self.parse(text)
+            entries = DictionaryFileFormat.parse(text)
             revision += 1
             return true
         case .missing:
@@ -171,36 +171,11 @@ final class DictionaryStore {
         }
     }
 
-    static func parse(_ text: String) -> [DictionaryEntry] {
-        text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { raw -> DictionaryEntry? in
-            var line = raw.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty else { return nil }
-
-            var isEnabled = true
-            if line.hasPrefix("#") {
-                // `# off:` keeps a disabled entry; any other `#` line is only a comment.
-                let rest = line.dropFirst().trimmingCharacters(in: .whitespaces)
-                guard rest.prefix(4).lowercased() == "off:" else { return nil }
-                line = rest.dropFirst(4).trimmingCharacters(in: .whitespaces)
-                guard !line.isEmpty else { return nil }
-                isEnabled = false
-            }
-
-            if let arrow = line.range(of: "->") {
-                let hear = line[..<arrow.lowerBound].trimmingCharacters(in: .whitespaces)
-                let write = line[arrow.upperBound...].trimmingCharacters(in: .whitespaces)
-                guard !hear.isEmpty, !write.isEmpty else { return nil }
-                return DictionaryEntry(kind: .correction, write: write, hear: hear, isEnabled: isEnabled)
-            }
-
-            return DictionaryEntry(kind: .term, write: line, isEnabled: isEnabled)
-        }
-    }
-
     private func save() {
         revision += 1
 
-        let text = Self.header + entries.map(\.fileLine).joined(separator: "\n") + "\n"
+        keepUnreadableCopy()
+        let text = DictionaryFileFormat.render(entries, header: Self.header)
         do {
             try text.write(to: Self.fileURL, atomically: true, encoding: .utf8)
             lastText = text
@@ -209,6 +184,24 @@ final class DictionaryStore {
         }
         // The atomic write replaced the file, so the old watcher is on a dead inode.
         watchFile()
+    }
+
+    /// The file on disk is about to be replaced. If it holds lines the parser could not read
+    /// (a format it does not know yet), or if its entries are about to be replaced by none
+    /// (how the line-ending bug erased dictionaries), copy it to `dictionary.txt.bak` first,
+    /// so nothing the user typed is ever lost (FLU-53).
+    private func keepUnreadableCopy() {
+        guard case .text(let current) = Self.read() else { return }
+        let unread = DictionaryFileFormat.hasUnreadLines(current)
+        let emptied = entries.isEmpty && !DictionaryFileFormat.parse(current).isEmpty
+        guard unread || emptied else { return }
+        let backup = Self.fileURL.appendingPathExtension("bak")
+        do {
+            try current.write(to: backup, atomically: true, encoding: .utf8)
+            Log.app.error("dictionary copied to dictionary.txt.bak before saving (unreadable lines: \(unread), emptied: \(emptied))")
+        } catch {
+            Log.app.error("dictionary backup failed: \(error.localizedDescription)")
+        }
     }
 
     private static let header = """

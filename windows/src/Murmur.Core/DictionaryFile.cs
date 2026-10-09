@@ -196,7 +196,8 @@ public sealed class DictionaryFile : IDisposable
         var reusable = previous.ToList();
         var lines = new List<Line>();
 
-        var raw = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        // Any line ending ends a line: \n, \r\n, or a lone \r (the shared vectors' fileCases).
+        var raw = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
         var count = raw.Length;
         if (count > 0 && raw[^1].Length == 0) count--;   // the final newline is not a line
 
