@@ -29,6 +29,7 @@ final class CarbonHotkeyManager {
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
         ]
 
+        // Unretained is enough: the manager is the app-wide singleton and outlives the handler.
         let refcon = Unmanaged.passUnretained(self).toOpaque()
 
         let status = InstallEventHandler(

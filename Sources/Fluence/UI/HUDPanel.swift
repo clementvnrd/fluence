@@ -1,14 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// The floating capsule that appears while you hold the key.
+/// The floating capsule that appears while the dictation key is held.
 ///
 /// Clement's capsule sits on a generous transparent canvas (`DS.HUD.size`) so its soft
 /// shadow is never clipped; clicks on the transparent part fall through to what's below.
 ///
-/// The single most important property here is that this panel **never becomes key**.
-/// If it did, the user's text field would lose focus and `TextInjector` would have
-/// nothing to insert into. Hence `.nonactivatingPanel` plus `canBecomeKey == false`.
+/// The text field being dictated into must keep the focus, or `TextInjector` has nowhere to
+/// type: so the panel is non-activating and refuses to become key or main.
 @MainActor
 final class HUDPanel: NSPanel {
     init(controller: DictationController, preview: HUDPreview? = nil) {
@@ -52,31 +51,29 @@ final class HUDPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
-    /// Parks the panel just above the Dock, horizontally centered on the active screen.
+    /// Centres the panel on the active screen, just above the Dock.
     ///
-    /// `NSScreen.main` is the screen with the *key window* — and an accessory app with a
-    /// non-activating panel never has one, so it can be nil. Falling back to `screens.first`
-    /// keeps the HUD on-screen instead of stranding it at the origin.
+    /// `NSScreen.main` follows the key window, which an accessory app showing only a
+    /// non-activating panel may not have; the first screen is the fallback so the HUD lands
+    /// on a display rather than at the origin.
     func reposition() {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else {
-            Log.app.error("no screen available to position HUD")
+            Log.app.error("HUD: no screen available to place the panel")
             return
         }
         let visible = screen.visibleFrame
-        let size = frame.size
         setFrameOrigin(
             NSPoint(
-                x: visible.midX - size.width / 2,
+                x: visible.midX - frame.width / 2,
                 y: visible.minY + DS.HUD.bottomOffset
             )
         )
     }
 
     func present() {
-        // Every active state change (starting → listening → finishing) calls this. Without
-        // the early exit the panel would reset to alpha 0 and re-fade on each one, which
-        // reads as a flicker mid-utterance.
-        guard !isVisible || alphaValue < 1 else { return }
+        // Every active state (starting, listening, finishing) lands here; dropping to
+        // transparent and fading in again each time would flicker mid-dictation.
+        if isVisible && alphaValue >= 1 { return }
 
         presentation += 1
         reposition()

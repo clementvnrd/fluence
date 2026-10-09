@@ -61,8 +61,8 @@ struct ComparisonWindow: View {
         }
     }
 
-    /// One button that records every engine at once — no hotkeys, and the results appear in
-    /// this same window, so there's nowhere to go afterwards to read them.
+    /// Nothing to hold down here: a single key records once for every engine, and their
+    /// results show up in this same window.
     private var recordBar: some View {
         let isRecording = controller.state.isActive
 
@@ -122,9 +122,8 @@ struct ComparisonWindow: View {
 private struct ComparisonCard: View {
     let runs: [DictationRun]
 
-    /// Fastest first. The engines are *measured* sequentially, so arrival order reflects
-    /// which ran first, not which is quicker — sorting by measured time is what makes the
-    /// winner readable at a glance.
+    /// The engines take turns on the same audio, so the order they arrive in only says who
+    /// went first; sorting on the measured time puts the winner on top.
     private var ranked: [DictationRun] {
         runs.sorted { $0.processSeconds < $1.processSeconds }
     }
@@ -132,27 +131,24 @@ private struct ComparisonCard: View {
     /// Shown instead of a margin when both engines took the same time.
     private static let tied = "à égalité"
 
-    /// How much faster the winner was, once both are in.
+    /// How far ahead the fastest engine finished, once at least two have answered.
     private var margin: String? {
-        guard runs.count > 1,
-              let best = ranked.first,
-              let worst = ranked.last,
-              best.processSeconds > 0
-        else { return nil }
-        let ratio = worst.processSeconds / best.processSeconds
-        let delta = worst.processSeconds - best.processSeconds
+        guard ranked.count >= 2, let best = ranked.first, let slowest = ranked.last,
+              best.processSeconds > 0 else { return nil }
+        let ratio = slowest.processSeconds / best.processSeconds
+        let delta = slowest.processSeconds - best.processSeconds
         guard delta > 0.005 else { return Self.tied }
         return String(format: "%@ : %.1f× plus rapide · %.2f s d'avance", best.engine, ratio, delta)
     }
 
-    /// Case and punctuation are normalized away: Apple auto-punctuates and Parakeet
-    /// doesn't, and that's a formatting difference, not a recognition error.
+    /// Apple punctuates and Parakeet does not, which is formatting rather than a word heard
+    /// wrong, so letter case and punctuation are left out of the comparison.
     ///
     /// Said in words, not colors: green and amber belong to the meters.
     private var verdict: String {
         if Set(runs.map(\.text)).count == 1 { return "identique" }
-        let normalized = Set(runs.map {
-            $0.text.lowercased().split { !$0.isLetter && !$0.isNumber }.joined(separator: " ")
+        let normalized = Set(runs.map { run in
+            run.text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).joined(separator: " ")
         })
         return normalized.count == 1 ? "mêmes mots" : "mots différents"
     }
@@ -169,11 +165,11 @@ private struct ComparisonCard: View {
                     .padding(.vertical, DS.Space.hair)
                     .background(DS.Color.selection, in: .rect(cornerRadius: DS.Radius.chip))
 
-                // Deletes the whole group: every engine here transcribed one utterance, so
-                // removing that utterance means removing all of its rows together.
+                // The rows of a card are one utterance seen by several engines: deleting it
+                // takes every engine's version with it.
                 if let group = runs.first?.group {
                     Button {
-                        withAnimation { RunLog.deleteGroup(group) }
+                        withAnimation(DS.Motion.panel) { RunLog.deleteGroup(group) }
                     } label: {
                         Image(systemName: "trash")
                             .font(DS.Font.caption)
@@ -201,7 +197,7 @@ private struct ComparisonCard: View {
 
             Divider()
             ForEach(Array(ranked.enumerated()), id: \.offset) { index, run in
-                EngineRow(run: run, rank: index + 1, showRank: runs.count > 1)
+                EngineRow(run: run, rank: index + 1, showRank: ranked.count > 1)
             }
         }
         .padding(DS.Space.roomy)
@@ -226,7 +222,7 @@ private struct EngineRow: View {
                     .padding(.vertical, DS.Space.hair)
                     .background(isWinner ? DS.Color.selection : .clear, in: .rect(cornerRadius: DS.Radius.chip))
                     .overlay(
-                        RoundedRectangle(cornerRadius: DS.Radius.chip)
+                        RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)
                             .strokeBorder(DS.Color.selectionEdge, lineWidth: DS.Border.hairline)
                     )
                 Spacer()

@@ -97,6 +97,7 @@ public enum MarkdownRenderer {
 
     static func dateText(_ date: Date, _ timeZone: TimeZone) -> String {
         let formatter = DateFormatter()
+        // Fixed digits and Gregorian calendar, whatever region and calendar the user has set.
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = timeZone
         formatter.dateFormat = "yyyy-MM-dd HH:mm"

@@ -459,7 +459,7 @@ struct TranscriptionSettingsSection: View {
                 HStack(spacing: DS.Space.snug) {
                     CapButton(title: "Ouvrir", height: 24) {
                         openWindow(id: "comparison")
-                        NSApp.activate(ignoringOtherApps: true)
+                        NSApp.activate()
                     }
                     RowToggle(isOn: $settings.compareMode)
                 }
@@ -611,7 +611,7 @@ struct AboutSettingsSection: View {
             SettingsRow(systemImage: "square.split.2x1", title: "Comparaison des moteurs") {
                 CapButton(title: "Ouvrir…", height: 24) {
                     openWindow(id: "comparison")
-                    NSApp.activate(ignoringOtherApps: true)
+                    NSApp.activate()
                 }
             }
         }

@@ -203,9 +203,9 @@ private struct SnippetEditor: View {
                         .frame(minHeight: 110)
                         .padding(DS.Space.snug)
                         .scrollContentBackground(.hidden)
-                        .background(DS.Color.deck, in: .rect(cornerRadius: DS.Radius.chip))
+                        .background(DS.Color.deck, in: RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: DS.Radius.chip)
+                            RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)
                                 .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
                         )
                 }
@@ -243,11 +243,10 @@ private struct SnippetEditor: View {
                 .textFieldStyle(.plain)
                 .font(DS.Font.body)
                 .foregroundStyle(DS.Color.inkOnDeck)
-                .padding(.horizontal, DS.Space.snug)
-                .padding(.vertical, DS.Space.snug)
-                .background(DS.Color.deck, in: .rect(cornerRadius: DS.Radius.chip))
+                .padding(DS.Space.snug)
+                .background(DS.Color.deck, in: RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.chip)
+                    RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)
                         .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
                 )
         }
