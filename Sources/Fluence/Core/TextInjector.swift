@@ -3,23 +3,21 @@ import ApplicationServices
 import Carbon.HIToolbox
 import Foundation
 
-/// Puts text into whatever field currently has keyboard focus.
+/// Types text into the focused field of another app.
 ///
-/// Two strategies, in order:
-/// 1. **Accessibility** — set `kAXSelectedTextAttribute` on the focused element. Clean and
-///    instant, and it leaves the pasteboard untouched.
-/// 2. **Pasteboard + ⌘V** — works in Electron apps and anything else with a half-hearted
+/// Tried in order:
+/// 1. Writing the focused element's `kAXSelectedTextAttribute`: instant, and the pasteboard
+///    is never touched.
+/// 2. Pasting with a synthetic ⌘V, the route that reaches Electron and any app with a flaky
 ///    AX implementation. The item is marked transient and concealed and kept off Universal
 ///    Clipboard, and the previous contents (or an empty pasteboard) come back afterwards.
 ///
-/// The catch that makes this non-obvious: **many apps return `.success` from the AX write
-/// and then do nothing.** Electron (Cursor, VS Code, Slack, Discord), Chrome, and most
-/// terminal emulators all report `kAXSelectedTextAttribute` as settable, accept the write,
-/// and silently drop it. So the return value is not evidence of anything — strategy 1 is
-/// only trusted when the insertion point can be *observed* to have moved.
+/// The first route counts only once the caret is seen to move. A `.success` from the write
+/// means little: Chrome, Electron apps (VS Code, Cursor, Slack, Discord) and most terminals
+/// claim the attribute is settable, take the value and throw it away.
 ///
-/// This all works because the HUD is a non-activating panel: focus never leaves the user's
-/// target app, so "the focused element" is still their text field.
+/// The focused element is still the user's own field because the HUD is a non-activating
+/// panel and never takes focus.
 @MainActor
 enum TextInjector {
     /// How long any one AX call may wait on the target app. The default is 6 s, on the main
@@ -43,8 +41,8 @@ enum TextInjector {
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), axTimeout)
 
         switch insertViaAccessibility(text) {
-        case .inserted:
-            Log.inject.info("inserted via AX (\(text.count) chars)")
+        case .verified:
+            Log.inject.info("inserted through Accessibility (\(text.count) chars)")
         case .unverified(let reason):
             guard AXIsProcessTrusted() else {
                 // A posted ⌘V would be dropped: the dictation stays on the pasteboard (still
@@ -53,32 +51,33 @@ enum TextInjector {
                 putOnPasteboard(text)
                 return .onClipboard
             }
-            Log.inject.info("AX insert not verified (\(reason, privacy: .public)) — pasting")
+            Log.inject.info("AX insert not verified (\(reason, privacy: .public)) — pasting instead")
             insertViaPasteboard(text)
         }
         return .inserted
     }
 
-    private enum AXOutcome {
-        case inserted
+    private enum AccessibilityResult {
+        case verified
         case unverified(String)
     }
 
-    // MARK: - Strategy 1: Accessibility, verified
+    // MARK: - Accessibility
 
-    private static func insertViaAccessibility(_ text: String) -> AXOutcome {
+    private static func insertViaAccessibility(_ text: String) -> AccessibilityResult {
         let systemWide = AXUIElementCreateSystemWide()
 
-        var focused: CFTypeRef?
+        var focusedValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
             systemWide,
             kAXFocusedUIElementAttribute as CFString,
-            &focused
-        ) == .success, let focused else {
+            &focusedValue
+        ) == .success, let focusedValue else {
             return .unverified("no focused element")
         }
 
-        let element = unsafeDowncast(focused as AnyObject, to: AXUIElement.self)
+        // `as?` to a CF type can never fail, so it would test nothing.
+        let element = unsafeDowncast(focusedValue as AnyObject, to: AXUIElement.self)
 
         var settable: DarwinBoolean = false
         guard AXUIElementIsAttributeSettable(
@@ -89,8 +88,7 @@ enum TextInjector {
             return .unverified("selected text not settable")
         }
 
-        // Without a readable insertion point there's no way to tell a real insert from a
-        // silently-dropped one, so don't gamble — go straight to the fallback.
+        // No caret to compare means no way to check the write: paste instead of guessing.
         guard let before = selectedRange(of: element) else {
             return .unverified("no readable selection range")
         }
@@ -100,24 +98,21 @@ enum TextInjector {
             kAXSelectedTextAttribute as CFString,
             text as CFString
         ) == .success else {
-            return .unverified("set attribute failed")
+            return .unverified("write failed")
         }
 
         guard let after = selectedRange(of: element) else {
-            return .unverified("selection range unreadable after write")
+            return .unverified("selection range unreadable after the write")
         }
 
-        // Deliberately a *movement* check, not an exact-length check. Falling back after a
-        // write that actually landed would paste the text a second time, and a duplicated
-        // paragraph is far worse than a missing one. Some apps normalize newlines or run
-        // autocorrect, so the caret can legitimately advance by something other than the
-        // UTF-16 count — only a completely unmoved selection proves nothing happened.
-        let unchanged = after.location == before.location && after.length == before.length
-        guard !unchanged else {
-            return .unverified("selection unmoved at \(before.location)")
+        // Any movement counts. Wrongly calling this a failure pastes the text twice, which is
+        // worse than losing it, and newline rewriting or autocorrect can move the caret by more
+        // or less than the text's UTF-16 length. Only a caret that stayed put proves a loss.
+        guard after.location != before.location || after.length != before.length else {
+            return .unverified("selection did not move (location \(before.location))")
         }
 
-        return .inserted
+        return .verified
     }
 
     private static func selectedRange(of element: AXUIElement) -> CFRange? {
@@ -136,7 +131,7 @@ enum TextInjector {
         return range
     }
 
-    // MARK: - Strategy 2: Pasteboard + ⌘V
+    // MARK: - Paste
 
     /// Markers from nspasteboard.org that clipboard managers (Maccy, Paste, Raycast, Alfred,
     /// 1Password's own clipboard handling…) honour: transient and concealed items are not
@@ -157,12 +152,12 @@ enum TextInjector {
     @discardableResult
     private static func putOnPasteboard(_ text: String) -> (saved: [[NSPasteboard.PasteboardType: Data]], generation: Int) {
         let pasteboard = NSPasteboard.general
-        let saved = pasteboard.pasteboardItems?.compactMap { item -> [NSPasteboard.PasteboardType: Data] in
-            var copy: [NSPasteboard.PasteboardType: Data] = [:]
+        let saved: [[NSPasteboard.PasteboardType: Data]] = pasteboard.pasteboardItems?.map { item in
+            var entry: [NSPasteboard.PasteboardType: Data] = [:]
             for type in item.types {
-                if let data = item.data(forType: type) { copy[type] = data }
+                if let data = item.data(forType: type) { entry[type] = data }
             }
-            return copy
+            return entry
         } ?? []
 
         let item = NSPasteboardItem()
@@ -185,9 +180,9 @@ enum TextInjector {
         let (saved, ours) = putOnPasteboard(text)
         let caretBefore = focusedSelection()
 
+        // A ⌘V sent at once can reach the app before it notices our write, and paste the old
+        // contents instead.
         Task { @MainActor in
-            // Give the target app a moment to observe the new pasteboard generation before
-            // ⌘V arrives, or a fast paste can grab the *previous* contents.
             try? await Task.sleep(for: .milliseconds(40))
 
             // Something else wrote to the pasteboard in those 40 ms. Pasting now would paste
@@ -248,12 +243,14 @@ enum TextInjector {
         }
         pasteboard.clearContents()
         guard !saved.isEmpty else { return }
-        let items = saved.map { entry -> NSPasteboardItem in
+        // Items read from a pasteboard die with the next clear, so each one is rebuilt from
+        // its saved types.
+        let rebuilt = saved.map { types in
             let item = NSPasteboardItem()
-            for (type, data) in entry { item.setData(data, forType: type) }
+            for (type, data) in types { item.setData(data, forType: type) }
             return item
         }
-        pasteboard.writeObjects(items)
+        pasteboard.writeObjects(rebuilt)
     }
 
     /// The focused element's selection, used only to notice that a paste moved the caret.
@@ -276,17 +273,16 @@ enum TextInjector {
         guard let source = CGEventSource(stateID: .privateState) else { return false }
         let vKey = keyCode(producing: "v") ?? CGKeyCode(kVK_ANSI_V)
 
-        guard let down = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false)
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false)
         else { return false }
 
-        // Set explicitly rather than inheriting live hardware modifier state — the user may
-        // still be resting a finger on something.
-        down.flags = .maskCommand
-        up.flags = .maskCommand
+        // Assigned, not inherited: a modifier the user is still touching must not ride along.
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
 
-        down.post(tap: .cghidEventTap)
-        up.post(tap: .cghidEventTap)
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
         return true
     }
 

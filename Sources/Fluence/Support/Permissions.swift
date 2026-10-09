@@ -5,12 +5,11 @@ import EventKit
 import Foundation
 
 /// Fluence needs two grants, and neither can be worked around:
-/// - **Microphone** — obviously.
-/// - **Accessibility** — for both the `CGEventTap` (hotkey) and the AX text insert.
+/// the microphone, and Accessibility (the shortcut event tap, and typing through AX).
 ///
-/// Accessibility has no programmatic request; the OS only shows the prompt, and the user
-/// must toggle it in System Settings. TCC also keys on the code signature, so re-signing
-/// the app resets the grant.
+/// For Accessibility the app can only raise the system prompt; the switch itself is the
+/// user's, in System Settings. TCC remembers it by code signature, so a re-signed build has to
+/// be granted again.
 @MainActor
 enum Permissions {
     static var hasAccessibility: Bool {
@@ -21,11 +20,10 @@ enum Permissions {
         AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
 
-    /// Shows the system Accessibility prompt if the app isn't yet trusted.
+    /// Whether the app is trusted; when it isn't, macOS puts up its prompt as well.
     @discardableResult
     static func promptForAccessibility() -> Bool {
-        // Spelled out rather than using `kAXTrustedCheckOptionPrompt`, which imports as a
-        // mutable global and so isn't usable from concurrency-checked code.
+        // A literal key: Swift 6 refuses `kAXTrustedCheckOptionPrompt`, a mutable C global.
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }

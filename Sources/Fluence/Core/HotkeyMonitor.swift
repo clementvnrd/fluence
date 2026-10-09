@@ -328,7 +328,7 @@ final class HotkeyMonitor {
     /// - Returns: `true` if Carbon or the event tap is listening.
     @discardableResult
     func start() -> Bool {
-        stop()
+        stop() // from a clean slate: no duplicate Carbon hotkeys, no stale tap
 
         let carbon = CarbonHotkeyManager.shared
         carbon.onHotKeyPress = { [weak self] id in self?.carbonEvent(id: id, isDown: true) }
@@ -418,19 +418,21 @@ final class HotkeyMonitor {
     // MARK: - Event tap
 
     private func installTap() {
-        let mask = (1 << CGEventType.flagsChanged.rawValue)
+        let eventMask = (1 << CGEventType.flagsChanged.rawValue)
             | (1 << CGEventType.keyDown.rawValue)
             | (1 << CGEventType.keyUp.rawValue)
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        // `userInfo` is how the C callback gets back to us. Unretained, which is fine only
+        // while the monitor lives as long as the app.
+        let context = Unmanaged.passUnretained(self).toOpaque()
 
-        guard let tap = CGEvent.tapCreate(
+        guard let port = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: CGEventMask(mask),
-            callback: { _, type, event, refcon in
-                guard let refcon else { return Unmanaged.passUnretained(event) }
-                let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
+            options: .defaultTap, // not listen-only, so the callback may drop an event
+            eventsOfInterest: CGEventMask(eventMask),
+            callback: { _, type, event, userInfo in
+                guard let userInfo else { return Unmanaged.passUnretained(event) }
+                let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(userInfo).takeUnretainedValue()
 
                 // The tap's source is added to the *main* run loop (`CFRunLoopGetMain`, not
                 // "current"), so this runs on the main thread — and the check below makes
@@ -439,30 +441,30 @@ final class HotkeyMonitor {
                 // option. Off the main thread, the event passes through untouched.
                 guard Thread.isMainThread else { return Unmanaged.passUnretained(event) }
 
-                // CGEvent isn't Sendable, so pull out the plain values before crossing into
+                // Plain values only: `CGEvent` isn't `Sendable`, so it can't be taken into
                 // actor-isolated code.
                 let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
                 let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
                 let flags = event.flags
-                let consume = MainActor.assumeIsolated {
+                let swallow = MainActor.assumeIsolated {
                     monitor.handle(type: type, keyCode: keyCode, flags: flags, isRepeat: isRepeat)
                 }
-                return consume ? nil : Unmanaged.passUnretained(event)
+                return swallow ? nil : Unmanaged.passUnretained(event)
             },
-            userInfo: refcon
+            userInfo: context
         ) else {
             Log.hotkey.notice("tapCreate failed — Accessibility not granted; Carbon shortcuts only")
             return
         }
 
-        self.tap = tap
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        tap = port
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
         runLoopSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        CGEvent.tapEnable(tap: port, enable: true)
     }
 
-    /// - Returns: `true` if the event should be swallowed rather than passed along.
+    /// `true` drops the event; `false` lets it reach the app.
     private func handle(type: CGEventType, keyCode: Int64, flags: CGEventFlags, isRepeat: Bool) -> Bool {
         switch type {
         case .flagsChanged:
@@ -473,7 +475,7 @@ final class HotkeyMonitor {
             if swallowed.remove(keyCode) != nil { return true }
             return handleKeyUp(keyCode: keyCode)
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
-            // The system disables a tap that runs too slowly or is interrupted; re-arm it.
+            // macOS switched the tap off (a timeout, or user input): turn it back on.
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             // Whatever we believed about the keys is stale. Starting from "up" means a key
             // still held is simply ignored until it's pressed again — never mistaken for a
