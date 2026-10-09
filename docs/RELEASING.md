@@ -98,6 +98,12 @@ the designated requirement is identical to the previous app's, the event tap ins
 check runs (404 while private). Not checked: the Microphone grant (the TCC database is not
 readable without Full Disk Access).
 
+0.1.1 (build 101) followed the same steps on 2026-10-09 (FLU-51), built with `make app
+APP_VERSION=0.1.1 FEED_URL=…` from `main` @ 22b47ec (the dictionary and dictation-core rewrites),
+the previous app kept as `~/Fluence-app-backup-2026-10-09/Fluence-0.1.0-before-0.1.1.app`. Same
+designated requirement, event tap armed at launch. **The next published release must be 0.1.2 or
+later**: a published 0.1.1 has the same build number as this copy, and Sparkle would not offer it.
+
 ## Testing an update without touching the installed app
 
 A copy built under another bundle ID keeps its own data folder, settings, Keychain item and

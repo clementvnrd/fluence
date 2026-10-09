@@ -57,19 +57,19 @@ public enum CleanupGuard {
         let cleanedWords = cleanedTokens.filter { !stopWords.contains($0) }
         guard !originalWords.isEmpty else { return .empty }
 
-        // 1. No invented content. The single strongest signal that the model answered
+        // 1. Content words nobody said. A single one shows the model answered
         //    rather than transformed. Numbers are compared as values, so "three" → "3" and
         //    "twenty twenty six" → "2026" are the same word, not an invention.
         let vocabulary = Set(originalWords).union(numberRuns(in: originalTokens))
         let invented = inventedCount(cleanedTokens, vocabulary: vocabulary, stopWords: stopWords)
         guard invented == 0 else { return .inventedWords(invented) }
 
-        // 2. Length sanity, as a backstop for the case where the model obeys an injected
+        // 2. Length, as a backstop to check 1 for a model that carries out a dictated
         //    instruction using only words from the input ("write the word banana" → "Banana"),
         //    and for a cleanup that quietly drops sentences.
         //
-        //    Measured against the *filler-discounted* input, not the raw one. A raw ratio
-        //    conflates "the model truncated my sentence" with "the input was 80% filler and
+        //    The ratio is taken on the input minus its fillers. On the raw input, a dictation
+        //    that lost half its words cannot be told from "a dictation that was mostly filler and
         //    was legitimately cut in half". Discounting fillers on both sides pushes the real
         //    cleanups to 0.6–1.0 and leaves the failures below 0.2.
         //
@@ -154,25 +154,25 @@ public enum CleanupGuard {
 
     // MARK: - Word lists
 
-    /// Deliberately small. Every word here is one the guard stops policing, so it only
-    /// covers words a cleanup pass may genuinely insert or drop while re-punctuating.
+    /// Small on purpose: each word here escapes the invented-word check, so it only holds words
+    /// that re-punctuating a transcript may rightly add or remove.
     static let stopWords: Set<String> = [
         "a", "an", "the", "and", "or", "but", "so", "then", "s", "t", "re", "ll", "ve", "d", "m",
     ]
 
-    /// Broader than `RuleBasedFormatter`'s strip list on purpose. This set only affects the
-    /// guard's denominator — it never removes anything from the user's text — so it can
+    /// Wider than the rule formatter's filler list, on purpose. The set never takes a word out of
+    /// the user's text, it only lowers the count the ratio divides by, so it can
     /// afford to be aggressive about discourse markers the model legitimately deletes,
     /// including the ones that introduce a spoken self-correction ("three, no wait, four").
     static let fillerWords: Set<String> = [
-        "um", "uh", "erm", "uhm", "hmm", "mhm", "like", "basically", "actually", "literally",
-        "just", "really", "okay", "ok", "well", "right", "anyway", "i", "mean", "you", "know",
+        "actually", "anyway", "basically", "erm", "hmm", "i", "just", "know", "like", "literally",
+        "mean", "mhm", "ok", "okay", "really", "right", "uh", "uhm", "um", "well", "you",
         "kind", "sort", "of", "stuff", "thing", "things", "no", "wait", "sorry", "oops", "scratch",
     ]
 
     private static let tells = [
-        "here's the cleaned", "here is the cleaned", "cleaned transcript",
-        "sure,", "certainly,", "i cannot", "i can't", "as an ai",
+        "as an ai", "certainly,", "cleaned transcript", "here is the cleaned", "here's the cleaned",
+        "i can't", "i cannot", "sure,",
     ]
 
     // MARK: - French

@@ -61,7 +61,7 @@ enum CommandRewriter {
                     try await Task.sleep(for: .seconds(timeout))
                     throw CancellationError()
                 }
-                // Whichever finishes first wins; cancel the loser.
+                // Whichever child finishes first settles it; the other is cancelled.
                 guard let first = try await group.next() else { throw CancellationError() }
                 group.cancelAll()
                 return first
