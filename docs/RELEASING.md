@@ -104,6 +104,16 @@ the previous app kept as `~/Fluence-app-backup-2026-10-09/Fluence-0.1.0-before-0
 designated requirement, event tap armed at launch. **The next published release must be 0.1.2 or
 later**: a published 0.1.1 has the same build number as this copy, and Sparkle would not offer it.
 
+0.1.2 (build 102) followed on 2026-10-09 (FLU-56), built with `make app APP_VERSION=0.1.2
+FEED_URL=…` from a clean checkout of `main` @ 216d116 (lots 3 and 4 of the rewrite, meeting
+preparation, meetings that survive real calls), the previous app kept as
+`~/Fluence-app-backup-2026-10-09/Fluence-0.1.1-before-0.1.2.app`. Quit by the app's path
+(`tell application "/Applications/Fluence.app" to quit`), never by bundle ID while a test copy
+named Fluence is around: a quit sent to the test copy's bundle ID reached the real app once.
+Same designated requirement, event tap armed, dictionary (117 entries), history, snippets and
+meetings unchanged; Parakeet took 18 s to load once, the first launch of a new binary. **The
+next published release must now be 0.1.3 or later.**
+
 ## Testing an update without touching the installed app
 
 A copy built under another bundle ID keeps its own data folder, settings, Keychain item and

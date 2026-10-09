@@ -187,14 +187,18 @@ final class DictionaryStore {
     }
 
     /// The file on disk is about to be replaced. If it holds lines the parser could not read
-    /// (a format it does not know yet), they would vanish with that save: copy the file to
-    /// `dictionary.txt.bak` first, so nothing the user typed is ever lost (FLU-53).
+    /// (a format it does not know yet), or if its entries are about to be replaced by none
+    /// (how the line-ending bug erased dictionaries), copy it to `dictionary.txt.bak` first,
+    /// so nothing the user typed is ever lost (FLU-53).
     private func keepUnreadableCopy() {
-        guard case .text(let current) = Self.read(), DictionaryFileFormat.hasUnreadLines(current) else { return }
+        guard case .text(let current) = Self.read() else { return }
+        let unread = DictionaryFileFormat.hasUnreadLines(current)
+        let emptied = entries.isEmpty && !DictionaryFileFormat.parse(current).isEmpty
+        guard unread || emptied else { return }
         let backup = Self.fileURL.appendingPathExtension("bak")
         do {
             try current.write(to: backup, atomically: true, encoding: .utf8)
-            Log.app.error("dictionary had unreadable lines; copied to dictionary.txt.bak before saving")
+            Log.app.error("dictionary copied to dictionary.txt.bak before saving (unreadable lines: \(unread), emptied: \(emptied))")
         } catch {
             Log.app.error("dictionary backup failed: \(error.localizedDescription)")
         }
