@@ -6,13 +6,22 @@ import UniformTypeIdentifiers
 ///
 /// Both paths are explicit user actions, so the text leaves the vault in plaintext by
 /// design. The copy is marked `.currentHostOnly` so Universal Clipboard does not carry a
-/// whole meeting to the user's other devices.
+/// whole meeting to the user's other devices, and transient and concealed (FLU-32) so
+/// clipboard managers that honour nspasteboard.org's markers keep it out of their history,
+/// as a dictation is.
 @MainActor
 enum MeetingExport {
     static func copyMarkdown(_ meeting: Meeting) {
         let pasteboard = NSPasteboard.general
         _ = pasteboard.prepareForNewContents(with: .currentHostOnly)
-        pasteboard.setString(meeting.markdown(), forType: .string)
+        let item = NSPasteboardItem()
+        item.setString(meeting.markdown(), forType: .string)
+        item.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
+        item.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+        if let bundleID = Bundle.main.bundleIdentifier {
+            item.setString(bundleID, forType: NSPasteboard.PasteboardType("org.nspasteboard.source"))
+        }
+        pasteboard.writeObjects([item])
     }
 
     /// Asks where to save, then writes the file. False when the user cancelled.

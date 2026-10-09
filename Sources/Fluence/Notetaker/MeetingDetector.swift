@@ -27,8 +27,10 @@ struct DetectedMeeting: Sendable, Equatable {
 /// when the call ends.
 @MainActor
 final class MeetingDetector {
-    /// Called for a newly detected call.
-    var onDetected: ((DetectedMeeting) -> Void)?
+    /// Called for a newly detected call; returns whether the card was shown. A call the
+    /// controller could not offer (another one is recording) is not marked offered, so it
+    /// comes back on a later poll (FLU-32).
+    var onDetected: ((DetectedMeeting) -> Bool)?
 
     private var inputDevice: AudioObjectID?
     private var runningListener: AudioObjectPropertyListenerBlock?
@@ -74,6 +76,12 @@ final class MeetingDetector {
     /// Marks an app as already offered (used when the user starts a recording by hand).
     func markOffered(_ app: MeetingApp) {
         offered.insert(app.mainBundleID)
+    }
+
+    /// Lets an app still on the mic be offered again, after a recording of it stopped by
+    /// itself (FLU-32).
+    func allowOfferAgain(_ app: MeetingApp) {
+        offered.remove(app.mainBundleID)
     }
 
     /// Keeps the process list fresh while a recording needs "is the app still on the
@@ -163,9 +171,9 @@ final class MeetingDetector {
             } else {
                 service = app.name
             }
+            guard onDetected?(DetectedMeeting(app: app, service: service, pid: pid)) == true else { continue }
             offered.insert(app.mainBundleID)
             Log.app.info("meeting detected: \(app.mainBundleID, privacy: .public)")
-            onDetected?(DetectedMeeting(app: app, service: service, pid: pid))
         }
         return !inputs.isEmpty
     }

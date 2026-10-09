@@ -2,6 +2,7 @@ import AppKit
 import CryptoKit
 import FluenceCore
 import Foundation
+import IOKit.pwr_mgt
 import Observation
 
 /// Orchestrates the Notetaker's capture half: detection → card → recording → final pass.
@@ -19,9 +20,14 @@ import Observation
 /// the elapsed time stays on screen.
 ///
 /// Recording stops on: Stop, the meeting app releasing the mic for 30 s (call ended),
-/// 10 minutes of silence on both channels, `maxDurationMinutes`, screen lock or sleep.
-/// The meeting is saved every 30 s while recording, and a meeting found still marked as
-/// recording at launch (a crash) is finalised from its spool.
+/// 10 minutes of silence on both channels, `maxDurationMinutes`, the Mac going to sleep or
+/// another user taking it. A locked or dark screen keeps recording, and idle sleep is held
+/// off while a meeting records (FLU-32). The meeting is saved every 10 s while recording,
+/// and a meeting found still marked as recording at launch (a crash, a failed save) is
+/// finalised from its spool, at most twice (`RecoveryPlan`).
+///
+/// The final pass of one meeting runs beside the next: a call starting while the last one
+/// is processed is offered and recorded (FLU-32).
 @MainActor
 @Observable
 final class MeetingController {
@@ -79,7 +85,11 @@ final class MeetingController {
     }
 
     var isRecording: Bool { state == .recording }
-    var isBusy: Bool { state == .recording || state == .processing }
+    /// Recording, or a final pass still running (possibly behind a new recording).
+    var isBusy: Bool { state == .recording || state == .processing || finalizing > 0 }
+
+    /// Final passes in flight. Observed: the updater must not relaunch during one.
+    private(set) var finalizing = 0
 
     /// Models a first meeting will download from Hugging Face, for the card and panel.
     var pendingDownloads: [String] { MeetingSpeechModels.missingDownloads }
@@ -98,6 +108,9 @@ final class MeetingController {
     private var detectionPanel: MeetingDetectionPanel?
     @ObservationIgnored
     private var recordingPanel: MeetingRecordingPanel?
+    /// Holds off idle sleep while recording (FLU-32); 0 when none is held.
+    @ObservationIgnored
+    private var sleepAssertion = IOPMAssertionID(0)
 
     // MARK: - Launch
 
@@ -105,7 +118,7 @@ final class MeetingController {
     func start() {
         guard !started else { return }
         started = true
-        detector.onDetected = { [weak self] detected in self?.offer(detected) }
+        detector.onDetected = { [weak self] detected in self?.offer(detected) ?? false }
         detector.start()
         observeLockAndSleep()
         observeVoicePrintSetting()
@@ -115,8 +128,10 @@ final class MeetingController {
 
     // MARK: - Detection card
 
-    private func offer(_ detected: DetectedMeeting) {
-        guard state == .idle || isFailed else { return }
+    /// Shows the card unless a meeting is recording or already offered. A meeting still
+    /// being processed does not block it (FLU-32: back-to-back calls).
+    private func offer(_ detected: DetectedMeeting) -> Bool {
+        guard state == .idle || state == .processing || isFailed else { return false }
         state = .detected(detected)
         let initial = DetectionOffer(autoRecordSeconds: NotetakerSettings.shared.autoRecordSeconds)
         countdown = initial.remaining
@@ -143,6 +158,7 @@ final class MeetingController {
                 }
             }
         }
+        return true
     }
 
     /// "Enregistrer" on the card.
@@ -158,11 +174,11 @@ final class MeetingController {
         countdown = nil
         countdownTotal = nil
         detectionPanel?.dismiss()
-        if case .detected = state { state = .idle }
+        if case .detected = state { state = finalizing > 0 ? .processing : .idle }
     }
 
     func dismissFailure() {
-        if isFailed { state = .idle }
+        if isFailed { state = finalizing > 0 ? .processing : .idle }
     }
 
     private var isFailed: Bool {
@@ -178,12 +194,12 @@ final class MeetingController {
         switch state {
         case .detected(let detected):
             record(detected, trigger: .detected)
-        case .idle, .failed:
+        case .idle, .failed, .processing:
             let app = detector.appsOnMicrophone.lazy.compactMap(MeetingApps.identify).first
             let detected = app.map { DetectedMeeting(app: $0, service: $0.name, pid: MeetingWindowReader.mainPID(for: $0)) }
             if let app { detector.markOffered(app) }
             Task { await begin(detected, trigger: .manual) }
-        case .recording, .processing:
+        case .recording:
             break
         }
     }
@@ -194,7 +210,7 @@ final class MeetingController {
     }
 
     private func begin(_ detected: DetectedMeeting?, trigger: MeetingTrigger) async {
-        guard !isBusy else { return }
+        guard state != .recording else { return }
         state = .recording
         notice = nil
         lastStopReason = nil
@@ -225,8 +241,11 @@ final class MeetingController {
                 appPID: detected?.pid,
                 userNames: [NSFullUserName(), calendar?.userName].compactMap { $0 },
                 corrector: DictionaryStore.shared.corrector,
-                onSegment: { [weak self] segment in self?.appendLive(segment) },
-                onFailure: { [weak self] reason in self?.stop(reason: reason) }
+                onSegment: { [weak self, id = meeting.id] segment in self?.appendLive(segment, meetingID: id) },
+                onFailure: { [weak self, id = meeting.id] reason in
+                    // A failure from a meeting already stopped must not stop the next one.
+                    if self?.session?.meetingID == id { self?.stop(reason: reason) }
+                }
             )
             self.session = session
             if !session.hasSystemAudio {
@@ -243,6 +262,7 @@ final class MeetingController {
         liveSegments = []
         elapsed = 0
         detector.keepPollingWhileRecording = true
+        holdOffIdleSleep()
         showRecordingPanel()
         if !pendingDownloads.isEmpty {
             notice = "Téléchargement des modèles locaux depuis Hugging Face (une seule fois) : " + pendingDownloads.joined(separator: ", ") + "."
@@ -260,8 +280,9 @@ final class MeetingController {
 
     // MARK: - While recording
 
-    private func appendLive(_ segment: TranscriptSegment) {
-        guard let session, meeting != nil else { return }
+    private func appendLive(_ segment: TranscriptSegment, meetingID: UUID) {
+        // Late segments of a meeting being finalised come back through `finish()`.
+        guard let session, session.meetingID == meetingID, meeting != nil else { return }
         session.add(segment)
         meeting?.segments = session.allSegments
         liveSegments = session.visibleSegments
@@ -313,8 +334,17 @@ final class MeetingController {
                     return
                 }
 
-                if let message = session.checkSystemAudio() { self.notice = message }
-                if tick % 30 == 0 { self.autosave() }
+                switch session.checkSystemAudio() {
+                case .quiet: break
+                case .warn(let message): self.notice = message
+                case .recovered: if self.notice?.hasPrefix("Le son de l'appel est coupé") == true { self.notice = nil }
+                }
+                let dropped = session.takeDroppedBlocks()
+                if let message = DroppedAudio.notice(blocks: dropped) {
+                    Log.audio.error("meeting audio: \(dropped) blocks dropped, transcription behind")
+                    self.notice = message
+                }
+                if tick % 10 == 0 { self.autosave() }
                 if tick % 20 == 5, NotetakerSettings.shared.readNamesFromMeetingWindow { session.readParticipants() }
             }
         }
@@ -336,7 +366,12 @@ final class MeetingController {
     func stop(reason: StopReason = .user) {
         guard state == .recording, let session, var meeting else { return }
         state = .processing
+        finalizing += 1
         lastStopReason = reason
+        releaseIdleSleep()
+        if StopPolicy.offersAgain(after: reason), let app = session.app {
+            detector.allowOfferAgain(app)
+        }
         isHearingSpeech = false
         inputLevel = 0
         isPanelExpanded = false
@@ -357,13 +392,21 @@ final class MeetingController {
                 key: session.key,
                 windowParticipants: session.participants
             )
-            Self.complete(finalized, directory: session.directory)
+            let saved = Self.complete(finalized, directory: session.directory)
 
-            self.session = nil
-            self.meeting = nil
-            self.liveSegments = []
-            self.notice = nil
-            if self.state == .processing { self.state = .idle }
+            // A new meeting may be recording by now: only this one's traces are cleared.
+            if self.session === session {
+                self.session = nil
+                self.meeting = nil
+                self.liveSegments = []
+                self.notice = nil
+            }
+            self.finalizing -= 1
+            if !saved, self.state == .processing || self.state == .idle {
+                self.fail("La réunion n'a pas pu être enregistrée. Son audio est gardé sur ce Mac ; Fluence réessaiera au prochain lancement.")
+            } else if self.state == .processing, self.finalizing == 0 {
+                self.state = .idle
+            }
         }
     }
 
@@ -385,14 +428,18 @@ final class MeetingController {
         return (MeetingFinalizer.name(output, windowParticipants: windowParticipants), output.voices)
     }
 
-    /// Saves the final meeting, drops the spool unless kept, announces it.
-    private static func complete(_ result: (Meeting, [String: [Float]]), directory: URL) {
+    /// Saves the final meeting; only once it is saved are the spool (unless kept), the
+    /// marker and the recovery count removed (FLU-32: a failed save keeps everything, and
+    /// recovery tries again at the next launch). Returns whether it was saved.
+    @discardableResult
+    private static func complete(_ result: (Meeting, [String: [Float]]), directory: URL) -> Bool {
         // The voices are not kept: nothing enrols one yet (FLU-27, see `VoicePrintStore`).
         let (meeting, _) = result
         do {
             try MeetingStore.shared.save(meeting)
         } catch {
-            Log.app.error("final meeting save failed: \(error.localizedDescription, privacy: .public)")
+            Log.app.error("final meeting save failed, audio and marker kept: \(error.localizedDescription, privacy: .public)")
+            return false
         }
         if !meeting.keepAudio {
             for source in AudioSource.allCases {
@@ -400,14 +447,18 @@ final class MeetingController {
             }
         }
         try? FileManager.default.removeItem(at: MeetingSession.markerURL(in: directory))
+        try? FileManager.default.removeItem(at: MeetingSession.recoveryAttemptsURL(in: directory))
         NotificationCenter.default.post(name: .meetingFinalized, object: meeting.id)
         Log.app.info("meeting finalized: \(meeting.segments.count) segments, \(meeting.speakers.count) speakers")
+        return true
     }
 
     // MARK: - Crash recovery
 
     /// A meeting directory still holding a recording marker was interrupted (crash, power
-    /// loss): finish it from what was saved and spooled.
+    /// loss, a failed final save): finish it from what was saved and spooled. Each attempt
+    /// is counted on disk before it runs; after `RecoveryPlan.maxAttempts` the files stay
+    /// as they are and the user is told once.
     private func recoverInterruptedMeetings() async {
         try? await Task.sleep(for: .seconds(5))
         let root = MeetingStore.shared.root
@@ -418,6 +469,22 @@ final class MeetingController {
                   session?.meetingID != id,
                   var meeting = try? MeetingStore.shared.load(id)
             else { continue }
+            let attemptsURL = MeetingSession.recoveryAttemptsURL(in: directory)
+            let previous = (try? String(contentsOf: attemptsURL, encoding: .utf8))
+                .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? 0
+            switch RecoveryPlan.decide(previousAttempts: previous) {
+            case .attempt(let number):
+                try? String(number).write(to: attemptsURL, atomically: true, encoding: .utf8)
+                Log.app.info("recovering an interrupted meeting, attempt \(number)")
+            case .giveUp(let announce):
+                guard announce else { continue }
+                try? String(RecoveryPlan.announcedCount).write(to: attemptsURL, atomically: true, encoding: .utf8)
+                Log.app.error("interrupted meeting left as is after \(RecoveryPlan.maxAttempts) attempts")
+                if state == .idle {
+                    fail("Une réunion interrompue n'a pas pu être terminée après deux essais. Son audio et sa transcription restent sur ce Mac.")
+                }
+                continue
+            }
             meeting.endedAt = meeting.endedAt
                 ?? meeting.startedAt.addingTimeInterval(meeting.segments.map(\.end).max() ?? 0)
             let key = try? MeetingStore.shared.meetingKey(for: id, create: false)
@@ -428,8 +495,9 @@ final class MeetingController {
                 key: key,
                 windowParticipants: []
             )
-            Self.complete(finalized, directory: directory)
-            Log.app.info("recovered an interrupted meeting")
+            if Self.complete(finalized, directory: directory) {
+                Log.app.info("recovered an interrupted meeting")
+            }
         }
     }
 
@@ -439,13 +507,52 @@ final class MeetingController {
         observers.append(DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.stop(reason: .screenLocked) }
+            Task { @MainActor in self?.handle(.screenLocked) }
         })
-        observers.append(NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.stop(reason: .systemSleep) }
-        })
+        let workspace = NSWorkspace.shared.notificationCenter
+        let events: [(Notification.Name, SystemEvent)] = [
+            (NSWorkspace.screensDidSleepNotification, .displaySlept),
+            (NSWorkspace.willSleepNotification, .systemWillSleep),
+            (NSWorkspace.sessionDidResignActiveNotification, .userSwitchedOut),
+        ]
+        for (name, event) in events {
+            observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.handle(event) }
+            })
+        }
+    }
+
+    private func handle(_ event: SystemEvent) {
+        guard state == .recording else { return }
+        if let reason = StopPolicy.reason(for: event) {
+            stop(reason: reason)
+        } else {
+            Log.app.info("meeting keeps recording through \(String(describing: event), privacy: .public)")
+        }
+    }
+
+    /// Only while recording: a call goes on with the screen dark, but the Mac must not
+    /// fall asleep under it. Released at stop.
+    private func holdOffIdleSleep() {
+        guard sleepAssertion == 0 else { return }
+        var id = IOPMAssertionID(0)
+        let result = IOPMAssertionCreateWithName(
+            kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            "Fluence enregistre une réunion" as CFString,
+            &id
+        )
+        if result == kIOReturnSuccess {
+            sleepAssertion = id
+        } else {
+            Log.app.error("idle sleep assertion refused: \(result)")
+        }
+    }
+
+    private func releaseIdleSleep() {
+        guard sleepAssertion != 0 else { return }
+        IOPMAssertionRelease(sleepAssertion)
+        sleepAssertion = 0
     }
 
     /// Turning voice prints off deletes every print (decision FLU-9 #3).

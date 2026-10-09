@@ -120,7 +120,13 @@ names alone.
   whole helper family, resolved at runtime. Reference: insidegui/AudioCap.
 - Known traps: permission denied = `noErr` + all-zero buffers; taps can go silent after a
   sample-rate change or AirPods sleep → **zero-buffer watchdog** that rebuilds the tap when
-  the meeting app is outputting but samples are zero for N seconds.
+  the meeting app is outputting but samples are zero for 5 s, then on a backoff of
+  5, 10, 20, 40 and 60 s with no cap (`TapWatchdog`, FLU-32); from the second rebuild the
+  panel says the call's sound is cut and when the next try comes, and the message goes when
+  sound returns.
+- Audio blocks wait in bounded queues (10,000 blocks per channel) for transcription. A
+  block dropped because a queue is full is counted (never its content), logged, and the
+  panel says that part of the audio could not be kept (`DroppedAudio`, FLU-32).
 - Mic: a second `AVAudioEngine`, independent of the dictation one. Both streams stamped on
   the host clock (`AudioChunk` gains `hostTime` and `source`).
 - ScreenCaptureKit only as a fallback.
@@ -132,6 +138,27 @@ names alone.
   sets `meetingPreparation.systemAudioAsked`. The card says "Demandé", never "Autorisé". It
   runs only on a click, never during a dictation or a meeting (`AppUpdater.isBusy`). Pure
   logic: `MeetingReadiness` (FluenceCore, tested).
+
+### 2.2.1 Meetings that survive real calls (FLU-32)
+- **Back to back**: a call starting while the previous meeting is being finalised is
+  offered and recorded; the final pass runs beside it (`MeetingController.finalizing`), and
+  `isBusy` stays true until every final pass is done, so no update relaunches the app under
+  one. The detector marks an app offered only when the card was actually shown; a call
+  that could not be offered (another one is recording) comes back on a later poll.
+- **Lock and sleep** (`StopPolicy.reason(for:)`): a locked or dark screen keeps recording,
+  and idle sleep is held off by a power assertion
+  (`kIOPMAssertionTypePreventUserIdleSystemSleep`) only while recording; real sleep and fast
+  user switching stop and save. After any automatic stop the call can be offered again;
+  after the user's own Stop it is not, until the app leaves the microphone.
+- **Saves**: the meeting is saved every 10 s while recording. The spool, the recording
+  marker and the recovery count are deleted only once the final save succeeded; a failed
+  save keeps them and says so, and recovery tries again at the next launch.
+- **Recovery** (`RecoveryPlan`): each attempt on an interrupted meeting is counted in
+  `recovery.attempts` beside the marker *before* it runs, so a crash inside the final pass
+  counts too. After two attempts the files stay as they are and the user is told once.
+- **Not yet** (they touch files being rewritten in FLU-52): confirming a quit during a
+  recording, retrying failed utterances before the spool goes, retrying notes on timeouts
+  and rate limits. A failed utterance is still dropped with a log line (M13).
 
 ### 2.3 Echo and bleed
 On speakers, the mic hears the remote side → duplicated text attributed to "Me".
