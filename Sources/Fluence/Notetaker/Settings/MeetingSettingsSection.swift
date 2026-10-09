@@ -96,6 +96,8 @@ struct MeetingSettingsSection: View {
     private var settings: NotetakerSettings { model.settings }
 
     var body: some View {
+        MeetingPreparationCard(preparation: .shared)
+
         SectionCard {
             SettingsRow(
                 systemImage: "person.2.wave.2",
