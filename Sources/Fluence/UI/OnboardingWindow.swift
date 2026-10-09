@@ -294,7 +294,7 @@ private struct OnboardingView: View {
         case .granted:
             GrantBadge(text: "Autorisé", isOK: true).padding(.top, DS.Space.snug)
         case .askedOnFirstUse:
-            Text("macOS le demande à la première utilisation.")
+            Text(model.step == .systemAudio ? Self.meetingPreparationLine : "macOS le demande à la première utilisation.")
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.Color.inkSecondary)
                 .padding(.top, DS.Space.snug)
@@ -350,6 +350,16 @@ private struct OnboardingView: View {
         var run: () -> Void
     }
 
+    private static let meetingSteps: Set<MeetingReadiness.Step> = [.systemAudio, .download]
+
+    /// "Son des appels : Demandé · Modèles : 651 Mo à télécharger", live while it runs.
+    private static var meetingPreparationLine: String {
+        let preparation = MeetingPreparation.shared
+        return "Son des appels : " + MeetingReadiness.label(preparation.state.systemAudio)
+            + " · Modèles : " + MeetingReadiness.modelsLabel(preparation.state, progress: preparation.downloadProgress)
+            + (preparation.failure.map { "\n" + $0 } ?? "")
+    }
+
     private var key: String { ShortcutLabel.display(Settings.shared.pushToTalkKey.shortName) }
 
     private var page: Page {
@@ -396,7 +406,12 @@ private struct OnboardingView: View {
                     Fact(symbol: "doc.on.clipboard", text: "La carte de l'appel copie un avis à coller dans le chat, pour prévenir les participants."),
                     Fact(symbol: "gearshape.fill", text: "Si vous avez refusé l'accès au son, c'est dans Réglages Système qu'on le change."),
                 ],
-                action: Action(title: "Ouvrir Réglages Système") { Permissions.openSystemAudioSettings() }
+                // FLU-45: the call's sound and the models, now rather than during a first call.
+                action: MeetingPreparation.shared.pendingSteps(only: Self.meetingSteps).isEmpty
+                    ? Action(title: "Ouvrir Réglages Système") { Permissions.openSystemAudioSettings() }
+                    : Action(title: "Préparer les réunions") {
+                        Task { await MeetingPreparation.shared.prepare(only: Self.meetingSteps) }
+                    }
             )
         case .calendar:
             Page(

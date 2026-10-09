@@ -124,6 +124,14 @@ names alone.
 - Mic: a second `AVAudioEngine`, independent of the dictation one. Both streams stamped on
   the host clock (`AudioChunk` gains `hostTime` and `source`).
 - ScreenCaptureKit only as a fallback.
+- **Ahead of the first call** (FLU-45): « Préparer les réunions » (Settings › Réunions and the
+  onboarding's meetings step) asks the microphone, the call's sound and the calendar, and
+  downloads the four models (Parakeet ~600 MB, VAD ~2 MB, LocalVQE ~19 MB, offline diarizer
+  ~30 MB) into the folders their loaders read, with progress. The call's sound has no public
+  status query: a 2-second global tap with its audio dropped makes macOS ask, and any tap start
+  sets `meetingPreparation.systemAudioAsked`. The card says "Demandé", never "Autorisé". It
+  runs only on a click, never during a dictation or a meeting (`AppUpdater.isBusy`). Pure
+  logic: `MeetingReadiness` (FluenceCore, tested).
 
 ### 2.3 Echo and bleed
 On speakers, the mic hears the remote side → duplicated text attributed to "Me".
