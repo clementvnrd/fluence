@@ -48,6 +48,11 @@ first, watch both sides go red, then make them green. Changing one implementatio
 a failing vector without changing the other is how the two silently diverge — and only one
 of them can be exercised by hand.
 
+Its `fileCases` section (version 2, FLU-53) does the same for reading `dictionary.txt`: raw
+file text, line endings spelled out, and the entries that must come back. macOS runs it
+against `DictionaryFileFormat` (`FileVectorTests`), Windows against `DictionaryFile.Parse`
+(`Murmur.Core.Tests`). Any line ending ends a line: `\n`, `\r\n`, or a lone `\r`.
+
 ```bash
 swift test --filter VectorTests                    # macOS side
 cd windows && dotnet test Murmur.CrossPlatform.slnf # Windows side, runs anywhere

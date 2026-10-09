@@ -5,9 +5,10 @@
     "An entry is a 'correction' (hear -> write) or a 'term' (write only). A missing 'hear' is an empty string; a missing 'isEnabled' is true.",
     "The inputs are the kind of thing Clement dictates: French sentences carrying English tech words. Next to every match sits plain ASCII, except in the one decomposed-accent case, so the two regex engines cannot read a neighbour differently.",
     "Deeper Unicode behaviour (full case folding, exotic spaces, letters and digits of other scripts, tie order, chained corrections) is pinned by the Swift tests alone.",
-    "Edit this file before either implementation, and keep the Swift copy identical: cp shared/dictionary-test-vectors.json Tests/FluenceDictionaryTests/"
+    "Edit this file before either implementation, and keep the Swift copy identical: cp shared/dictionary-test-vectors.json Tests/FluenceDictionaryTests/",
+    "'fileCases' (since version 2) pin how dictionary.txt is read: 'text' is the raw file, line endings spelled out (\\n, \\r\\n, or a lone \\r: any of them ends a line), and 'expectedEntries' are the entries that come back, in file order. A bare line is a term, 'hear -> write' a correction, '# off:' a disabled entry, any other '#' line a comment; each side is trimmed of spaces and tabs."
   ],
-  "version": 1,
+  "version": 2,
   "cases": [
     {
       "name": "switched-off correction leaves its trigger alone",
@@ -229,6 +230,86 @@
       "input": "le back en type script parle à post gres, et tout part sur get hub",
       "expected": "le back en TypeScript parle à Postgres, et tout part sur GitHub",
       "expectedCorrections": [ { "to": "TypeScript", "count": 1 }, { "to": "Postgres", "count": 1 }, { "to": "GitHub", "count": 1 } ]
+    }
+  ],
+  "fileCases": [
+    {
+      "name": "line feeds",
+      "text": "Ansible\nprès prod -> preprod\n",
+      "expectedEntries": [
+        { "kind": "term", "write": "Ansible" },
+        { "kind": "correction", "hear": "près prod", "write": "preprod" }
+      ]
+    },
+    {
+      "name": "Windows line endings read as separate lines (FLU-53)",
+      "text": "# Fluence dictionary\r\n#\r\nOdoo\r\no doo -> Odoo\r\nPostHog\r\n",
+      "expectedEntries": [
+        { "kind": "term", "write": "Odoo" },
+        { "kind": "correction", "hear": "o doo", "write": "Odoo" },
+        { "kind": "term", "write": "PostHog" }
+      ]
+    },
+    {
+      "name": "a lone carriage return ends a line",
+      "text": "Scaleway\rscale ouais -> Scaleway\r",
+      "expectedEntries": [
+        { "kind": "term", "write": "Scaleway" },
+        { "kind": "correction", "hear": "scale ouais", "write": "Scaleway" }
+      ]
+    },
+    {
+      "name": "mixed line endings in one file",
+      "text": "Clevercloud\nclever cloud -> Clever Cloud\r\nOVHcloud\rOVH clou -> OVHcloud\n",
+      "expectedEntries": [
+        { "kind": "term", "write": "Clevercloud" },
+        { "kind": "correction", "hear": "clever cloud", "write": "Clever Cloud" },
+        { "kind": "term", "write": "OVHcloud" },
+        { "kind": "correction", "hear": "OVH clou", "write": "OVHcloud" }
+      ]
+    },
+    {
+      "name": "header comments and blank lines give no entry",
+      "text": "# Fluence dictionary\n#\n# un commentaire -> pas une entrée\n\n   \nRedis\n\n",
+      "expectedEntries": [
+        { "kind": "term", "write": "Redis" }
+      ]
+    },
+    {
+      "name": "disabled entries survive Windows line endings",
+      "text": "# off: kube cetl -> kubectl\r\n#off: Helm\r\nArgo CD\r\n",
+      "expectedEntries": [
+        { "kind": "correction", "hear": "kube cetl", "write": "kubectl", "isEnabled": false },
+        { "kind": "term", "write": "Helm", "isEnabled": false },
+        { "kind": "term", "write": "Argo CD" }
+      ]
+    },
+    {
+      "name": "spaces and tabs around a line are dropped",
+      "text": "Supabase   \n  supa base   ->   Supabase\t\n\tVite \r\n",
+      "expectedEntries": [
+        { "kind": "term", "write": "Supabase" },
+        { "kind": "correction", "hear": "supa base", "write": "Supabase" },
+        { "kind": "term", "write": "Vite" }
+      ]
+    },
+    {
+      "name": "spaces around the arrow are optional",
+      "text": "nekst djeyesse->Next.js\nvue j s  ->  Vue.js\n",
+      "expectedEntries": [
+        { "kind": "correction", "hear": "nekst djeyesse", "write": "Next.js" },
+        { "kind": "correction", "hear": "vue j s", "write": "Vue.js" }
+      ]
+    },
+    {
+      "name": "an empty file holds nothing",
+      "text": "",
+      "expectedEntries": []
+    },
+    {
+      "name": "a file of line endings only holds nothing",
+      "text": "\r\n\n\r",
+      "expectedEntries": []
     }
   ]
 }

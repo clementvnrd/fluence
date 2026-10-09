@@ -20,4 +20,12 @@
     <ProjectReference Include="..\..\src\Murmur.Core\Murmur.Core.csproj" />
     <ProjectReference Include="..\..\src\Murmur.Testing\Murmur.Testing.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- The shared contract, linked rather than copied: its fileCases pin how dictionary.txt
+         is read, on both apps. -->
+    <None Include="..\..\..\shared\dictionary-test-vectors.json"
+          Link="dictionary-test-vectors.json"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
