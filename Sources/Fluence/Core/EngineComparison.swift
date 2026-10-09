@@ -1,35 +1,34 @@
 import AVFoundation
 import Foundation
 
-/// One engine's result from a comparison run.
+/// What one engine produced for a compared recording.
 struct ComparisonResult: Sendable {
+    /// "Apple", "Parakeet", or "Wispr Flow" (set by `WisprReader`).
     let engine: String
+    /// Trimmed transcript; on failure, a "⚠️" message instead.
     let text: String
     let seconds: Double
 }
 
-/// Runs the *same* captured audio through every engine, so a single hold produces a
-/// directly comparable set of outputs.
+/// Feeds one recorded utterance to Apple's engine and to Parakeet, and times each.
 ///
-/// Both engines are driven in batch from the identical buffer. Apple's engine can stream,
-/// and does during normal dictation — but replaying a fixed buffer into both is the only
-/// way to get numbers that mean the same thing on both sides.
+/// Both get the identical buffers in one go, even though Apple's engine streams during
+/// normal dictation: only then do the outputs and the timings compare like for like.
 enum EngineComparison {
-    /// - Parameter onResult: called as each engine finishes, so the UI can show results
-    ///   incrementally instead of waiting for the whole set.
+    /// One engine at a time, never both at once: they would fight over the Neural Engine and
+    /// the CPU and skew each other's timings. `onResult` fires after each engine, so the
+    /// window can show rows as they arrive.
     static func run(
         chunks: [AudioChunk],
         onResult: @MainActor (ComparisonResult) -> Void = { _ in }
     ) async -> [ComparisonResult] {
+        let engines: [(name: String, engine: any TranscriptionEngine)] = [
+            ("Apple", AppleSpeechEngine()),
+            ("Parakeet", ParakeetEngine()),
+        ]
         var results: [ComparisonResult] = []
-        // Sequential, not concurrent: two engines racing for the ANE and CPU would
-        // contaminate each other's timings. So this is not a live race — each engine is
-        // timed in isolation and the *measured* durations are what get compared.
-        for (name, engine) in [
-            ("Apple", AppleSpeechEngine() as any TranscriptionEngine),
-            ("Parakeet", ParakeetEngine() as any TranscriptionEngine),
-        ] {
-            let result = await measure(name: name, engine: engine, chunks: chunks)
+        for (name, engine) in engines {
+            let result = await measure(name, engine: engine, chunks: chunks)
             results.append(result)
             await onResult(result)
         }
@@ -37,24 +36,25 @@ enum EngineComparison {
     }
 
     private static func measure(
-        name: String,
+        _ name: String,
         engine: any TranscriptionEngine,
         chunks: [AudioChunk]
     ) async -> ComparisonResult {
         do {
             let stream = try await engine.start()
 
-            // Clock starts *after* start() returns, deliberately. start() loads models —
+            // Timed from here, after `start()`, because `start()` is where models load:
             // for Parakeet that's ~600 MB on a cold first run — and whichever engine the
-            // menu happens to have selected was already warmed by the live pass. Timing
-            // from before start() would report that menu setting as an engine difference.
+            // menu has picked is already warm from the live pass. Counting the load would turn
+            // that menu choice into a fake speed difference.
             let started = Date()
 
-            // Collect on a separate task: the engine may emit its final result during
-            // `finish()`, so the consumer has to already be draining.
-            let collector = Task { () -> String in
+            // Drain the stream concurrently: the final text may only be emitted inside `finish()`.
+            let collector = Task<String, any Error> {
                 var latest = ""
-                for try await chunk in stream { latest = chunk.text }
+                for try await snapshot in stream {
+                    latest = snapshot.text
+                }
                 return latest
             }
 
@@ -63,14 +63,13 @@ enum EngineComparison {
             }
             await engine.finish()
 
-            // Surface a thrown stream as an error rather than as empty output — an engine
-            // that failed and an engine that heard nothing look identical otherwise, which
-            // is exactly how the audio-format bug hid.
+            // A failure must look like one. An empty row would read as "heard nothing", and
+            // that mix-up once kept an audio-format bug out of sight.
             let text: String
             do {
                 text = try await collector.value
             } catch {
-                Log.speech.error("\(name, privacy: .public) stream failed: \(error.localizedDescription)")
+                Log.speech.error("compare: \(name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                 text = "⚠️ \(error.localizedDescription)"
             }
 
@@ -80,7 +79,7 @@ enum EngineComparison {
                 seconds: Date().timeIntervalSince(started)
             )
         } catch {
-            Log.speech.error("\(name, privacy: .public) comparison failed: \(error.localizedDescription)")
+            Log.speech.error("compare: \(name, privacy: .public) did not start: \(error.localizedDescription, privacy: .public)")
             await engine.finish()
             return ComparisonResult(engine: name, text: "⚠️ \(error.localizedDescription)", seconds: 0)
         }

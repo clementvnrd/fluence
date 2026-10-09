@@ -100,6 +100,7 @@ final class AudioCapture: @unchecked Sendable {
               )
         else { throw CaptureError.noInputDevice }
 
+        // Installing over a leftover tap crashes (an Objective-C exception), so clear the bus.
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 2048, format: native, block: Self.tap(into: sink, as: mono))
 
@@ -175,6 +176,8 @@ final class AudioCapture: @unchecked Sendable {
     /// end, with what was captured so far.
     private func recover(_ sink: TapSink) {
         guard self.sink === sink else { return } // stopped meanwhile
+        // Bus 0 must be free before `install` taps it again. The change has usually stopped
+        // the engine already, and a second stop does no harm.
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
 
@@ -308,6 +311,8 @@ final class StreamConverter {
         let frames = Double(max(buffer?.frameLength ?? 0, 1_024))
         let capacity = AVAudioFrameCount((frames * ratio).rounded(.up)) + 64
 
+        // The input block is `@Sendable` and a PCM buffer is not, but the block only ever runs
+        // inside the synchronous `convert` call below, so the buffer never leaves this thread.
         nonisolated(unsafe) let input = buffer
         let supplied = Latch()
         var results: [AVAudioPCMBuffer] = []
@@ -316,21 +321,22 @@ final class StreamConverter {
         // bounded, in case a converter misbehaves.
         for _ in 0..<64 {
             guard let converted = AVAudioPCMBuffer(pcmFormat: output, frameCapacity: capacity) else { break }
-            var error: NSError?
-            let status = converter.convert(to: converted, error: &error) { _, outStatus in
+            var conversionError: NSError?
+            let status = converter.convert(to: converted, error: &conversionError) { _, outStatus in
                 guard let input else {
                     outStatus.pointee = .endOfStream
                     return nil
                 }
                 guard !supplied.take() else {
+                    // Already handed over: nothing more until the next chunk.
                     outStatus.pointee = .noDataNow
                     return nil
                 }
                 outStatus.pointee = .haveData
                 return input
             }
-            if let error {
-                Log.audio.error("conversion failed: \(error.localizedDescription)")
+            if let conversionError {
+                Log.audio.error("audio conversion failed: \(conversionError.localizedDescription)")
                 break
             }
             if converted.frameLength > 0 { results.append(converted) }
@@ -341,11 +347,14 @@ final class StreamConverter {
 
     /// One-shot flag. Only touched inside a synchronous `convert` call.
     private final class Latch: @unchecked Sendable {
+        // A class, not a local `var`: the `@Sendable` input block cannot capture a mutable local.
         private var fired = false
-        /// - Returns: the value *before* this call, then latches to `true`.
+
+        /// Tells whether the latch had already fired, and fires it.
         func take() -> Bool {
-            defer { fired = true }
-            return fired
+            let wasFired = fired
+            fired = true
+            return wasFired
         }
     }
 }

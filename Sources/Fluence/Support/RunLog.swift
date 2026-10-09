@@ -3,20 +3,20 @@ import FluenceDictionary
 import Foundation
 import Observation
 
-/// One completed dictation.
+/// A row of the history. The property names are the JSON keys on disk: rename one and the
+/// user's saved rows no longer read.
 struct DictationRun: Codable, Sendable, Identifiable {
-    /// Stable identity, so a single run can be deleted without matching on its text.
-    ///
-    /// Decoded leniently: runs written before this existed have no `id` field, and failing
-    /// their whole line would throw away the user's history to add a delete button. Those
-    /// get a fresh id on load, which is then persisted the next time the file is rewritten.
+    /// What a delete targets, so nothing is ever matched by text. Lines saved before ids
+    /// existed get one as they are read (stored at the next rewrite) rather than being dropped.
     var id: UUID = UUID()
 
+    /// Key-up. The day grouping and the retention setting both read it.
     let date: Date
+    /// A display name such as "Apple (streaming)", not a `SpeechEngineChoice` raw value.
     let engine: String
-    /// How long the key was held.
+    /// Hold duration.
     let audioSeconds: Double
-    /// Release → final text ready. This is the latency you actually feel.
+    /// Key-up to finished text.
     let processSeconds: Double
     /// What was typed: after cleanup and the dictionary.
     let text: String
@@ -27,11 +27,8 @@ struct DictationRun: Codable, Sendable, Identifiable {
     /// can present them as one side-by-side comparison instead of unrelated rows.
     var group: String?
 
-    /// Dictionary corrections that fired on this transcript. Recorded so history can show
-    /// whether the dictionary is actually doing anything, rather than leaving it to faith.
-    ///
-    /// Optional for backwards compatibility: runs recorded before the dictionary existed
-    /// decode with this nil rather than failing the whole line.
+    /// Dictionary replacements made in this run, so the history can prove the dictionary
+    /// works. Nil for runs older than the dictionary.
     var corrections: [AppliedCorrection]?
 
     var realtimeFactor: Double { audioSeconds / max(processSeconds, 0.0001) }
@@ -79,6 +76,7 @@ struct DictationRun: Codable, Sendable, Identifiable {
 final class RunStore {
     static let shared = RunStore()
 
+    /// Every run, oldest first: what the file held at launch, then what was recorded since.
     private(set) var runs: [DictationRun] = []
 
     /// Why history isn't being read or saved, when it isn't — typically the Keychain refusing
@@ -90,15 +88,23 @@ final class RunStore {
 
     private init() {}
 
-    /// Recordings grouped by comparison, newest first.
+    /// The compare-mode recordings, one list per comparison, the most recent comparison first.
+    /// Within a list the rows keep their arrival order, which the window's ranking and its
+    /// "still running" state rely on.
     var comparisons: [[DictationRun]] {
-        Dictionary(grouping: runs.filter { $0.group != nil }, by: { $0.group! })
-            .values
-            .sorted { ($0.first?.date ?? .distantPast) > ($1.first?.date ?? .distantPast) }
+        var byGroup: [String: [DictationRun]] = [:]
+        for run in runs {
+            guard let group = run.group else { continue }
+            byGroup[group, default: []].append(run)
+        }
+        return byGroup.values.sorted {
+            ($0.first?.date ?? .distantPast) > ($1.first?.date ?? .distantPast)
+        }
     }
 
+    /// Dictations made outside compare mode, newest first.
     var singles: [DictationRun] {
-        runs.filter { $0.group == nil }.reversed()
+        runs.reversed().filter { $0.group == nil }
     }
 
     fileprivate func loaded(_ stored: [DictationRun]) {
@@ -157,13 +163,11 @@ enum RunLog {
         HistoryFile.shared.purge(retention, now: now, then: report)
     }
 
-    /// Deletes one run.
     static func delete(_ run: DictationRun) {
         delete(ids: [run.id])
     }
 
-    /// Deletes every run in a comparison group — the engines all transcribed one utterance,
-    /// so removing that utterance means removing all of its rows.
+    /// A comparison is one utterance seen by several engines, so it goes as a whole.
     static func deleteGroup(_ group: String) {
         RunStore.shared.removeAll { $0.group == group }
         HistoryFile.shared.remove(where: { $0.group == group }, then: report)

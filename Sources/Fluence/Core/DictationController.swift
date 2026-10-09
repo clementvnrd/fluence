@@ -5,7 +5,7 @@ import AppKit
 import Foundation
 import Observation
 
-/// Builds the engine named by the current setting.
+/// A new engine of the kind picked in Settings.
 ///
 /// Reading the setting per-utterance is what lets the menu's engine picker take effect on
 /// the very next hold instead of needing a restart. Main-actor isolated like the setting it
@@ -27,10 +27,14 @@ func engineForCurrentSetting() -> any TranscriptionEngine {
 @Observable
 final class DictationController {
     enum State: Equatable {
+        /// No HUD.
         case idle
+        /// Mic opening, engine loading.
         case starting
         case listening
+        /// After key-up, until the text is typed.
         case finishing
+        /// For the HUD, in French; `fail` clears it 3 s later.
         case error(String)
         // MARK: FLU-5 input
         /// A short message that is not a fault — "Last transcript copied", "Select some text
@@ -55,9 +59,9 @@ final class DictationController {
     }
 
     private(set) var state: State = .idle
-    /// Live transcript, updated as the engine revises it. Drives the HUD.
+    /// Whole text so far, overwritten on each revision; the HUD and the comparison window show it.
     private(set) var transcript = ""
-    /// Smoothed 0…1 mic level for the waveform.
+    /// 0…1, smoothed; feeds the waveform and the VU meter.
     private(set) var level: Float = 0
     @ObservationIgnored private var levelFollower = LevelFollower()
 
@@ -117,9 +121,10 @@ final class DictationController {
         self.makeEngine = makeEngine
     }
 
-    // MARK: - Lifecycle
+    // MARK: - Shortcuts
 
-    /// - Returns: `false` if the hotkey tap couldn't be installed (missing Accessibility).
+    /// - Returns: `true` once at least one shortcut path is live, Carbon or the event tap, so
+    ///   it can be `true` with no Accessibility grant.
     @discardableResult
     func activate() -> Bool {
         hotkey.key = Settings.shared.pushToTalkKey
@@ -151,6 +156,7 @@ final class DictationController {
     /// Whether the event tap (Accessibility) is armed, not just Carbon.
     var hasEventTap: Bool { hotkey.hasEventTap }
 
+    /// Called when the app quits.
     func deactivate() {
         hotkey.stop()
         cancelDictation(reason: "deactivated")
@@ -216,27 +222,24 @@ final class DictationController {
         try? await Task.sleep(for: .milliseconds(250))
     }
 
-    // MARK: - Button-driven recording
+    // MARK: - Buttons
 
-    /// Starts a recording from a Record button rather than the hotkey.
-    ///
-    /// Wispr Flow's hotkey is held down for the duration **only in compare mode**. Reaching
-    /// into another app is a comparison affordance; during ordinary dictation it would mean
-    /// every recording silently shipped your audio to a third party's servers.
+    /// From a button rather than the hotkey. Wispr's key is pressed too only in compare mode;
+    /// for plain dictation that would quietly send every recording to Wispr's cloud.
     func startButtonRecording() {
         guard session == nil else { return }
         if Settings.shared.compareMode { WisprTrigger.press() }
         beginDictation(from: .button)
     }
 
-    /// Releases Wispr's hotkey first, so its upload starts while our own engines are still
-    /// finishing — otherwise every run would wait the full round trip end to end.
+    /// Stops any dictation, hotkey ones included (the HUD's finish button lands here). Wispr is
+    /// let go first so that its upload overlaps our engines' work instead of following it.
     func stopButtonRecording() {
         WisprTrigger.release()
         endDictation(from: nil)
     }
 
-    // MARK: - Dictation
+    // MARK: - From key-down to text
 
     /// Key down. The mic opens *now*, before the engine is ready: whatever is said while the
     /// engine loads waits in the session's stream and reaches the engine first, in order.
@@ -320,19 +323,15 @@ final class DictationController {
         session.engine = engine
 
         do {
-            let chunks = try await engine.start()
+            let snapshots = try await engine.start()
             guard self.session === session else {
                 await engine.cancel()
                 return
             }
 
-            // Compare mode captures in *Apple's* format, not a format of our choosing.
-            //
-            // SpeechAnalyzer enforces `Audio sample data must be 16-bit signed integers`
-            // as a hard precondition — feeding it float32 doesn't fail gracefully, it
-            // kills the process. Parakeet is the flexible one (its `feed` converts
-            // int16/int32/float32), so the strict engine picks the format and the
-            // tolerant engine adapts. Both still replay the identical buffers.
+            // A comparison replays one set of buffers into both engines, so they need a common
+            // format: Apple's. `SpeechAnalyzer` crashes the process on anything but 16-bit
+            // integer samples, while Parakeet's `feed` copes with int16, int32 and float32.
             let formatOwner: any TranscriptionEngine = session.isComparing ? AppleSpeechEngine() : engine
             guard let format = await formatOwner.preferredInputFormat() else {
                 throw TranscriptionError.noAudioFormat
@@ -344,9 +343,9 @@ final class DictationController {
 
             session.consumeTask = Task { [weak self] in
                 do {
-                    for try await chunk in chunks {
+                    for try await snapshot in snapshots {
                         guard let self, self.session === session else { return }
-                        self.transcript = chunk.text
+                        self.transcript = snapshot.text
                     }
                 } catch {
                     self?.engineFailed(session, error)
@@ -613,7 +612,7 @@ final class DictationController {
         transcript = ""
     }
 
-    // MARK: - Helpers
+    // MARK: - Comparison, history, failure
 
     private static func describe(_ verdict: SpeechGate.Verdict) -> String {
         switch verdict {
@@ -623,10 +622,8 @@ final class DictationController {
         }
     }
 
-    /// Replays the recording through every engine and files the results as one group.
-    ///
-    /// Nothing is injected in this mode — the point is to read the outputs side by side,
-    /// and typing one of them into whatever had focus would be a surprise.
+    /// How a compare-mode dictation ends: all engines on the same audio, filed as one group.
+    /// No text is typed; the user came to read the outputs, not to have one land in an app.
     private func runComparison(_ session: DictationSession, recording chunks: [AudioChunk]) async {
         guard !chunks.isEmpty, let releasedAt = session.releasedAt else {
             end(session, as: .idle)
@@ -637,16 +634,15 @@ final class DictationController {
         transcript = "Comparaison des moteurs…"
 
         let group = UUID().uuidString
-        let held = releasedAt.timeIntervalSince(holdStarted)
+        let holdSeconds = releasedAt.timeIntervalSince(holdStarted)
 
-        // Filed one at a time as each engine finishes, so the window fills in progressively
-        // rather than snapping both rows into place at the end.
+        // Filed engine by engine, so a row shows up without waiting for the slower one.
         let results = await EngineComparison.run(chunks: chunks) { result in
             RunLog.record(
                 DictationRun(
                     date: releasedAt,
                     engine: result.engine,
-                    audioSeconds: held,
+                    audioSeconds: holdSeconds,
                     processSeconds: result.seconds,
                     text: result.text,
                     group: group
@@ -659,15 +655,14 @@ final class DictationController {
         // unified log, where `log stream` and every sysdiagnose can read it.
         for result in results {
             Log.speech.info("""
-                compare · \(result.engine, privacy: .public): \
-                \(result.seconds, format: .fixed(precision: 2))s — \
+                compare · \(result.engine, privacy: .public) · \
+                \(result.seconds, format: .fixed(precision: 2), privacy: .public)s · \
                 \(result.text.count, privacy: .public) chars
                 """)
         }
 
-        // Wispr Flow, if its hotkey was held for this same utterance. It transcribes in the
-        // cloud, so its row lands after both local engines have already finished — the wait
-        // happens here rather than blocking the rows above from appearing.
+        // Wispr last: its cloud round trip ends after the local engines, whose rows are already
+        // filed by now. A Wispr row exists only if its key was down for this utterance.
         if WisprReader.isInstalled {
             transcript = "En attente de Wispr Flow…"
             if let wispr = await WisprReader.result(after: holdStarted, timeout: 8) {
@@ -676,19 +671,19 @@ final class DictationController {
                     DictationRun(
                         date: releasedAt,
                         engine: wispr.engine,
-                        audioSeconds: held,
+                        audioSeconds: holdSeconds,
                         processSeconds: wispr.seconds,
                         text: wispr.text,
                         group: group
                     )
                 )
                 Log.speech.info("""
-                    compare · \(wispr.engine, privacy: .public): \
-                    \(wispr.seconds, format: .fixed(precision: 2))s — \
+                    compare · \(wispr.engine, privacy: .public) · \
+                    \(wispr.seconds, format: .fixed(precision: 2), privacy: .public)s · \
                     \(wispr.text.count, privacy: .public) chars
                     """)
             } else {
-                Log.speech.info("compare · Wispr Flow: no result (hotkey not held, or timed out)")
+                Log.speech.info("compare · no Wispr Flow result (key not held, or the wait timed out)")
             }
         }
 
@@ -699,9 +694,8 @@ final class DictationController {
 
     /// Files the finished utterance in the history.
     ///
-    /// `processSeconds` is measured from key release, not from capture start — that's the
-    /// wait the user actually experiences, and it's the only number on which a streaming
-    /// engine and a batch engine can be compared honestly.
+    /// `processSeconds` counts from key-up. That is the delay the user notices, and it puts a
+    /// streaming engine and a batch engine on equal footing.
     private func recordRun(
         _ session: DictationSession,
         text: String,
@@ -733,7 +727,7 @@ final class DictationController {
     }
 
     private func fail(_ message: String) {
-        Log.app.error("\(message)")
+        Log.app.error("dictation failed: \(message)")
         // A held Wispr key outlives our failure: Wispr would keep recording, and uploading.
         WisprTrigger.release()
         if let session { teardown(session) }

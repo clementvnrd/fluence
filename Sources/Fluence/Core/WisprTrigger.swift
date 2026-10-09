@@ -1,57 +1,49 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// Holds and releases Wispr Flow's push-to-talk key by posting synthetic modifier events.
+/// Presses and lets go of Wispr Flow's dictation key with synthetic events, so one
+/// compare-mode recording is heard by Wispr too.
 ///
-/// Wispr is a closed app with no API — the only way to make it record on demand is to press
-/// its hotkey. That lets one Record button in the comparison window drive all three engines
-/// off the same utterance, instead of asking the user to hold two keys at once and then go
-/// looking for the results somewhere else.
+/// Wispr has no API; its own shortcut is the only handle on it. With it, the comparison
+/// window's one Record button gets Apple, Parakeet and Wispr on the same words: no second
+/// key to hold, no hunting for Wispr's text afterwards.
 ///
-/// This is inherently coupled to Wispr's hotkey setting. `key` must match whatever is bound
-/// to `ptt` in Wispr's own config; if the user rebinds it there, this stops working until
-/// it's updated here.
+/// Brittle by nature: it works only while the key below is Wispr's `ptt` shortcut.
 @MainActor
 enum WisprTrigger {
-    /// Left Command — Wispr's `ptt` binding.
-    ///
-    /// Wispr stores its shortcuts by keycode in
-    /// `~/Library/Application Support/Wispr Flow/config.json` under `prefs.user.shortcuts`,
-    /// so that file is the source of truth if this ever needs re-checking.
-    static let keyCode = CGKeyCode(kVK_Command) // 55, left Command
+    /// Left ⌘, Wispr's `ptt` key. If Wispr is rebound, change this to match; Wispr keeps its
+    /// key codes in `~/Library/Application Support/Wispr Flow/config.json`
+    /// (`prefs.user.shortcuts`).
+    private static let pushToTalkKeyCode = CGKeyCode(kVK_Command)
 
-    /// The device-specific left-Command bit. macOS reports plain `.maskCommand` for either
-    /// side, so an app that distinguishes left from right — as Wispr does, since it binds
-    /// left Command separately — needs this set too.
-    private static let leftCommandDeviceBit = CGEventFlags(rawValue: 0x0000_0008)
+    /// `NX_DEVICELCMDKEYMASK`. `.maskCommand` alone doesn't say which ⌘ is down, and Wispr
+    /// listens for the left one specifically.
+    private static let leftCommandFlag = CGEventFlags(rawValue: 0x0000_0008)
 
-    private static var isHeld = false
+    private static var isHolding = false
 
     static func press() {
-        guard !isHeld else { return }
-        isHeld = true
-        post(flags: [.maskCommand, leftCommandDeviceBit])
+        guard !isHolding else { return }
+        isHolding = true
+        post(flags: [.maskCommand, leftCommandFlag])
     }
 
     static func release() {
-        guard isHeld else { return }
-        isHeld = false
+        guard isHolding else { return }
+        isHolding = false
         post(flags: [])
     }
 
-    /// Builds the event from a *null* source rather than `CGEvent(keyboardEventSource:)`.
-    ///
-    /// A keyboard event whose `type` is reassigned to `.flagsChanged` silently loses its
-    /// keycode, and the resulting event does nothing at all — it looks like it posted fine.
-    /// Creating a bare event and setting the keycode field explicitly is the only shape that
-    /// actually works.
+    /// Built from a bare `CGEvent(source: nil)` with the key code set by hand. Starting from a
+    /// keyboard event and retyping it to flags-changed drops the key code without any error,
+    /// and Wispr never reacts.
     private static func post(flags: CGEventFlags) {
         guard let event = CGEvent(source: nil) else {
-            Log.speech.error("WisprTrigger: could not create event")
+            Log.speech.error("WisprTrigger: could not create the flags-changed event")
             return
         }
         event.type = .flagsChanged
-        event.setIntegerValueField(.keyboardEventKeycode, value: Int64(keyCode))
+        event.setIntegerValueField(.keyboardEventKeycode, value: Int64(pushToTalkKeyCode))
         event.flags = flags
         event.post(tap: .cghidEventTap)
     }

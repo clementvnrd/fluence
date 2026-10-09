@@ -2,7 +2,7 @@ import FluenceCore
 import Foundation
 import Observation
 
-/// Which speech engine transcribes an utterance.
+/// Raw values are what the defaults store: renaming a case loses the user's choice.
 enum SpeechEngineChoice: String, CaseIterable, Sendable {
     case apple
     case whisper
@@ -64,8 +64,8 @@ final class Settings {
         }
     }
 
-    /// Run every engine on each recording and show them side by side, instead of
-    /// transcribing with one. Nothing is typed into the focused app in this mode.
+    /// Every engine transcribes each recording and the results go to the comparison window;
+    /// the focused app receives nothing.
     var compareMode: Bool {
         didSet { defaults.set(compareMode, forKey: Keys.compareMode) }
     }
@@ -151,7 +151,7 @@ final class Settings {
 
     // MARK: end Clement's switches
 
-    /// Play a short tick when capture starts and stops.
+    /// "Tink" as the mic opens and on ⌥L, "Pop" when text lands, "Glass" after a comparison.
     var soundEnabled: Bool {
         didSet { defaults.set(soundEnabled, forKey: Keys.soundEnabled) }
     }
@@ -222,7 +222,7 @@ final class Settings {
         let raw = defaults.string(forKey: Keys.pushToTalkKey) ?? PushToTalkKey.optionSpace.rawValue
         pushToTalkKey = PushToTalkKey(rawValue: raw) ?? .optionSpace
         selectedMicrophoneUID = defaults.string(forKey: Keys.selectedMicrophoneUID) ?? "default"
-        // Apple by default: no download, no dependency, live text while speaking.
+        // Apple by default: it comes with macOS, downloads nothing and shows text live.
         engine = SpeechEngineChoice(rawValue: defaults.string(forKey: Keys.engine) ?? "") ?? .apple
         whisperModel = defaults.string(forKey: Keys.whisperModel) ?? WhisperModels.defaultVariant
 
