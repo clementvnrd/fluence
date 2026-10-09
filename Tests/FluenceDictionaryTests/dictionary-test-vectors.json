@@ -1,0 +1,234 @@
+{
+  "$comment": [
+    "Dictionary corrections, written once for both apps: the macOS side (FluenceDictionary, VectorTests) and the Windows side run every case below in CI, and both must agree.",
+    "A case lists a dictionary, gives it an input, and states the text that must come back plus, for each correction that fired, its 'to' (the entry's write, unchanged) and its count. The order of those reports is free.",
+    "An entry is a 'correction' (hear -> write) or a 'term' (write only). A missing 'hear' is an empty string; a missing 'isEnabled' is true.",
+    "The inputs are the kind of thing Clement dictates: French sentences carrying English tech words. Next to every match sits plain ASCII, except in the one decomposed-accent case, so the two regex engines cannot read a neighbour differently.",
+    "Deeper Unicode behaviour (full case folding, exotic spaces, letters and digits of other scripts, tie order, chained corrections) is pinned by the Swift tests alone.",
+    "Edit this file before either implementation, and keep the Swift copy identical: cp shared/dictionary-test-vectors.json Tests/FluenceDictionaryTests/"
+  ],
+  "version": 1,
+  "cases": [
+    {
+      "name": "switched-off correction leaves its trigger alone",
+      "entries": [
+        { "kind": "correction", "hear": "type script", "write": "TypeScript", "isEnabled": false }
+      ],
+      "input": "on migre le front en type script cette semaine",
+      "expected": "on migre le front en type script cette semaine",
+      "expectedCorrections": []
+    },
+    {
+      "name": "term entry never rewrites the text",
+      "entries": [
+        { "kind": "term", "write": "Kubernetes" }
+      ],
+      "input": "le cluster kubernetes tourne bien depuis lundi",
+      "expected": "le cluster kubernetes tourne bien depuis lundi",
+      "expectedCorrections": []
+    },
+    {
+      "name": "empty dictionary returns the sentence unchanged",
+      "entries": [],
+      "input": "Rien à corriger dans cette phrase.",
+      "expected": "Rien à corriger dans cette phrase.",
+      "expectedCorrections": []
+    },
+    {
+      "name": "empty dictation stays empty",
+      "entries": [
+        { "kind": "correction", "hear": "get hub", "write": "GitHub" }
+      ],
+      "input": "",
+      "expected": "",
+      "expectedCorrections": []
+    },
+    {
+      "name": "dot inside a trigger only matches a dot",
+      "entries": [
+        { "kind": "correction", "hear": "vue.js", "write": "Vue.js" }
+      ],
+      "input": "on hésite entre vuexjs et vue.js pour le dashboard",
+      "expected": "on hésite entre vuexjs et Vue.js pour le dashboard",
+      "expectedCorrections": [ { "to": "Vue.js", "count": 1 } ]
+    },
+    {
+      "name": "plus signs and brackets inside triggers are plain characters",
+      "entries": [
+        { "kind": "correction", "hear": "c++", "write": "C++" },
+        { "kind": "correction", "hear": "(rc)", "write": "[RC]" }
+      ],
+      "input": "la version (rc) du moteur est en c++, pas en c+ ni en cpp",
+      "expected": "la version [RC] du moteur est en C++, pas en c+ ni en cpp",
+      "expectedCorrections": [ { "to": "C++", "count": 1 }, { "to": "[RC]", "count": 1 } ]
+    },
+    {
+      "name": "currency sign trigger ignores the one stuck to a number",
+      "entries": [
+        { "kind": "correction", "hear": "$", "write": "USD" }
+      ],
+      "input": "le serveur coûte $ 20 par mois, ou 20$ hors taxes",
+      "expected": "le serveur coûte USD 20 par mois, ou 20$ hors taxes",
+      "expectedCorrections": [ { "to": "USD", "count": 1 } ]
+    },
+    {
+      "name": "replacement keeps dollar references and digits as text",
+      "entries": [
+        { "kind": "correction", "hear": "prix promo", "write": "$9 ou $0 pour 3" }
+      ],
+      "input": "le prix promo expire lundi",
+      "expected": "le $9 ou $0 pour 3 expire lundi",
+      "expectedCorrections": [ { "to": "$9 ou $0 pour 3", "count": 1 } ]
+    },
+    {
+      "$comment": "The report's 'to' is the write exactly, backslashes included.",
+      "name": "replacement keeps backslashes as text",
+      "entries": [
+        { "kind": "correction", "hear": "dossier projet", "write": "C:\\dev\\0" }
+      ],
+      "input": "copie le dossier projet sur la clé",
+      "expected": "copie le C:\\dev\\0 sur la clé",
+      "expectedCorrections": [ { "to": "C:\\dev\\0", "count": 1 } ]
+    },
+    {
+      "name": "upper and lower case ASCII are the same to a trigger",
+      "entries": [
+        { "kind": "correction", "hear": "get hub", "write": "GitHub" }
+      ],
+      "input": "GET HUB, Get Hub ou gEt HuB, c'est pareil",
+      "expected": "GitHub, GitHub ou GitHub, c'est pareil",
+      "expectedCorrections": [ { "to": "GitHub", "count": 3 } ]
+    },
+    {
+      "name": "capitals and padding in the entry itself are ignored",
+      "entries": [
+        { "kind": "correction", "hear": "  Kuber   Netes ", "write": "Kubernetes" }
+      ],
+      "input": "on passe tout sur kuber netes demain",
+      "expected": "on passe tout sur Kubernetes demain",
+      "expectedCorrections": [ { "to": "Kubernetes", "count": 1 } ]
+    },
+    {
+      "name": "write is inserted with its own capitals, not the input's",
+      "entries": [
+        { "kind": "correction", "hear": "next js", "write": "next.JS" }
+      ],
+      "input": "NEXT JS est lent en dev",
+      "expected": "next.JS est lent en dev",
+      "expectedCorrections": [ { "to": "next.JS", "count": 1 } ]
+    },
+    {
+      "name": "accents typed in two pieces still match the one-piece trigger",
+      "entries": [
+        { "kind": "correction", "hear": "réseau privé", "write": "Réseau Privé" }
+      ],
+      "input": "on passe par le re\u0301seau prive\u0301 de la boîte",
+      "expected": "on passe par le Réseau Privé de la boîte",
+      "expectedCorrections": [ { "to": "Réseau Privé", "count": 1 } ]
+    },
+    {
+      "name": "trigger glued to more letters is not a match",
+      "entries": [
+        { "kind": "correction", "hear": "post gres", "write": "Postgres" }
+      ],
+      "input": "la base postgresql reste telle quelle, comme postgresx",
+      "expected": "la base postgresql reste telle quelle, comme postgresx",
+      "expectedCorrections": []
+    },
+    {
+      "name": "half of a two-word trigger is not a match",
+      "entries": [
+        { "kind": "correction", "hear": "get hub", "write": "GitHub" }
+      ],
+      "input": "je get le ticket puis je passe au hub de la gare",
+      "expected": "je get le ticket puis je passe au hub de la gare",
+      "expectedCorrections": []
+    },
+    {
+      "name": "quotes, brackets, semicolons and an ASCII apostrophe end a word",
+      "entries": [
+        { "kind": "correction", "hear": "open ai", "write": "OpenAI" }
+      ],
+      "input": "la clé d'open ai expire; (open ai) et \"open ai\" aussi, comme open ai's docs",
+      "expected": "la clé d'OpenAI expire; (OpenAI) et \"OpenAI\" aussi, comme OpenAI's docs",
+      "expectedCorrections": [ { "to": "OpenAI", "count": 4 } ]
+    },
+    {
+      "name": "newlines end a word too",
+      "entries": [
+        { "kind": "correction", "hear": "post gres", "write": "Postgres" }
+      ],
+      "input": "ligne un\npost gres\nligne trois",
+      "expected": "ligne un\nPostgres\nligne trois",
+      "expectedCorrections": [ { "to": "Postgres", "count": 1 } ]
+    },
+    {
+      "name": "words of a trigger may be written as one",
+      "entries": [
+        { "kind": "correction", "hear": "type script", "write": "TypeScript" }
+      ],
+      "input": "le module est en typescript depuis hier",
+      "expected": "le module est en TypeScript depuis hier",
+      "expectedCorrections": [ { "to": "TypeScript", "count": 1 } ]
+    },
+    {
+      "name": "words of a trigger may be joined by hyphens",
+      "entries": [
+        { "kind": "correction", "hear": "kuber netes", "write": "Kubernetes" }
+      ],
+      "input": "kuber-netes, Kuber-Netes et kuber - netes",
+      "expected": "Kubernetes, Kubernetes et Kubernetes",
+      "expectedCorrections": [ { "to": "Kubernetes", "count": 3 } ]
+    },
+    {
+      "name": "words of a trigger may be far apart on one line",
+      "entries": [
+        { "kind": "correction", "hear": "get hub", "write": "GitHub" }
+      ],
+      "input": "je pousse le code sur get    hub ce soir",
+      "expected": "je pousse le code sur GitHub ce soir",
+      "expectedCorrections": [ { "to": "GitHub", "count": 1 } ]
+    },
+    {
+      "name": "three hits of one correction count three",
+      "entries": [
+        { "kind": "correction", "hear": "cloud code", "write": "Claude Code" }
+      ],
+      "input": "cloud code relit la PR, cloud code la corrige, puis cloud code la fusionne",
+      "expected": "Claude Code relit la PR, Claude Code la corrige, puis Claude Code la fusionne",
+      "expectedCorrections": [ { "to": "Claude Code", "count": 3 } ]
+    },
+    {
+      "name": "two-word trigger beats the one-word trigger it starts with",
+      "entries": [
+        { "kind": "correction", "hear": "git", "write": "Git" },
+        { "kind": "correction", "hear": "git lab", "write": "GitLab" }
+      ],
+      "input": "on migre vers git lab cet hiver",
+      "expected": "on migre vers GitLab cet hiver",
+      "expectedCorrections": [ { "to": "GitLab", "count": 1 } ]
+    },
+    {
+      "name": "one-word trigger still fires where it stands alone",
+      "entries": [
+        { "kind": "correction", "hear": "git", "write": "Git" },
+        { "kind": "correction", "hear": "git lab", "write": "GitLab" }
+      ],
+      "input": "git lab pour la CI, git pour le reste",
+      "expected": "GitLab pour la CI, Git pour le reste",
+      "expectedCorrections": [ { "to": "GitLab", "count": 1 }, { "to": "Git", "count": 1 } ]
+    },
+    {
+      "name": "unrelated corrections all apply in one sentence",
+      "entries": [
+        { "kind": "correction", "hear": "type script", "write": "TypeScript" },
+        { "kind": "correction", "hear": "post gres", "write": "Postgres" },
+        { "kind": "correction", "hear": "get hub", "write": "GitHub" },
+        { "kind": "term", "write": "Fluence" }
+      ],
+      "input": "le back en type script parle à post gres, et tout part sur get hub",
+      "expected": "le back en TypeScript parle à Postgres, et tout part sur GitHub",
+      "expectedCorrections": [ { "to": "TypeScript", "count": 1 }, { "to": "Postgres", "count": 1 }, { "to": "GitHub", "count": 1 } ]
+    }
+  ]
+}

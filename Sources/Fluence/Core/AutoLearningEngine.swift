@@ -1,6 +1,6 @@
 import FluenceCore
 import Foundation
-import MurmurDictionary
+import FluenceDictionary
 
 /// Moteur d'auto-apprentissage de Murmur / Fluence.
 /// Analyse les corrections apportées par l'utilisateur pour enrichir automatiquement

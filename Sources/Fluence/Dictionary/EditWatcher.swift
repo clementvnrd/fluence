@@ -1,7 +1,7 @@
 import ApplicationServices
 import FluenceCore
 import Foundation
-import MurmurDictionary
+import FluenceDictionary
 import Observation
 
 /// Dictionary auto-learn (FLU-5): watches the text field a dictation went into, for a short

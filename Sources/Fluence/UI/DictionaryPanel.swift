@@ -1,6 +1,6 @@
 import AppKit
 import FluenceCore
-import MurmurDictionary
+import FluenceDictionary
 import SwiftUI
 
 /// Dictionnaire (FLU-12): the words Fluence must write right — add, edit, delete, search.
@@ -308,7 +308,7 @@ private struct DictionaryEditor: View {
 }
 
 extension DictionaryWarning {
-    /// The warning in French; MurmurDictionary's `message` is the English (FLU-12).
+    /// The warning in French; FluenceDictionary's `message` is the English (FLU-12).
     var french: String {
         let trigger = FrenchFormat.quoted(self.trigger)
         switch kind {

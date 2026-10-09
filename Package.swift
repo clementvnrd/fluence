@@ -5,8 +5,8 @@ let package = Package(
     name: "Fluence",
     platforms: [.macOS(.v26)],
     dependencies: [
-        // Parakeet TDT as CoreML on the Neural Engine. Optional at runtime — Apple's
-        // SpeechTranscriber remains the default and needs no dependency at all.
+        // Parakeet on CoreML (FluidAudio), an optional engine: Apple's own speech engine
+        // needs no package at all.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.17.5"),
         // OpenAI Whisper as CoreML on Apple Silicon (WhisperKit). Optional at runtime too:
         // its model is downloaded the first time Whisper is chosen.
@@ -17,12 +17,12 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
     ],
     targets: [
-        // The dictionary is its own target so it can be tested directly, and because its
-        // behaviour is a cross-platform contract: the Windows app reimplements this logic in
-        // C#, and both sides run the same vectors in shared/dictionary-test-vectors.json.
+        // Dictionary corrections and bias phrases. A target of its own so it is tested alone:
+        // its behaviour is the cross-platform contract in shared/dictionary-test-vectors.json,
+        // which the Windows app runs too.
         .target(
-            name: "MurmurDictionary",
-            path: "Sources/MurmurDictionary",
+            name: "FluenceDictionary",
+            path: "Sources/FluenceDictionary",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Notetaker (capture): the platform-neutral meeting logic — model, merge, echo dedupe,
@@ -45,7 +45,7 @@ let package = Package(
         .executableTarget(
             name: "Fluence",
             dependencies: [
-                "MurmurDictionary",
+                "FluenceDictionary",
                 "FluenceMeetingCore",
                 "FluenceNotesCore",
                 "FluenceCore",
@@ -55,7 +55,7 @@ let package = Package(
             ],
             path: "Sources/Fluence",
             swiftSettings: [
-                .swiftLanguageMode(.v6)
+                .swiftLanguageMode(.v6),
             ]
         ),
         // The Notetaker's notes logic (chunking, prompts, merging, Markdown, retention),
@@ -72,9 +72,9 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
-            name: "MurmurDictionaryTests",
-            dependencies: ["MurmurDictionary"],
-            path: "Tests/MurmurDictionaryTests",
+            name: "FluenceDictionaryTests",
+            dependencies: ["FluenceDictionary"],
+            path: "Tests/FluenceDictionaryTests",
             resources: [.copy("dictionary-test-vectors.json")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

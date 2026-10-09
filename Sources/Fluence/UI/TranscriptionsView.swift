@@ -1,6 +1,6 @@
 import AppKit
 import FluenceCore
-import MurmurDictionary
+import FluenceDictionary
 import SwiftUI
 
 /// Transcriptions (mock-up 02): every dictation, newest first, by day.

@@ -1,7 +1,7 @@
 import CryptoKit
 import FluenceCore
 import Foundation
-import MurmurDictionary
+import FluenceDictionary
 
 /// One recording in progress: the two captures, their pipelines and spools, the live
 /// segments, and the system-audio watchdog. Owned by `MeetingController`.
