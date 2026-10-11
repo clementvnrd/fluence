@@ -49,7 +49,8 @@ struct FluenceApp: App {
         }
         .windowStyle(.hiddenTitleBar)
 
-        // Secondary since the main window exists: status and hotkey reminder from any app.
+        // Where Fluence lives with its window closed (FLU-59): status, the settings that matter
+        // while working elsewhere, and « Ouvrir Fluence ».
         MenuBarExtra {
             MenuContent(controller: delegate.controller)
         } label: {
@@ -81,9 +82,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var stateObservation: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Dock icon, app menu and ordinary windows. Dictating into another app still keeps
-        // that app focused: the HUD panel is non-activating whatever the policy says.
-        NSApp.setActivationPolicy(.regular)
+        // FLU-59: Dock icon, app menu and ordinary windows while a window is open; menu bar
+        // only once the last one is closed, and from the start when the Mac launched us at login
+        // (FLU-58). Dictating into another app still keeps that app focused: the HUD panel is
+        // non-activating whatever the policy says.
+        let inBackground = AppPresence.startsInBackground
+        AppPresence.shared.start(inBackground: inBackground)
 
         hud = HUDPanel(controller: controller)
         // MARK: FLU-12 — dev-only HUD preview for screenshots, under
@@ -103,7 +107,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             retryActivation()
         }
         // MARK: FLU-5 input
-        if OnboardingWindow.isNeeded || DevPreview.onboardingStep != nil { OnboardingWindow.shared.show() }
+        // Not at login: a window nobody asked for, when the menu bar already lists what is missing.
+        if (OnboardingWindow.isNeeded && !inBackground) || DevPreview.onboardingStep != nil { OnboardingWindow.shared.show() }
 
         // Reads (and on first run after the update, seals and replaces) the history off the
         // main thread, then applies the retention setting.
@@ -127,7 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Each `make install` relaunches the app and its windows are lost; without this the
         // comparison window would disappear on every rebuild.
-        if UserDefaults.standard.bool(forKey: "comparisonWindowOpen") {
+        if !inBackground, UserDefaults.standard.bool(forKey: "comparisonWindowOpen") {
             Task { @MainActor in
                 // Give SwiftUI time to create the scene's window, or there is no title to find.
                 try? await Task.sleep(for: .milliseconds(400))
@@ -154,17 +159,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         DevPreview.snapshotIfRequested()
 
-        // Clement's build brings the main window forward at launch.
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(300))
-            NSApp.windows.first { $0.title == Self.mainTitle }?.makeKeyAndOrderFront(nil)
+        // Clement's build brings the main window forward at launch — except at login, where
+        // Fluence stays in the menu bar until it is opened.
+        if !inBackground {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(300))
+                AppPresence.mainWindow?.makeKeyAndOrderFront(nil)
+            }
         }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag {
-            NSApp.windows.first { $0.title == Self.mainTitle }?.makeKeyAndOrderFront(nil)
-        }
+        if !flag { AppPresence.shared.reopenMainWindow() }
         return true
     }
 
@@ -191,6 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private static func showWindow(titled title: String) {
+        AppPresence.shared.becomeRegular()
         NSApp.windows.first { $0.title == title }?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -295,6 +302,15 @@ private struct MenuContent: View {
     }
 
     var body: some View {
+        // FLU-59: the way back to the app from the menu bar, first and plain.
+        Button {
+            AppPresence.shared.showMainWindow(openWindow: openWindow)
+        } label: {
+            Label("Ouvrir Fluence", systemImage: "macwindow")
+        }
+
+        Divider()
+
         Button(controller.state.isActive ? "⏹ Arrêter la dictée" : "Démarrer la dictée") {
             if controller.state.isActive {
                 controller.stopButtonRecording()
@@ -383,18 +399,14 @@ private struct MenuContent: View {
         // MARK: end Notetaker (capture)
 
         Button("Corriger la dernière dictée…") {
+            AppPresence.shared.becomeRegular()
             openWindow(id: "correction")
             NSApp.activate(ignoringOtherApps: true)
         }
         .keyboardShortcut(.delete, modifiers: .option)
 
-        Button("Ouvrir la fenêtre principale") {
-            openWindow(id: "main")
-            NSApp.activate(ignoringOtherApps: true)
-        }
-        .keyboardShortcut("m")
-
         Button("Afficher la comparaison des moteurs") {
+            AppPresence.shared.becomeRegular()
             openWindow(id: "comparison")
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -439,6 +451,7 @@ private struct MenuContent: View {
         Divider()
 
         Button("Réglages…") {
+            AppPresence.shared.becomeRegular()
             openSettings()
             NSApp.activate(ignoringOtherApps: true)
         }

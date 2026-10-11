@@ -93,6 +93,45 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
 // MARK: - Dictée
 
+/// « Lancer Fluence au démarrage du Mac » (FLU-58). The toggle shows what macOS says, read again
+/// whenever Fluence comes back to the front: the switch also lives in System Settings.
+private struct LaunchAtLoginCard: View {
+    @State private var login = LaunchAtLogin.shared
+
+    var body: some View {
+        SectionCard {
+            SettingsRow(
+                systemImage: "power",
+                title: "Lancer Fluence au démarrage du Mac",
+                info: "Fluence démarre dans la barre des menus, sans ouvrir de fenêtre : la dictée est prête dès la connexion."
+            ) {
+                RowToggle(
+                    isOn: Binding(get: { login.isOn }, set: { login.set($0) }),
+                    isEnabled: login.isAvailable
+                )
+            }
+            if !login.isAvailable {
+                RowNote(text: "Disponible depuis Fluence installée dans Applications.")
+            } else if login.needsApproval {
+                RowNote(text: "macOS attend votre accord dans Réglages Système › Général › Ouverture.", color: DS.Color.meterAmber)
+                HStack {
+                    CapButton(title: "Ouvrir Réglages Système", height: 24) { login.openSystemSettings() }
+                    Spacer()
+                }
+                .padding(.leading, 46)
+                .padding(.bottom, 12)
+            }
+            if let problem = login.problem {
+                RowNote(text: problem, color: DS.Color.fault)
+            }
+        }
+        .onAppear { login.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            login.refresh()
+        }
+    }
+}
+
 struct DictationSettingsSection: View {
     @Bindable var controller: DictationController
     @State private var settings = Settings.shared
@@ -121,6 +160,8 @@ struct DictationSettingsSection: View {
                 RowToggle(isOn: $settings.soundEnabled)
             }
         }
+
+        LaunchAtLoginCard()
 
         SectionCard {
             SettingsRow(

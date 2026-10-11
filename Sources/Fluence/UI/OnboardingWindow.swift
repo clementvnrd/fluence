@@ -36,6 +36,7 @@ final class OnboardingWindow {
             self.window = window
         }
         guard let window else { return }
+        AppPresence.shared.becomeRegular()
         // Fresh each time it is opened, so it starts at whatever is still missing.
         if !window.isVisible {
             window.contentViewController = NSHostingController(
