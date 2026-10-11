@@ -214,6 +214,17 @@ quit. Rules that bite:
   any other path. A login launch starts in the background, detected from the `lgit` Apple event;
   that detection has only been exercised through `FLUENCE_START_IN_BACKGROUND=1` (honoured under
   `FLUENCE_SUPPORT_DIRECTORY` only), never by a real login.
+- **If Fluence quits by itself, find who asked before looking for a defect** (FLU-64). On
+  2026-10-11 « the red cross quits the menu bar part too » was Supercharge (Clement's own
+  auto-quit tool): it sent `aevt quit` to Fluence 6 s after its last window closed. The dying
+  process logs `Handling Quit AppleEvent` (an outside quit) rather than `Termination complete`
+  (our own `NSApp.terminate`), and in `RECEIVED:(aevt,quit) {… target=X …}` **X is the sender**.
+  Fluence was excluded in Supercharge; refusing outside quit events inside Fluence was rejected,
+  because logout, the Dock, Sparkle and scripts use the same event.
+- **A test copy carries its own bundle ID** (`make app BUNDLE_ID=io.github.clementvnrd.fluence.bgtest`),
+  and the staged bundle's ID is read with `PlistBuddy` before `open`. Launch it by its explicit
+  path, never from a glob: a copy with the real ID runs beside the installed app, both holding the
+  shortcut.
 
 **Choosing a microphone in Settings must not trust the engine's output format** (FLU-62, Clement:
 dictation came out as unreadable text in another language). `AVAudioEngine` takes its rate from the
