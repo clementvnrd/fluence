@@ -184,7 +184,7 @@ final class SystemAudioTap: @unchecked Sendable {
 
         var description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "Fluence meeting capture",
-            kAudioAggregateDeviceUIDKey: "uk.co.delff.fluence.meeting." + UUID().uuidString,
+            kAudioAggregateDeviceUIDKey: "io.github.clementvnrd.fluence.meeting." + UUID().uuidString,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,
             kAudioAggregateDeviceTapAutoStartKey: true,

@@ -19,9 +19,9 @@
 	<!-- The one place the version is written (FLU-26). The build number is derived from it —
 	     major × 10000 + minor × 100 + patch — and a test checks it; Sparkle compares it. -->
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>0.2.0</string>
 	<key>CFBundleVersion</key>
-	<string>100</string>
+	<string>200</string>
 	<!-- The app is in French. Declaring it is what makes system menus and Sparkle's update
 	     window French too: a framework only speaks a language its app declares. -->
 	<key>CFBundleDevelopmentRegion</key>
