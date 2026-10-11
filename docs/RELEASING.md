@@ -114,6 +114,20 @@ Same designated requirement, event tap armed, dictionary (117 entries), history,
 meetings unchanged; Parakeet took 18 s to load once, the first launch of a new binary. **The
 next published release must now be 0.1.3 or later.**
 
+0.1.3 (build 103, FLU-57), 0.1.4 (build 104, FLU-61) and 0.1.5 (build 105, FLU-63) followed on
+2026-10-11, each built with `make app APP_VERSION=x.y.z FEED_URL=…` from a clean checkout of `main`
+(0.1.3 @ 4e46ede: dictionary files with any line ending; 0.1.4 @ faf3590: menu bar background mode and
+the launch-at-login option; 0.1.5 @ 36b7831: French dictation with a chosen USB microphone). Same
+steps and checks as 0.1.2; each previous app was kept as
+`~/Fluence-app-backup-2026-10-11/Fluence-<old>-before-<new>.app.bak`. **Keep backups as `.app.bak`,
+never `.app`**: before 0.1.3, macOS had launched a 0.1.1 backup carrying the real bundle ID instead
+of `/Applications/Fluence.app` (LaunchServices registers every bundle with that ID), so the ten
+old backups were renamed. Check with `lsregister -dump` that only `/Applications/Fluence.app`
+appears without `.bak`. Same designated requirement every time, event tap armed at launch. Clement
+said in chat that French dictation « a l'air de pas mal fonctionner » on 0.1.5 (the log shows 7.2 s
+of speech pasted as 128 characters); his written confirmation is still open, and launch at login has
+not been tried by hand (FLU-60). **The next published release must now be 0.1.6 or later.**
+
 ## Testing an update without touching the installed app
 
 A copy built under another bundle ID keeps its own data folder, settings, Keychain item and
