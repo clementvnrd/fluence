@@ -40,7 +40,7 @@ final class MeetingDetector {
     private var offered: Set<String> = []
     /// Families seen on the mic in the last poll.
     private(set) var appsOnMicrophone: Set<String> = []
-    private let ownBundleID = Bundle.main.bundleIdentifier ?? "uk.co.delff.fluence"
+    private let ownBundleID = Bundle.main.bundleIdentifier ?? "io.github.clementvnrd.fluence"
     private let ownPID = ProcessInfo.processInfo.processIdentifier
 
     private(set) var isRunning = false

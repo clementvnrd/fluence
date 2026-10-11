@@ -21,17 +21,17 @@ new uses (v0.3).
 | Version | Theme | Issues |
 |---|---|---|
 | **v0.1** (2026-10-08) | Versioned build, `make release`, one-click updates (Sparkle 2), signed not notarized; installed on Clement's Mac on 2026-10-09 with the trust fixes inside | FLU-26, FLU-27, FLU-41, decisions FLU-39 |
-| **v0.1.x** | Trust fixes (cleanup that deleted real words, names that never reached the engine, meetings index overwrite, import crash, double instance, voice prints kept for nothing): merged before 0.1.0 was built, so they shipped in it. The first update through Sparkle is the next version, once the repository is public, after the rewrite | FLU-27, FLU-44 |
-| **v0.2** | Record only after a click (FLU-34, first); the code others wrote rewritten, so the repository can be public and updates start (FLU-44, next); meetings prepared before the first call, not during it (FLU-45); right engine and honest feedback (FLU-29, FLU-30); meetings that survive real calls (FLU-32); a speaker bench (FLU-33); diagnostics and CI that launches the app (FLU-35); data you don't lose and an encrypted backup (FLU-36); first dictation without a doubt and accessibility (FLU-37, FLU-38); public distribution, never notarized (FLU-28, after FLU-44) | |
+| **v0.1.x** | Trust fixes (cleanup that deleted real words, names that never reached the engine, meetings index overwrite, import crash, double instance, voice prints kept for nothing): merged before 0.1.0 was built, so they shipped in it. The first update through Sparkle is 0.2.0, once the repository is public (FLU-66, FLU-73) | FLU-27, FLU-44 |
+| **v0.2** | Record only after a click (FLU-34, first); the repository made public and updates start (FLU-66, FLU-72, FLU-73), the code others wrote rewritten for the release after (FLU-44); meetings prepared before the first call, not during it (FLU-45); right engine and honest feedback (FLU-29, FLU-30); meetings that survive real calls (FLU-32); a speaker bench (FLU-33); diagnostics and CI that launches the app (FLU-35); data you don't lose and an encrypted backup (FLU-36); first dictation without a doubt and accessibility (FLU-37, FLU-38); public distribution, never notarized (FLU-28) | |
 | **v0.3** | Faster and lighter (FLU-31); regular voices (opt-in); next steps to Reminders, pre-meeting brief, Markdown export | FLU-31, ideas below |
 
 ## Decisions (Clement, 2026-10-08, FLU-39)
 
 | Question | Answer | What follows |
 |---|---|---|
-| Where installed copies find updates | The `clementvnrd/fluence` repository itself, made public | 0.1.0 points there (FLU-41); updates start once the repository is public, after the rewrite (FLU-43, FLU-44) |
+| Where installed copies find updates | The `clementvnrd/fluence` repository itself, made public | 0.1.0 points there (FLU-41); updates start once the repository is public (FLU-73; the order « after the rewrite » of FLU-43 was reversed on 2026-10-11, FLU-66) |
 | Install 0.1.0 on Clement's Mac | Yes | Done on 2026-10-09 (FLU-41), the draft release stays a draft |
-| The code Fluence started from | Do not ask its author; Fluence's own code under a licence that forbids copying, changing and selling | PolyForm Strict 1.0.0 (`LICENSE.md`, FLU-42); ~17 % of the lines are still that author's: public only after rewriting them (decided 2026-10-09, FLU-43; the rewrite is FLU-44) |
+| The code Fluence started from | Do not ask its author; Fluence's own code under a licence that forbids copying, changing and selling | PolyForm Strict 1.0.0 (`LICENSE.md`, FLU-42); ~17 % of the lines were still that author's: « public after rewriting them » (2026-10-09, FLU-43) became « public now, rewrite for the next release » (2026-10-11, FLU-66; the rewrite is FLU-44) |
 | Developer ID | Never | No notarization (`docs/RELEASING.md`) |
 | Parakeet as the French default for new installs | Yes | FLU-29 |
 | Meetings record only after a click | Yes | FLU-34: the card asks; recording without a click is a setting, off by default (`docs/NOTETAKER.md` §2.1) |
@@ -118,8 +118,8 @@ probes) is in each issue.
 
 | ID | Finding | Sev | Effort | Issue |
 |---|---|---|---|---|
-| D2 | Private repo cannot serve updates; Sparkle also refuses `file://` (tested) | P0 | S | decided: feed on the repository, live once public after the rewrite (FLU-41, FLU-44) |
-| D1 | ~18 % of the code comes from an upstream project with no licence (17.3 % re-measured 2026-10-09) | P0 public | L rewrite | decided: rewrite, then public (FLU-43); FLU-44 |
+| D2 | Private repo cannot serve updates; Sparkle also refuses `file://` (tested) | P0 | S | decided: feed on the repository, live once public (FLU-41, FLU-73) |
+| D1 | ~18 % of the code comes from an upstream project with no licence (17.3 % re-measured 2026-10-09) | P0 public | L rewrite | decided 2026-10-11 (FLU-66): public now, rewrite for the next release; FLU-44 |
 | D3 | No third-party notices (FluidAudio, WhisperKit, Sparkle, models) | P0 public | S | FLU-28 |
 | D4–D7 | No Developer ID (decided: never) → no notarization; Sparkle key/identity rotation rules | P1 | S | FLU-28, `docs/RELEASING.md` |
 | D5 | The build could not embed Sparkle; build number fixed at 1 | P1 | M | **fixed in FLU-26** |
@@ -170,8 +170,10 @@ Status on 2026-10-09, after Clement's answers (FLU-39) and the install (FLU-41).
    it is the only way to keep updating installed copies.
 4. **Not notarized, and never will be** (no Developer ID): a copy downloaded by a browser is
    blocked until *Open Anyway*; updates installed by Sparkle are not (tested).
-5. **Publishing redistributes code others wrote** (~17 %): the repository stays private and the
-   release a draft until the rewrite is done (FLU-44; decided 2026-10-09, FLU-43).
+5. **Publishing redistributes code others wrote** (~17 %, none of it licensed by its author):
+   accepted by Clement on 2026-10-11 (FLU-66) so that the release can go out now; the rewrite
+   (FLU-44) aims at the next release. The switch itself (FLU-73) waits for the history audit
+   (FLU-72) and his confirmation phrase.
 6. **CI does not build the release bundle or launch it** (R8): the custom Sparkle embedding is
    proven only by today's local end-to-end test (FLU-35).
 7. **The update question takes focus**: in the test, the question was answered *Installer*

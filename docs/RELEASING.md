@@ -18,15 +18,18 @@ first: the signing identity is what keeps macOS permissions (TCC) across updates
 Sparkle downloads the feed and the archive **without a password, over http(s)**. A `file://`
 feed is refused ("The download request URL must use http or https", tested 2026-10-08), and a
 token inside the app to read a private repository was rejected (a secret in every copy).
-Clement chose to make `clementvnrd/fluence` public (FLU-39), so every build uses:
+Clement chose to make `clementvnrd/fluence` public (FLU-39; made public as part of FLU-73), so
+every build uses:
 
 ```
 FEED_URL=https://github.com/clementvnrd/fluence/releases/latest/download/appcast.xml
 DOWNLOAD_URL_PREFIX=https://github.com/clementvnrd/fluence/releases/download/v<version>/
 ```
 
-**Not live yet.** The repository stays private until the lines still written by another author
-(about 17 %) are rewritten (FLU-44; decided 2026-10-09 in FLU-43: public after the rewrite). Meanwhile the feed answers 404: a background check finds
+**Live only once the repository is public.** Decided 2026-10-11 (FLU-66, replacing « public après
+réécriture » of FLU-43): public now, rewrite of the lines still written by another author
+(FLU-44) for the next release. The history audit (FLU-72) comes first and the switch is FLU-73,
+on Clement's confirmation phrase. Until then the feed answers 404: a background check finds
 nothing and shows nothing (the log says `updates: check ended — SUSparkleErrorDomain 2001`); a
 manual *Rechercher des mises à jour…* shows an error.
 

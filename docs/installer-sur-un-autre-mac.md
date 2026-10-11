@@ -10,7 +10,7 @@ Ce guide est pour quelqu'un qui n'a jamais vu Fluence. Comptez dix minutes, dont
 
 ## 1. Récupérer l'app
 
-Téléchargez **`Fluence-<version>.zip`** depuis la page de la version (le lien vous est envoyé par Clement). Safari ouvre l'archive tout seul ; sinon, double-cliquez dessus dans *Téléchargements*.
+Téléchargez **`Fluence-<version>.zip`** depuis la page des versions : <https://github.com/clementvnrd/fluence/releases/latest>. Safari ouvre l'archive tout seul ; sinon, double-cliquez dessus dans *Téléchargements*.
 
 Vous obtenez **Fluence** (une icône bleue ronde). Glissez-la dans le dossier **Applications**.
 

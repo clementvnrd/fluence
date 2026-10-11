@@ -28,14 +28,18 @@ pull request #1 on `per-simmons/murmur-youtube`): it did not transcribe at all u
 five fixes, which are merged here. The later audit fixes have not been on hardware yet.
 Describe it that way — not as "working", not as "unfinished".
 
-The repository is `clementvnrd/fluence` (private). Fluence's own code is under the **PolyForm
+The repository is `clementvnrd/fluence` (private until FLU-73, see below). Fluence's own code is under the **PolyForm
 Strict 1.0.0** licence (`LICENSE.md`, FLU-42): readable and usable for non-commercial purposes,
 no distribution, no changes. It started as a copy of the public `per-simmons/murmur-youtube`,
 which has **no licence**, and about 17 % of the lines are still its author's (measured
-2026-10-09, FLU-43). Clement chose not to ask that author (FLU-39), and to make the repository public only once
-those lines are rewritten (FLU-43, 2026-10-09: « public après réécriture »). **Never make the
-repository public or publish a binary before FLU-44 has rewritten them**; making it public is
-then still Clement's explicit call.
+2026-10-09, FLU-43; re-measured 2026-10-11 by `git blame -w -C -C`: macOS `Sources/` 8.9 %,
+the Windows app 27.6 %, bench / Makefile / Package.swift 62.9 %). Clement chose not to ask that
+author (FLU-39). He first decided to go public only once those lines were rewritten (FLU-43,
+2026-10-09), then **reversed it on 2026-10-11 (FLU-66): public now, the rewrite (FLU-44) aims at
+the next release**. The risk is his and is known: until the rewrite is done, the public repository
+and the app contain lines whose author gave no licence. Making the repository public and
+publishing a release stay explicit acts: **never do either without Clement's confirmation phrase
+on FLU-73**, and only after the history audit (FLU-72) is accepted.
 
 ---
 
