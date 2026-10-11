@@ -31,6 +31,8 @@ final class AudioCapture: @unchecked Sendable {
     private var needsRebuild = false
     private var configurationObserver: NSObjectProtocol?
     private var sink: TapSink?
+    /// What the tap was installed with, to tell a harmless configuration change from a real one.
+    private var installedFormat: CaptureConfigurationPolicy.Format?
     /// Configuration changes recovered from during this capture. A device that keeps
     /// flapping ends the dictation instead of looping.
     private var recoveries = 0
@@ -86,7 +88,12 @@ final class AudioCapture: @unchecked Sendable {
 
         let input = engine.inputNode
         selectDevice(on: input)
-        let native = input.outputFormat(forBus: 0)
+        // The input's own format, not the node's output format: right after a microphone is
+        // chosen the output side still describes the Mac's default devices (44.1 kHz with the
+        // headphones plugged in) while a USB webcam delivers 16 kHz, and a tap installed with the
+        // wrong one gets no audio at all, or audio taken for the wrong rate (FLU-62).
+        let hardware = input.inputFormat(forBus: 0)
+        let native = hardware.sampleRate > 0 && hardware.channelCount > 0 ? hardware : input.outputFormat(forBus: 0)
 
         // With no input device the node reports a 0 Hz, 0-channel format, and installing a
         // tap with it raises an Objective-C exception — which Swift cannot catch, so the
@@ -103,6 +110,7 @@ final class AudioCapture: @unchecked Sendable {
         // Installing over a leftover tap crashes (an Objective-C exception), so clear the bus.
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 2048, format: native, block: Self.tap(into: sink, as: mono))
+        installedFormat = Self.policyFormat(native)
 
         engine.prepare()
         do {
@@ -120,20 +128,14 @@ final class AudioCapture: @unchecked Sendable {
     /// webcam) falls back to the system input rather than failing the dictation.
     private func selectDevice(on input: AVAudioInputNode) {
         guard let uid = deviceUID, uid != "default", !uid.isEmpty else { return }
-        guard var device = AudioDevices.deviceID(for: uid), let unit = input.audioUnit else {
+        guard let device = AudioDevices.deviceID(for: uid) else {
             Log.audio.info("chosen microphone unavailable — using the system input")
             return
         }
-        let status = AudioUnitSetProperty(
-            unit,
-            kAudioOutputUnitProperty_CurrentDevice,
-            kAudioUnitScope_Global,
-            0,
-            &device,
-            UInt32(MemoryLayout<AudioDeviceID>.size)
-        )
-        if status != noErr {
-            Log.audio.error("couldn't select the chosen microphone (\(status, privacy: .public)) — using the system input")
+        do {
+            try input.auAudioUnit.setDeviceID(device)
+        } catch {
+            Log.audio.error("couldn't select the chosen microphone — using the system input: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -157,14 +159,27 @@ final class AudioCapture: @unchecked Sendable {
     }
 
     private func configurationChanged() {
+        guard let sink else {
+            needsRebuild = true // idle: the next start builds a fresh engine
+            return
+        }
+        // Choosing a microphone posts this as well, with the engine running on the format the
+        // tap already has: not a failure (FLU-62).
+        let current = Self.policyFormat(engine.inputNode.inputFormat(forBus: 0))
+        guard CaptureConfigurationPolicy.needsRecovery(isRunning: engine.isRunning, installed: installedFormat, current: current) else {
+            return
+        }
         needsRebuild = true
-        guard let sink else { return } // idle: the next start builds a fresh engine
 
         // Not inside the notification: AVFoundation says the engine must not be torn down
         // from its own configuration-change handler.
         DispatchQueue.main.async { [weak self] in
             self?.recover(sink)
         }
+    }
+
+    private static func policyFormat(_ format: AVAudioFormat) -> CaptureConfigurationPolicy.Format {
+        .init(sampleRate: format.sampleRate, channelCount: Int(format.channelCount))
     }
 
     /// Picks the capture back up on the new configuration when there still is an input.

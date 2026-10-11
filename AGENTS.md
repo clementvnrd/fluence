@@ -215,6 +215,19 @@ quit. Rules that bite:
   that detection has only been exercised through `FLUENCE_START_IN_BACKGROUND=1` (honoured under
   `FLUENCE_SUPPORT_DIRECTORY` only), never by a real login.
 
+**Choosing a microphone in Settings must not trust the engine's output format** (FLU-62, Clement:
+dictation came out as unreadable text in another language). `AVAudioEngine` takes its rate from the
+default *output* device, so right after a USB microphone is chosen `inputNode.outputFormat` still
+says 44.1 kHz (headphones) while a webcam delivers 16 kHz. A tap installed with that stale format
+got no audio at all, or 16 kHz audio taken for 44.1 kHz, which `StreamConverter` then resampled a
+second time: speech sped up 2.75×, and Parakeet answered with confident nonsense. `AudioCapture`
+now selects the device with `auAudioUnit.setDeviceID`, installs the tap with `inputFormat`, and
+`CaptureConfigurationPolicy` ignores the configuration-change notification that choosing a device
+posts while the engine runs on that format (the old code rebuilt the engine on every one until it
+gave up). A symptom to recognise in the log: `capture started — 44100Hz` while the input device is
+at 16000, and a dictation whose « Parakeet: N s audio » is about 0.36 × the capture time. Measure
+with the real class on the real device; the format a node *reports* proved nothing.
+
 **`log` may be shadowed in the user's shell.** Use `/usr/bin/log` explicitly.
 
 **Don't run the `.app` from the repo folder.** It's iCloud-synced and the sync engine can
