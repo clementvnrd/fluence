@@ -94,9 +94,13 @@ struct ComparisonWindow: View {
     private func statusLine(isRecording: Bool) -> String {
         if isRecording { return "Enregistrement en cours — cliquez sur Arrêter quand vous avez fini de parler." }
         if !controller.transcript.isEmpty { return controller.transcript }
+        #if !FLUENCE_WITHOUT_WISPR
         return WisprReader.isInstalled
             ? "Cliquez sur Enregistrer, parlez, puis sur Arrêter. Apple, Parakeet et Wispr Flow entendent tous la même chose."
             : "Cliquez sur Enregistrer, parlez, puis sur Arrêter. Wispr Flow n'est pas installé : ce sera Apple contre Parakeet."
+        #else
+        return "Cliquez sur Enregistrer, parlez, puis sur Arrêter. Apple et Parakeet entendent tous les deux la même chose."
+        #endif
     }
 
     private var emptyState: some View {

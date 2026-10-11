@@ -15,7 +15,18 @@ tested but has not yet been exercised by hand. Audit: [`docs/AUDIT-2026-10.md`](
 
 ---
 
-## Quick start
+## Installing a release (for someone who is not building it)
+
+Download `Fluence-<version>.zip` from the release page, unzip it, drag **Fluence** to
+Applications. It needs a Mac with Apple silicon on macOS 26 or newer. The build is signed
+but **not notarized** (no Developer ID, FLU-39), so macOS blocks the first launch of a
+downloaded copy until System Settings › Privacy & Security › *Open Anyway*; updates then
+install without that step. The step-by-step guide, in French:
+[`docs/installer-sur-un-autre-mac.md`](docs/installer-sur-un-autre-mac.md). The licences of
+what Fluence is built on are in [`Resources/THIRD-PARTY-NOTICES.txt`](Resources/THIRD-PARTY-NOTICES.txt)
+(`make notices` regenerates it).
+
+## Quick start (building it yourself)
 
 ```bash
 make install     # builds, bundles, signs, copies to /Applications, launches
