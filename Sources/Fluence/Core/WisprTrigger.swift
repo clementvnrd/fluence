@@ -1,6 +1,8 @@
 import AppKit
 import Carbon.HIToolbox
 
+#if !FLUENCE_WITHOUT_WISPR  // FLU-69: compiled out of the builds made for other people
+
 /// Presses and lets go of Wispr Flow's dictation key with synthetic events, so one
 /// compare-mode recording is heard by Wispr too.
 ///
@@ -48,3 +50,5 @@ enum WisprTrigger {
         event.post(tap: .cghidEventTap)
     }
 }
+
+#endif

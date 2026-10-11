@@ -127,6 +127,19 @@ compute with the clock started *after* model load. Wispr Flow's number is its ow
 `e2eLatency`, which includes a network round trip and its cleanup pass. Don't present them
 as one ranking.
 
+**A release has no Wispr Flow in it, on purpose (FLU-69).** `WisprReader` and `WisprTrigger`
+(compare mode reads Wispr's database and presses its hotkey) are fine on Clement's own Mac but
+not in a build for someone else. `make release` sets `PUBLIC=1`, which compiles them out
+(`-DFLUENCE_WITHOUT_WISPR`); `make install` keeps them. So an update installed by Sparkle on
+Clement's Mac replaces a build that has the comparison with one that does not: reinstall with
+`make install` to get it back. Any new Wispr call site goes inside `#if !FLUENCE_WITHOUT_WISPR`,
+and `strings` on a `make app PUBLIC=1` binary must find neither name.
+
+**The licences shipped in the app are generated, not written.** `Resources/THIRD-PARTY-NOTICES.txt`
+comes from `make notices` (FLU-68): the licence files of the versions in `Package.resolved`, plus a
+hand-written list of the speech models Fluence downloads. When a dependency moves or a new model
+is added, run it and commit the result; `ThirdPartyNoticesTests` fails otherwise.
+
 **`MainActor.assumeIsolated` will crash the process.** It does not check the claim, it
 asserts it. Use `await MainActor.run` from any non-main-actor context. This took the app
 down once already.

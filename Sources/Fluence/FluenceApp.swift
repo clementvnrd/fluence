@@ -208,7 +208,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.deactivate()
         // Belt and braces: quitting mid-comparison must not leave Wispr Flow's key held down,
         // or Wispr keeps recording — and uploading — after Fluence is gone.
+        #if !FLUENCE_WITHOUT_WISPR
         WisprTrigger.release()
+        #endif
     }
 
     /// Puts the HUD on screen while the dictation state wants it and takes it away after.

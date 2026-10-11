@@ -222,20 +222,36 @@ final class DictationController {
         try? await Task.sleep(for: .milliseconds(250))
     }
 
+    // MARK: - Wispr Flow interop (compare mode on Clement's own builds)
+
+    /// Wispr Flow's key is let go. A no-op in the builds made for other people (FLU-69), which
+    /// do not contain the interop at all.
+    private func releaseWispr() {
+        #if !FLUENCE_WITHOUT_WISPR
+        WisprTrigger.release()
+        #endif
+    }
+
+    private func pressWisprInCompareMode() {
+        #if !FLUENCE_WITHOUT_WISPR
+        if Settings.shared.compareMode { WisprTrigger.press() }
+        #endif
+    }
+
     // MARK: - Buttons
 
     /// From a button rather than the hotkey. Wispr's key is pressed too only in compare mode;
     /// for plain dictation that would quietly send every recording to Wispr's cloud.
     func startButtonRecording() {
         guard session == nil else { return }
-        if Settings.shared.compareMode { WisprTrigger.press() }
+        pressWisprInCompareMode()
         beginDictation(from: .button)
     }
 
     /// Stops any dictation, hotkey ones included (the HUD's finish button lands here). Wispr is
     /// let go first so that its upload overlaps our engines' work instead of following it.
     func stopButtonRecording() {
-        WisprTrigger.release()
+        releaseWispr()
         endDictation(from: nil)
     }
 
@@ -379,7 +395,7 @@ final class DictationController {
         // The hotkey's release must not stop a recording the Record button started.
         if let source, source != session.source { return }
 
-        WisprTrigger.release()
+        releaseWispr()
         session.releasedAt = Date()
         // MARK: FLU-5 text — where the text will go, read now while that app is in front.
         session.target = FrontmostApp.capture(readURL: Settings.shared.cleanupLevel.appliesStyle)
@@ -581,7 +597,7 @@ final class DictationController {
     /// Abandons the dictation in progress: nothing is typed, nothing is filed.
     private func cancelDictation(reason: String) {
         // Unconditionally: a held Wispr key outlives everything else here.
-        WisprTrigger.release()
+        releaseWispr()
         guard let session else { return }
         Log.app.info("dictation cancelled — \(reason, privacy: .public)")
         teardown(session)
@@ -661,6 +677,7 @@ final class DictationController {
                 """)
         }
 
+#if !FLUENCE_WITHOUT_WISPR
         // Wispr last: its cloud round trip ends after the local engines, whose rows are already
         // filed by now. A Wispr row exists only if its key was down for this utterance.
         if WisprReader.isInstalled {
@@ -686,6 +703,7 @@ final class DictationController {
                 Log.speech.info("compare · no Wispr Flow result (key not held, or the wait timed out)")
             }
         }
+#endif
 
         guard self.session === session else { return }
         end(session, as: .idle)
@@ -729,7 +747,7 @@ final class DictationController {
     private func fail(_ message: String) {
         Log.app.error("dictation failed: \(message)")
         // A held Wispr key outlives our failure: Wispr would keep recording, and uploading.
-        WisprTrigger.release()
+        releaseWispr()
         if let session { teardown(session) }
         state = .error(message)
         transcript = ""

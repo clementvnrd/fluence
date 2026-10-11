@@ -655,6 +655,19 @@ struct AboutSettingsSection: View {
                     NSApp.activate()
                 }
             }
+            RowDivider()
+            SettingsRow(
+                systemImage: "doc.plaintext",
+                title: "Licences",
+                info: "Les bibliothèques libres et les modèles de transcription sur lesquels Fluence s'appuie, avec leurs licences."
+            ) {
+                // Absent when the binary runs outside an app bundle (`swift run`).
+                let notices = Bundle.main.url(forResource: "THIRD-PARTY-NOTICES", withExtension: "txt")
+                CapButton(title: "Ouvrir…", height: 24) {
+                    if let notices { NSWorkspace.shared.open(notices) }
+                }
+                .disabled(notices == nil)
+            }
         }
 
         RowNote(text: "Fluence est né d'une copie de murmur-youtube (per-simmons). Les modèles de transcription — Apple, Whisper (WhisperKit) et Parakeet (FluidAudio) — tournent sur ce Mac.")

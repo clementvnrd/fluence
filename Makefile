@@ -54,6 +54,12 @@ PLIST_VERSION := $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersion
 APP_VERSION   ?= $(PLIST_VERSION)
 APP_BUILD     := $(shell echo "$(APP_VERSION)" | awk -F. 'NF == 3 { print $$1 * 10000 + $$2 * 100 + $$3 }')
 
+## PUBLIC=1 builds the app for other people (FLU-69): the Wispr Flow interop — which reads that
+## app's database and presses its hotkey, fine on Clement's own Mac — is compiled out
+## (-DFLUENCE_WITHOUT_WISPR). `make release` always sets it; `make install` keeps the interop.
+PUBLIC ?=
+SWIFT_FLAGS := $(if $(PUBLIC),-Xswiftc -DFLUENCE_WITHOUT_WISPR,)
+
 ## Another bundle ID makes a copy with its own data folder, settings, Keychain item and
 ## permissions (AppPaths.isolatedBundleID) — never Clement's. For update tests and screenshots.
 BUNDLE_ID ?=
@@ -83,17 +89,23 @@ export DEVELOPER_DIR := /Applications/Xcode.app/Contents/Developer
 endif
 endif
 
-.PHONY: all build app run install clean icon release
+.PHONY: all build app run install clean icon release notices
 
 all: app
 
 build:
-	swift build -c $(CONFIG) --scratch-path "$(SCRATCH)"
+	swift build -c $(CONFIG) --scratch-path "$(SCRATCH)" $(SWIFT_FLAGS)
 
 ## Re-packs AppIcon.icns from Resources/AppIcon.iconset. Not a dependency of `app` — the
 ## icon rarely changes. For new artwork: `Tools/generate_fluence_icons.sh artwork.png`.
 icon:
 	@Tools/generate_fluence_icons.sh
+
+## Rewrites Resources/THIRD-PARTY-NOTICES.txt from the licences of the pinned packages (FLU-68).
+## Run it after Package.resolved changes and commit the result; a test fails when they differ.
+notices:
+	@swift package resolve --scratch-path "$(SCRATCH)"
+	@Tools/generate_third_party_notices.sh "$(SCRATCH)/checkouts"
 
 ## Assemble a real .app bundle. TCC (microphone + Accessibility) keys on bundle identity
 ## and code signature, so the raw SwiftPM binary can't be used directly.
@@ -110,6 +122,8 @@ app: build
 	@if [ -n "$(FEED_URL)" ]; then /usr/libexec/PlistBuddy \
 		-c "Add :SUFeedURL string $(FEED_URL)" "$(CONTENTS)/Info.plist"; fi
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(CONTENTS)/Resources/"; fi
+	@# The licences of the libraries and models Fluence uses (FLU-68), opened from Settings › About.
+	@cp Resources/THIRD-PARTY-NOTICES.txt "$(CONTENTS)/Resources/"
 	@# The brand mark is drawn (`AquaOrbView`, FLU-12); Resources/AquaOrb.png is the artwork
 	@# it was drawn from and is not shipped.
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"
@@ -167,7 +181,7 @@ release:
 	@test -f "docs/releases/$(APP_VERSION).md" || { echo "missing docs/releases/$(APP_VERSION).md"; exit 1; }
 	@test -z "$$(git status --porcelain --untracked-files=no)" -o -n "$(ALLOW_DIRTY)" \
 		|| { echo "uncommitted changes: commit first (ALLOW_DIRTY=1 for a test build)"; exit 1; }
-	@$(MAKE) --no-print-directory app TIMESTAMP=--timestamp
+	@$(MAKE) --no-print-directory app TIMESTAMP=--timestamp PUBLIC=1
 	@mkdir -p "$(RELEASE_FEED)"
 	@rm -f "$(RELEASE_FEED)/$(RELEASE_ZIP)"
 	@ditto -c -k --sequesterRsrc --keepParent "$(BUNDLE)" "$(RELEASE_FEED)/$(RELEASE_ZIP)"

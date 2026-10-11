@@ -1,6 +1,8 @@
 import Foundation
 import SQLite3
 
+#if !FLUENCE_WITHOUT_WISPR  // FLU-69: compiled out of the builds made for other people
+
 /// Wispr Flow's result for an utterance, for compare mode.
 ///
 /// Wispr Flow is closed and has no API, but it saves every dictation in a local SQLite file,
@@ -106,3 +108,5 @@ enum WisprReader {
         )
     }
 }
+
+#endif
