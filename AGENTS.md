@@ -198,6 +198,23 @@ tccutil reset Accessibility io.github.clementvnrd.fluence
 A bare `tccutil reset Accessibility` wipes every app on the machine. Then quit System
 Settings entirely (⌘Q) before reopening; the Privacy pane caches its list.
 
+**Closing the last window does not quit: it moves Fluence to the menu bar** (FLU-59, Clement).
+One process, two presences. `AppPresence` switches `NSApp.setActivationPolicy` between `.regular`
+(Dock icon) while a window is open and `.accessory` (menu bar only) once none is; dictation, the
+shortcut, the HUD and meeting detection do not depend on it. ⌘Q and « Quitter Fluence » still
+quit. Rules that bite:
+
+- Anything that opens a window from the menu bar calls `AppPresence.shared.becomeRegular()`
+  first: Settings does not come to the front from a `.accessory` app.
+- Which windows count is `AppPresencePolicy` (FluenceCore, tested): titled, not a panel, visible
+  or minimised. Judge a *closing* window by its kind only: `canBecomeMain` is `false` at
+  `willClose`, which made the first version never leave the Dock.
+- **Launch at login** (FLU-58) is `SMAppService.mainApp`, read back from the system every time
+  (`LaunchAtLogin`), and only offered for the copy in `/Applications`: the system would remember
+  any other path. A login launch starts in the background, detected from the `lgit` Apple event;
+  that detection has only been exercised through `FLUENCE_START_IN_BACKGROUND=1` (honoured under
+  `FLUENCE_SUPPORT_DIRECTORY` only), never by a real login.
+
 **`log` may be shadowed in the user's shell.** Use `/usr/bin/log` explicitly.
 
 **Don't run the `.app` from the repo folder.** It's iCloud-synced and the sync engine can

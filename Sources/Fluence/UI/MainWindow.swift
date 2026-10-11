@@ -26,6 +26,8 @@ final class MainNavigation {
     func show(_ section: Section, openWindow: OpenWindowAction) {
         self.section = section
         if section != .meetings { MeetingLibraryModel.shared.closePage() }
+        // From the menu bar the app may be in the background (FLU-59): the Dock icon first.
+        AppPresence.shared.becomeRegular()
         if let window = NSApp.windows.first(where: { $0.title == AppDelegate.mainTitle }) {
             window.makeKeyAndOrderFront(nil)
         } else {

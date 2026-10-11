@@ -47,8 +47,9 @@
 	</array>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
-	<!-- A regular app: dock icon, app menu, standard windows. The menu bar item remains
-	     for status and the hotkey while you're working elsewhere, but it is secondary. -->
+	<!-- Not an agent at launch: the app starts regular (Dock icon, app menu, windows) and
+	     goes to the menu bar by itself when its last window closes, then comes back from the
+	     menu bar item (AppPresence, FLU-59). A start at login begins in the background. -->
 	<key>LSUIElement</key>
 	<false/>
 	<key>NSHighResolutionCapable</key>
