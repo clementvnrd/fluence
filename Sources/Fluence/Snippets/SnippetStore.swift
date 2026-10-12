@@ -76,7 +76,7 @@ final class SnippetStore {
     /// Case- and accent-insensitive search over both the trigger and the text.
     func filtered(by query: String) -> [Snippet] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return entries }
+        if trimmed.isEmpty { return entries }
         return entries.filter {
             $0.trigger.localizedStandardContains(trimmed) || $0.expansion.localizedStandardContains(trimmed)
         }

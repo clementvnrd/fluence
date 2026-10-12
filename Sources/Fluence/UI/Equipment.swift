@@ -25,7 +25,7 @@ struct BrushedPanel: View {
 /// A clean recessed content well with subtle background tint.
 struct Well<Content: View>: View {
     var radius: CGFloat = DS.Radius.panel
-    @ViewBuilder var content: Content
+    @ViewBuilder let content: Content
 
     var body: some View {
         content
@@ -40,7 +40,7 @@ struct Well<Content: View>: View {
 /// Modern floating readout window.
 struct DeckWindow<Content: View>: View {
     var radius: CGFloat = DS.Radius.control
-    @ViewBuilder var content: Content
+    @ViewBuilder let content: Content
 
     var body: some View {
         content

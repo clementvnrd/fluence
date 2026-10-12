@@ -80,11 +80,9 @@ enum TextInjector {
         let element = unsafeDowncast(focusedValue as AnyObject, to: AXUIElement.self)
 
         var settable: DarwinBoolean = false
-        guard AXUIElementIsAttributeSettable(
-            element,
-            kAXSelectedTextAttribute as CFString,
-            &settable
-        ) == .success, settable.boolValue else {
+        guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
+              settable.boolValue
+        else {
             return .unverified("selected text not settable")
         }
 
@@ -116,18 +114,14 @@ enum TextInjector {
     }
 
     private static func selectedRange(of element: AXUIElement) -> CFRange? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            element,
-            kAXSelectedTextRangeAttribute as CFString,
-            &value
-        ) == .success, let value else { return nil }
-
-        let axValue = unsafeDowncast(value as AnyObject, to: AXValue.self)
-        guard AXValueGetType(axValue) == .cfRange else { return nil }
-
+        var raw: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &raw) == .success,
+              let raw
+        else { return nil }
+        let value = unsafeDowncast(raw as AnyObject, to: AXValue.self)
+        guard AXValueGetType(value) == .cfRange else { return nil }
         var range = CFRange()
-        guard AXValueGetValue(axValue, .cfRange, &range) else { return nil }
+        guard AXValueGetValue(value, .cfRange, &range) else { return nil }
         return range
     }
 

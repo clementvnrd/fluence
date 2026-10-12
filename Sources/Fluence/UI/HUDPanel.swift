@@ -18,7 +18,6 @@ final class HUDPanel: NSPanel {
             backing: .buffered,
             defer: false
         )
-
         isFloatingPanel = true
         level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]

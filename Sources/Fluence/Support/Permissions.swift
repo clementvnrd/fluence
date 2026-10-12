@@ -12,10 +12,9 @@ import Foundation
 /// be granted again.
 @MainActor
 enum Permissions {
-    static var hasAccessibility: Bool {
-        AXIsProcessTrusted()
-    }
+    static var hasAccessibility: Bool { AXIsProcessTrusted() }
 
+    /// Only an explicit grant counts: denied, restricted and never asked all read false.
     static var hasMicrophone: Bool {
         AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
@@ -28,6 +27,7 @@ enum Permissions {
         return AXIsProcessTrustedWithOptions(options)
     }
 
+    /// Asks for the microphone only the first time; after a refusal only Settings can change it.
     static func requestMicrophone() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
@@ -39,14 +39,18 @@ enum Permissions {
         }
     }
 
-    static func openAccessibilitySettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+    /// Opens one privacy pane of System Settings.
+    private static func openPane(_ address: String) {
+        guard let url = URL(string: address) else { return }
         NSWorkspace.shared.open(url)
     }
 
+    static func openAccessibilitySettings() {
+        openPane("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    }
+
     static func openMicrophoneSettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
-        NSWorkspace.shared.open(url)
+        openPane("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
     }
 
     /// Resets the TCC accessibility entry for this app when macOS permission gets wedged across rebuilds.

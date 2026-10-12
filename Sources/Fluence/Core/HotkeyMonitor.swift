@@ -362,9 +362,7 @@ final class HotkeyMonitor {
         isCarbonActive = false
         isCommandCarbonActive = false
 
-        if let tap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-        }
+        if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }

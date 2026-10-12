@@ -125,7 +125,6 @@ private struct SnippetRow: View {
             Text(FrenchFormat.quoted(entry.cue))
                 .font(DS.Font.bodyEmphasis)
                 .foregroundStyle(DS.Color.inkOnDeck)
-
             Image(systemName: "arrow.right")
                 .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(DS.Color.inkOnDeck.opacity(0.4))

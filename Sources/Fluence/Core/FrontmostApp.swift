@@ -101,7 +101,7 @@ enum AXRead {
 
     static func range(_ element: AXUIElement, _ name: String) -> CFRange? {
         guard let value = copy(element, name), CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
-        let axValue = unsafeDowncast(value as AnyObject, to: AXValue.self)
+        let axValue = unsafeDowncast(value, to: AXValue.self)
         guard AXValueGetType(axValue) == .cfRange else { return nil }
         var range = CFRange()
         return AXValueGetValue(axValue, .cfRange, &range) ? range : nil

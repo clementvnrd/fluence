@@ -8,6 +8,7 @@ enum SpeechEngineChoice: String, CaseIterable, Sendable {
     case whisper
     case parakeet
 
+    /// The name shown in menus; history rows store it as their `engine`.
     var displayName: String {
         switch self {
         case .apple: "Apple (streaming)"
@@ -40,6 +41,7 @@ extension DictationLanguage {
 final class Settings {
     static let shared = Settings()
 
+    /// The push-to-talk shortcut.
     var pushToTalkKey: PushToTalkKey {
         didSet { defaults.set(pushToTalkKey.rawValue, forKey: Keys.pushToTalkKey) }
     }

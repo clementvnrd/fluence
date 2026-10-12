@@ -117,7 +117,7 @@ private final class FirstClickHostingView<Content: View>: NSHostingView<Content>
 /// margin so the shadow is not clipped by the panel.
 private struct FloatCard<Content: View>: View {
     var width: CGFloat
-    @ViewBuilder var content: Content
+    @ViewBuilder let content: Content
 
     var body: some View {
         content

@@ -37,7 +37,7 @@ public struct DictionaryCorrector: Sendable {
     /// except what a `write` inserts, which is kept as typed; with no correction or no text, it
     /// comes back untouched.
     public func apply(to text: String) -> (text: String, applied: [AppliedCorrection]) {
-        guard !rules.isEmpty, !text.isEmpty else { return (text, []) }
+        if rules.isEmpty || text.isEmpty { return (text, []) }
         var current = NSString(string: text.precomposedStringWithCanonicalMapping)
         var applied: [AppliedCorrection] = []
         for rule in rules {

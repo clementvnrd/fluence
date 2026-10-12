@@ -21,10 +21,10 @@ struct ComparisonWindow: View {
             VStack(alignment: .leading, spacing: DS.Space.roomy) {
                 header
                 recordBar
-
                 if store.runs.isEmpty {
                     emptyState
                 } else {
+                    // Groups first (one utterance, several engines), then the lone runs.
                     ForEach(Array(store.comparisons.enumerated()), id: \.offset) { _, group in
                         ComparisonCard(
                             runs: group,

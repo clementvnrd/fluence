@@ -120,10 +120,14 @@ struct DictionaryPanel: View {
             }
         }
         .sheet(isPresented: $isAdding) {
-            DictionaryEditor(entry: nil) { store.add($0) }
+            DictionaryEditor(entry: nil) { newEntry in
+                store.add(newEntry)
+            }
         }
         .sheet(item: $editing) { entry in
-            DictionaryEditor(entry: entry) { store.update($0) }
+            DictionaryEditor(entry: entry) { edited in
+                store.update(edited)
+            }
         }
     }
 
@@ -161,6 +165,7 @@ private struct DictionaryRow: View {
             )
             .frame(width: 64, alignment: .leading)
 
+            // A correction reads "heard → written"; a term is just the word.
             if entry.kind == .correction {
                 Text(entry.hear)
                     .font(DS.Font.body)
@@ -169,7 +174,6 @@ private struct DictionaryRow: View {
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(DS.Color.inkOnDeck.opacity(0.4))
             }
-
             Text(entry.write)
                 .font(DS.Font.bodyEmphasis)
                 .foregroundStyle(DS.Color.inkOnDeck)
@@ -220,6 +224,7 @@ private struct DictionaryEditor: View {
         _write = State(initialValue: entry?.write ?? "")
     }
 
+    /// The entry as it would be saved right now.
     private var draft: DictionaryEntry {
         let trimmedWrite = write.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedHear = hear.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -289,6 +294,7 @@ private struct DictionaryEditor: View {
         .background(BrushedPanel(radius: DS.Radius.window))
     }
 
+    /// Term or correction, as two keys side by side.
     private var kindPicker: some View {
         HStack(spacing: DS.Space.snug) {
             ForEach([DictionaryEntry.Kind.term, .correction], id: \.self) { candidate in

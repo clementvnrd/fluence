@@ -86,7 +86,10 @@ enum DS {
 
         // MARK: - Helpers
 
-        private static func swatch(_ hex: UInt32) -> SwiftUI.Color { SwiftUI.Color(hex: hex) }
+        /// A fixed colour that does not change with the appearance.
+        private static func swatch(_ hex: UInt32) -> SwiftUI.Color {
+            SwiftUI.Color(hex: hex)
+        }
 
         /// Resolved by AppKit on every draw, so a window follows an appearance change at once.
         private static func face(light: UInt32, dark: UInt32) -> SwiftUI.Color {

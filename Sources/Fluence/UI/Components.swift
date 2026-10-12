@@ -392,7 +392,7 @@ struct PillTabs<Value: Hashable>: View {
 struct MenuChip<Content: View>: View {
     let title: String
     var fill = false
-    @ViewBuilder var content: Content
+    @ViewBuilder let content: Content
 
     var body: some View {
         Menu {
@@ -445,7 +445,9 @@ struct SearchWell: View {
                 .foregroundStyle(DS.Color.ink)
                 .focused($isFocused)
             if !text.isEmpty {
-                Button { text = "" } label: {
+                Button {
+                    text = ""
+                } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 11))
                         .foregroundStyle(DS.Color.inkSecondary)
@@ -578,7 +580,7 @@ struct EmptyState: View {
 
 struct SectionCard<Content: View>: View {
     var highlighted = false
-    @ViewBuilder var content: Content
+    @ViewBuilder let content: Content
 
     var body: some View {
         VStack(spacing: 0) { content }

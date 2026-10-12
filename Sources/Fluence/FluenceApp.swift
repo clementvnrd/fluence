@@ -65,7 +65,6 @@ struct FluenceApp: App {
         }
         .defaultSize(width: 640, height: 560)
         .windowResizability(.contentMinSize)
-
     }
 }
 
@@ -81,8 +80,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var quitPending = false
     private var hud: HUDPanel?
     private var previewHUD: HUDPanel?
-    private var stateObservation: NSObjectProtocol?
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         // FLU-59: Dock icon, app menu and ordinary windows while a window is open; menu bar
         // only once the last one is closed, and from the start when the Mac launched us at login
@@ -142,7 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        observeState()
+        watchDictationState()
 
         // FLU-26: in-app updates, held back while a dictation or a meeting is in progress.
         AppUpdater.shared.start()
@@ -265,7 +262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Puts the HUD on screen while the dictation state wants it and takes it away after.
     /// FLU-12: also while the auto-learn offer is on the capsule.
-    private func observeState() {
+    private func watchDictationState() {
         withObservationTracking {
             _ = controller.state
             _ = LearnedWords.shared.spotlight
@@ -278,7 +275,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     self.hud?.dismiss()
                 }
-                self.observeState()
+                // Observation fires once; ask again for the next change.
+                self.watchDictationState()
             }
         }
     }
@@ -332,13 +330,13 @@ private struct MenuContent: View {
     @State private var isPreloadingParakeet = false
     @State private var parakeetOnDisk = ParakeetModels.isDownloaded
 
-    private var parakeetStatus: String {
+    private var parakeetItemTitle: String {
         if isPreloadingParakeet { return "Chargement des modèles Parakeet…" }
         // Ask the disk: the models may be there without this menu having fetched them.
         return parakeetOnDisk ? "Modèles Parakeet installés ✓" : "Télécharger les modèles Parakeet…"
     }
 
-    private func preloadParakeet() {
+    private func prepareParakeet() {
         guard !isPreloadingParakeet else { return }
         isPreloadingParakeet = true
         Task {
@@ -470,7 +468,7 @@ private struct MenuContent: View {
         // Downloading ~600 MB on the first hold would look like a hang, so offer to do it
         // beforehand, when the user asks for it.
         if settings.engine == .parakeet {
-            Button(parakeetStatus) { preloadParakeet() }
+            Button(parakeetItemTitle) { prepareParakeet() }
                 .disabled(isPreloadingParakeet || parakeetOnDisk)
         }
 
