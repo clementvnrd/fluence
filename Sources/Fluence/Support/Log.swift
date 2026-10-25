@@ -11,4 +11,12 @@ enum Log {
     static let hotkey = Logger(subsystem: subsystem, category: "hotkey")
     static let inject = Logger(subsystem: subsystem, category: "inject")
     static let app = Logger(subsystem: subsystem, category: "app")
+    /// One line per dictation with its timings and the running medians (FLU-31). Numbers only.
+    /// `log show --last 1d --predicate 'category == "latency"'`.
+    static let latency = Logger(subsystem: subsystem, category: "latency")
+
+    /// FLU-31: one interval per dictation from key-up to the text, with events at the
+    /// microphone's close and the engine's result. In Instruments' Points of Interest track,
+    /// or `log stream --signpost --predicate 'subsystem == "…"'`. Numbers only, never text.
+    static let signposter = OSSignposter(subsystem: subsystem, category: .pointsOfInterest)
 }

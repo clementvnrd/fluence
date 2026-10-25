@@ -60,6 +60,10 @@ APP_BUILD     := $(shell echo "$(APP_VERSION)" | awk -F. 'NF == 3 { print $$1 * 
 PUBLIC ?=
 SWIFT_FLAGS := $(if $(PUBLIC),-Xswiftc -DFLUENCE_WITHOUT_WISPR,)
 
+## STRIP=1 drops the binary's local symbols (strip -x, FLU-31): `make release` sets it; day-to-day
+## builds keep them for debugging.
+STRIP ?=
+
 ## Another bundle ID makes a copy with its own data folder, settings, Keychain item and
 ## permissions (AppPaths.isolatedBundleID) — never Clement's. For update tests and screenshots.
 BUNDLE_ID ?=
@@ -133,6 +137,9 @@ app: build
 	@rm -rf "$(SPARKLE_DST)/Versions/B/XPCServices" "$(SPARKLE_DST)/XPCServices"
 	@otool -l "$(CONTENTS)/MacOS/$(EXEC)" | grep -q "@executable_path/../Frameworks" \
 		|| install_name_tool -add_rpath "@executable_path/../Frameworks" "$(CONTENTS)/MacOS/$(EXEC)"
+	@# FLU-31: a release drops the local symbols (about 30 MB down to 20 MB); the global ones
+	@# stay, so a crash report still names the functions. Before signing, which it would break.
+	@if [ -n "$(STRIP)" ]; then strip -x "$(CONTENTS)/MacOS/$(EXEC)"; fi
 	@# Belt and braces: the staging dir isn't synced, but the copied binary can still carry
 	@# xattrs inherited from the synced .build directory.
 	@xattr -cr "$(BUNDLE)"
@@ -181,7 +188,7 @@ release:
 	@test -f "docs/releases/$(APP_VERSION).md" || { echo "missing docs/releases/$(APP_VERSION).md"; exit 1; }
 	@test -z "$$(git status --porcelain --untracked-files=no)" -o -n "$(ALLOW_DIRTY)" \
 		|| { echo "uncommitted changes: commit first (ALLOW_DIRTY=1 for a test build)"; exit 1; }
-	@$(MAKE) --no-print-directory app TIMESTAMP=--timestamp PUBLIC=1
+	@$(MAKE) --no-print-directory app TIMESTAMP=--timestamp PUBLIC=1 STRIP=1
 	@mkdir -p "$(RELEASE_FEED)"
 	@rm -f "$(RELEASE_FEED)/$(RELEASE_ZIP)"
 	@ditto -c -k --sequesterRsrc --keepParent "$(BUNDLE)" "$(RELEASE_FEED)/$(RELEASE_ZIP)"

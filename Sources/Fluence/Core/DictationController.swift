@@ -4,6 +4,7 @@ import AVFoundation
 import AppKit
 import Foundation
 import Observation
+import OSLog
 
 /// A new engine of the kind picked in Settings.
 ///
@@ -434,6 +435,10 @@ final class DictationController {
         releaseWispr()
         session.releasedAt = Date()
         session.releasedHostTime = HostClock.now
+        // FLU-31: key-up → text, for Instruments. Ended wherever the session ends.
+        let signpostID = Log.signposter.makeSignpostID()
+        session.signpostID = signpostID
+        session.signpost = Log.signposter.beginInterval("Dictation", id: signpostID)
         // MARK: FLU-5 text — where the text will go, read now while that app is in front.
         session.target = FrontmostApp.capture(readURL: Settings.shared.cleanupLevel.appliesStyle)
         session.limitTask?.cancel()
@@ -461,9 +466,13 @@ final class DictationController {
                 // Cancelled meanwhile: the cancel already stopped everything.
                 guard self.session === session else { return }
             }
-            let milliseconds = Int(((HostClock.now - released) * 1_000).rounded())
+            session.postRollSeconds = HostClock.now - released
+            let milliseconds = Int((session.postRollSeconds * 1_000).rounded())
             let why = reason == .trailingSilence ? "silence before release" : "full"
             Log.audio.info("post-roll · \(milliseconds, privacy: .public) ms (\(why, privacy: .public))")
+            if session.signpost != nil, let id = session.signpostID {
+                Log.signposter.emitEvent("Microphone closed", id: id, "\(milliseconds, privacy: .public) ms after key-up")
+            }
         }
         // Cancelled meanwhile: the cancel already stopped everything.
         guard self.session === session else { return }
@@ -492,10 +501,15 @@ final class DictationController {
             return
         }
 
+        let engineStarted = HostClock.now
         await session.engine?.finish()
         guard self.session === session else { return }
         await session.consumeTask?.value
         guard self.session === session else { return }
+        let engineSeconds = HostClock.now - engineStarted
+        if session.signpost != nil, let id = session.signpostID {
+            Log.signposter.emitEvent("Engine done", id: id)
+        }
 
         if session.isComparing {
             await runComparison(session, recording: fed.recording)
@@ -557,6 +571,7 @@ final class DictationController {
         guard self.session === session else { return }
         if Settings.shared.learnFromEdits { EditWatcher.shared.willInsert(output) }
         let outcome = TextInjector.insert(output)
+        recordLatency(session, engineSeconds: engineSeconds)
         // Clement's Whisper context and (opt-in) term learning. In memory only.
         AutoLearningEngine.shared.recordInjectedText(output)
         lastTranscript = output  // MARK: FLU-5 input
@@ -661,6 +676,7 @@ final class DictationController {
     /// Stops everything a session started and forgets it. The engine is cancelled, not
     /// finished, so Parakeet doesn't spend a transcription pass on audio nobody wants.
     private func teardown(_ session: DictationSession) {
+        session.endSignpost("cancelled")
         if self.session === session { self.session = nil }
         capture.stop()
         session.audioInput.finish()
@@ -673,6 +689,7 @@ final class DictationController {
 
     /// A session that ran to the end.
     private func end(_ session: DictationSession, as finalState: State) {
+        session.endSignpost("ended")
         session.limitTask?.cancel()
         if self.session === session { self.session = nil }
         state = finalState
@@ -818,6 +835,24 @@ final class DictationController {
                 corrections: corrections.isEmpty ? nil : corrections
             )
         )
+    }
+
+    /// FLU-31: the tail's timings, into the signpost and the timings-only counter. The end of
+    /// speech is where the last sound ended in the capture, before or after the release.
+    private func recordLatency(_ session: DictationSession, engineSeconds: Double) {
+        let now = HostClock.now
+        guard let released = session.releasedHostTime, let releasedAt = session.releasedAt else { return }
+        let speechEnd = session.trail.snapshot.lastSoundEnd
+        let sample = DictationLatency(
+            postRoll: session.postRollSeconds,
+            engine: engineSeconds,
+            keyUpToText: now - released,
+            speechEndToText: speechEnd.map { now - $0 },
+            audioSeconds: releasedAt.timeIntervalSince(session.started)
+        )
+        LatencyLog.record(sample)
+        let milliseconds = Int(((sample.speechEndToText ?? sample.keyUpToText) * 1_000).rounded())
+        session.endSignpost("inserted", millisecondsAfterSpeech: milliseconds)
     }
 
     /// Rises fast when you speak, falls back over a few hundred milliseconds (FLU-23).
@@ -1024,6 +1059,22 @@ private final class DictationSession {
     var releasedHostTime: TimeInterval?
     /// Where the last sound ended, for the post-roll (FLU-31).
     let trail = TrailingSilenceMonitor()
+    /// Key-up → microphone closed, once the post-roll is over.
+    var postRollSeconds: Double = 0
+    /// The key-up → text interval (FLU-31), until it is ended.
+    var signpost: OSSignpostIntervalState?
+    var signpostID: OSSignpostID?
+
+    /// Ends the interval once, whichever way the session ends. Numbers and fixed words only.
+    func endSignpost(_ outcome: String, millisecondsAfterSpeech: Int? = nil) {
+        guard let signpost else { return }
+        self.signpost = nil
+        if let millisecondsAfterSpeech {
+            Log.signposter.endInterval("Dictation", signpost, "\(outcome, privacy: .public), \(millisecondsAfterSpeech, privacy: .public) ms after the end of speech")
+        } else {
+            Log.signposter.endInterval("Dictation", signpost, "\(outcome, privacy: .public)")
+        }
+    }
 
     /// Captured audio, waiting for the engine. Unbounded on purpose — this *is* the
     /// pre-roll, holding whatever was said while the engine loaded — and bounded in
