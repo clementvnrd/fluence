@@ -36,12 +36,23 @@ struct SupportFolderTests {
 
         SupportFolder.applyBackupPolicy(to: root)
 
-        #expect(!SupportFolder.isExcluded(root))
-        #expect(!SupportFolder.isExcluded(root.appendingPathComponent("dictionary.txt")))
-        #expect(!SupportFolder.isExcluded(root.appendingPathComponent("dictionary.txt.bak")))
+        #expect(settles { !SupportFolder.isExcluded(root) })
+        #expect(settles { !SupportFolder.isExcluded(root.appendingPathComponent("dictionary.txt")) })
+        #expect(settles { !SupportFolder.isExcluded(root.appendingPathComponent("dictionary.txt.bak")) })
         for name in ["history.sealed", "snippets.sealed", "Meetings", "VoicePrints", "WhisperModels", ".metadata_never_index"] {
-            #expect(SupportFolder.isExcluded(root.appendingPathComponent(name)), "\(name)")
+            #expect(settles { SupportFolder.isExcluded(root.appendingPathComponent(name)) }, "\(name)")
         }
+    }
+
+    /// Clearing the exclusion lands on disk a moment later when the whole suite runs in
+    /// parallel (seen as 1 run in 5 failing); Time Machine reads it much later still.
+    /// Waits up to a second for the expected state.
+    private func settles(_ condition: () -> Bool) -> Bool {
+        for _ in 0..<50 {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        return condition()
     }
 
     @Test func anAtomicRewriteIsPutBackOutOfTheBackup() throws {

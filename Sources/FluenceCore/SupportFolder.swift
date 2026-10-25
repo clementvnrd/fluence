@@ -36,11 +36,23 @@ public enum SupportFolder {
         setExcluded(true, url)
     }
 
+    /// Whether Time Machine leaves the item out: it, or a folder above it, carries the
+    /// exclusion attribute that `isExcludedFromBackup` writes. Read from disk because the
+    /// `URLResourceValues` getter, which also answers for the folders above, returned a
+    /// stale value now and then while the whole test suite ran in parallel, even after
+    /// `removeAllCachedResourceValues()`.
     public static func isExcluded(_ url: URL) -> Bool {
-        var url = url
-        url.removeAllCachedResourceValues()
-        return (try? url.resourceValues(forKeys: [.isExcludedFromBackupKey]))?.isExcludedFromBackup ?? false
+        var path = url.standardizedFileURL.path
+        while true {
+            if getxattr(path, excludeAttribute, nil, 0, 0, XATTR_NOFOLLOW) >= 0 { return true }
+            // `NSString` stops at "/" ("/" → "/"); `URL.deletingLastPathComponent` would go to "/..".
+            let parent = (path as NSString).deletingLastPathComponent
+            if parent == path || parent.isEmpty { return false }
+            path = parent
+        }
     }
+
+    private static let excludeAttribute = "com.apple.metadata:com_apple_backup_excludeItem"
 
     private static func setExcluded(_ excluded: Bool, _ url: URL) {
         var url = url
