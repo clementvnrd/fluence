@@ -90,6 +90,9 @@ final class MeetingController {
 
     /// Final passes in flight. Observed: the updater must not relaunch during one.
     private(set) var finalizing = 0
+    /// The same passes, by meeting, so quitting can wait for them (FLU-54).
+    @ObservationIgnored
+    private var finalPasses: [UUID: Task<Void, Never>] = [:]
 
     /// Models a first meeting will download from Hugging Face, for the card and panel.
     var pendingDownloads: [String] { MeetingSpeechModels.missingDownloads }
@@ -353,6 +356,8 @@ final class MeetingController {
     private func autosave() {
         guard var meeting else { return }
         meeting.keepAudio = keepAudio
+        // FLU-54: what the engine failed on so far, so a crash does not lose its place.
+        if let session { meeting.untranscribed = TranscriptionRetry.remaining(session.untranscribed) }
         do {
             try MeetingStore.shared.save(meeting)
         } catch {
@@ -379,11 +384,15 @@ final class MeetingController {
         detector.keepPollingWhileRecording = false
         Log.app.info("meeting recording stopped: \(reason.rawValue, privacy: .public)")
 
-        Task {
+        let id = meeting.id
+        finalPasses[id] = Task {
             await session.finish()
             meeting.segments = session.allSegments
+            meeting.untranscribed = TranscriptionRetry.remaining(session.untranscribed)
             meeting.endedAt = Date()
             meeting.keepAudio = keepAudio
+            // Everything said is on disk from here, before the (longer) final pass: a quit
+            // that cannot wait for it loses nothing (FLU-54).
             try? MeetingStore.shared.save(meeting)
 
             let finalized = await Self.finalPass(
@@ -392,7 +401,7 @@ final class MeetingController {
                 key: session.key,
                 windowParticipants: session.participants
             )
-            let saved = Self.complete(finalized, directory: session.directory)
+            let completion = Self.complete(finalized, directory: session.directory)
 
             // A new meeting may be recording by now: only this one's traces are cleared.
             if self.session === session {
@@ -402,10 +411,57 @@ final class MeetingController {
                 self.notice = nil
             }
             self.finalizing -= 1
-            if !saved, self.state == .processing || self.state == .idle {
+            self.finalPasses[id] = nil
+            let canTell = self.state == .processing || self.state == .idle
+            switch completion {
+            case .saveFailed where canTell:
                 self.fail("La réunion n'a pas pu être enregistrée. Son audio est gardé sur ce Mac ; Fluence réessaiera au prochain lancement.")
-            } else if self.state == .processing, self.finalizing == 0 {
-                self.state = .idle
+            case .transcriptionPending where canTell:
+                self.fail(TranscriptionRetry.notice)
+            default:
+                if self.state == .processing, self.finalizing == 0 { self.state = .idle }
+            }
+        }
+    }
+
+    // MARK: - Quitting (FLU-54)
+
+    /// Quitting while a meeting records: stop it, take in its last sentences, save, and
+    /// wait for the final pass — at most `QuitPlan.maximumWait`. Past that Fluence quits
+    /// anyway: the transcript is already saved once the last sentences are in, and the
+    /// marker left in place hands the rest to the next launch's recovery.
+    func stopForQuit(origin: QuitPlan.Origin) async {
+        if state == .recording { stop(reason: .appQuit) }
+        let passes = Array(finalPasses.values)
+        guard !passes.isEmpty else { return }
+        let started = Date()
+        let finished = await Self.wait(for: passes, upTo: QuitPlan.maximumWait(for: origin))
+        Log.app.info("""
+            quit: meeting \(finished ? "finalized" : "left to the next launch", privacy: .public) \
+            after \(Int(Date().timeIntervalSince(started)), privacy: .public)s
+            """)
+    }
+
+    /// Last resort at termination, when no stop could run (FLU-54): saves what the meeting
+    /// holds now. Its marker stays, so the next launch finishes it.
+    func saveBeforeExit() {
+        guard state == .recording else { return }
+        autosave()
+        Log.app.info("meeting saved at exit, left to the next launch")
+    }
+
+    /// Whether every pass finished within `seconds`. The passes themselves are never
+    /// cancelled: whatever they did not reach is redone at the next launch.
+    private static func wait(for passes: [Task<Void, Never>], upTo seconds: TimeInterval) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let once = ResumeOnce(continuation)
+            Task {
+                for pass in passes { await pass.value }
+                once.resume(true)
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(seconds))
+                once.resume(false)
             }
         }
     }
@@ -428,29 +484,74 @@ final class MeetingController {
         return (MeetingFinalizer.name(output, windowParticipants: windowParticipants), output.voices)
     }
 
-    /// Saves the final meeting; only once it is saved are the spool (unless kept), the
-    /// marker and the recovery count removed (FLU-32: a failed save keeps everything, and
-    /// recovery tries again at the next launch). Returns whether it was saved.
+    enum Completion {
+        case done
+        /// The final save failed: everything is kept for the next launch.
+        case saveFailed
+        /// Saved, but some speech is still not transcribed: its audio and the marker are
+        /// kept, and the notes wait (FLU-54).
+        case transcriptionPending
+    }
+
+    /// Saves the final meeting; only once it is saved, and every utterance transcribed, are
+    /// the spool (unless kept), the marker and the recovery count removed (FLU-32: a failed
+    /// save keeps everything; FLU-54: so does speech still untranscribed). Recovery takes
+    /// what was kept up at the next launch. `MeetingCompletion` decides.
     @discardableResult
-    private static func complete(_ result: (Meeting, [String: [Float]]), directory: URL) -> Bool {
+    private static func complete(_ result: (Meeting, [String: [Float]]), directory: URL) -> Completion {
         // The voices are not kept: nothing enrols one yet (FLU-27, see `VoicePrintStore`).
         let (meeting, _) = result
+        var saved = true
         do {
             try MeetingStore.shared.save(meeting)
         } catch {
+            saved = false
             Log.app.error("final meeting save failed, audio and marker kept: \(error.localizedDescription, privacy: .public)")
-            return false
         }
-        if !meeting.keepAudio {
+        let missing = meeting.untranscribed?.count ?? 0
+        let plan = MeetingCompletion.plan(saved: saved, untranscribed: missing, keepAudio: meeting.keepAudio)
+        if plan.deleteAudio {
             for source in AudioSource.allCases {
                 try? FileManager.default.removeItem(at: MeetingAudioSpool.url(in: directory, source: source))
             }
         }
-        try? FileManager.default.removeItem(at: MeetingSession.markerURL(in: directory))
-        try? FileManager.default.removeItem(at: MeetingSession.recoveryAttemptsURL(in: directory))
-        NotificationCenter.default.post(name: .meetingFinalized, object: meeting.id)
+        if plan.clearMarker {
+            try? FileManager.default.removeItem(at: MeetingSession.markerURL(in: directory))
+            try? FileManager.default.removeItem(at: MeetingSession.recoveryAttemptsURL(in: directory))
+        }
+        if plan.announceFinalized {
+            NotificationCenter.default.post(name: .meetingFinalized, object: meeting.id)
+        }
+        guard saved else { return .saveFailed }
+        guard missing == 0 else {
+            Log.app.error("meeting saved with \(missing) utterances untranscribed; audio and marker kept for the next launch")
+            return .transcriptionPending
+        }
         Log.app.info("meeting finalized: \(meeting.segments.count) segments, \(meeting.speakers.count) speakers")
-        return true
+        return .done
+    }
+
+    /// FLU-54: the utterances a meeting still lacks, from its spools on disk, at a later
+    /// launch. What still fails stays listed.
+    private static func transcribeLate(_ meeting: Meeting, directory: URL, key: SymmetricKey) async -> Meeting {
+        let spans = TranscriptionRetry.plan(meeting.untranscribed ?? [])
+        var readers: [AudioSource: MeetingAudioSpoolReader] = [:]
+        for source in AudioSource.allCases {
+            readers[source] = try? MeetingAudioSpoolReader(url: MeetingAudioSpool.url(in: directory, source: source), key: key)
+        }
+        let corrector = DictionaryStore.shared.corrector
+        let found = readers
+        let outcome = await Task.detached(priority: .utility) {
+            await ChannelPipeline.retranscribe(spans, readers: found, corrector: corrector)
+        }.value
+        var meeting = meeting
+        meeting.segments = TranscriptMerger.sorted(meeting.segments + outcome.segments)
+        meeting.untranscribed = TranscriptionRetry.remaining(outcome.untranscribed)
+        Log.app.info("""
+            recovery: \(spans.count - outcome.untranscribed.count, privacy: .public) of \(spans.count, privacy: .public) \
+            untranscribed utterances transcribed
+            """)
+        return meeting
     }
 
     // MARK: - Crash recovery
@@ -480,14 +581,22 @@ final class MeetingController {
                 guard announce else { continue }
                 try? String(RecoveryPlan.announcedCount).write(to: attemptsURL, atomically: true, encoding: .utf8)
                 Log.app.error("interrupted meeting left as is after \(RecoveryPlan.maxAttempts) attempts")
+                // FLU-54: a meeting only waiting for sentences the engine never managed gets
+                // its notes from what was transcribed.
+                if MeetingCompletion.announcesOnGivingUp(untranscribed: meeting.untranscribed?.count ?? 0) {
+                    NotificationCenter.default.post(name: .meetingFinalized, object: meeting.id)
+                }
                 if state == .idle {
                     fail("Une réunion interrompue n'a pas pu être terminée après deux essais. Son audio et sa transcription restent sur ce Mac.")
                 }
                 continue
             }
+            let key = try? MeetingStore.shared.meetingKey(for: id, create: false)
+            if let key, meeting.untranscribed?.isEmpty == false {
+                meeting = await Self.transcribeLate(meeting, directory: directory, key: key)
+            }
             meeting.endedAt = meeting.endedAt
                 ?? meeting.startedAt.addingTimeInterval(meeting.segments.map(\.end).max() ?? 0)
-            let key = try? MeetingStore.shared.meetingKey(for: id, create: false)
             let spool = MeetingAudioSpool.url(in: directory, source: .system)
             let finalized = await Self.finalPass(
                 meeting,
@@ -495,7 +604,7 @@ final class MeetingController {
                 key: key,
                 windowParticipants: []
             )
-            if Self.complete(finalized, directory: directory) {
+            if Self.complete(finalized, directory: directory) == .done {
                 Log.app.info("recovered an interrupted meeting")
             }
         }
@@ -628,6 +737,24 @@ final class MeetingController {
         guard isRecording else { return }
         isPanelExpanded = true
         showRecordingPanel()
+    }
+}
+
+/// Resumes a continuation once, whichever of several racers gets there first.
+private final class ResumeOnce<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Never>?
+
+    init(_ continuation: CheckedContinuation<Value, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ value: Value) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(returning: value)
     }
 }
 

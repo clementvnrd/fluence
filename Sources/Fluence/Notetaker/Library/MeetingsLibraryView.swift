@@ -828,7 +828,10 @@ private struct NotesStatusPanel: View {
                     systemImage: "text.badge.star",
                     title: "Pas encore de notes",
                     detail: FoundationModelFormatter.unavailableReason.map { "Les notes nécessitent le modèle local : \($0)" }
-                        ?? "Les notes de cette réunion n'ont pas encore été rédigées. La transcription est complète.",
+                        // FLU-54: notes wait for sentences the engine has not transcribed yet.
+                        ?? (meeting.untranscribed?.isEmpty == false
+                            ? "Une partie de la réunion n'est pas encore transcrite ; Fluence réessaiera au prochain lancement."
+                            : "Les notes de cette réunion n'ont pas encore été rédigées. La transcription est complète."),
                     actionTitle: "Rédiger les notes"
                 ) {
                     model.regenerate()

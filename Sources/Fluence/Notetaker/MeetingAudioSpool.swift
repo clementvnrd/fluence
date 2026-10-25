@@ -29,13 +29,17 @@ final class MeetingAudioSpool: @unchecked Sendable {
         directory.appendingPathComponent(source == .microphone ? "audio-mic.enc" : "audio-system.enc")
     }
 
+    /// Where it is written and its key, for reading it back once closed (FLU-54: failed
+    /// utterances are retried from it).
+    let url: URL
+    let key: SymmetricKey
     private let handle: FileHandle
-    private let key: SymmetricKey
     private var pending: [Int16] = []
     private(set) var sampleCount = 0
     private let lock = NSLock()
 
     init(url: URL, key: SymmetricKey) throws {
+        self.url = url
         FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600])
         handle = try FileHandle(forWritingTo: url)
         try handle.truncate(atOffset: 0)

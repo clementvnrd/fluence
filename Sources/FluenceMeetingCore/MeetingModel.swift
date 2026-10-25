@@ -188,6 +188,9 @@ public struct Meeting: Codable, Sendable, Identifiable {
     public var language: String?
     /// The file an imported meeting was read from (FLU-16); `nil` for a recorded one.
     public var importedFrom: String?
+    /// Speech the engine could not transcribe yet (FLU-54), tried again from the audio,
+    /// which is kept meanwhile. `nil` when nothing is missing, and in meetings saved before.
+    public var untranscribed: [UntranscribedSpan]?
 
     public init(
         id: UUID = UUID(),
@@ -203,7 +206,8 @@ public struct Meeting: Codable, Sendable, Identifiable {
         notes: MeetingNotes? = nil,
         keepAudio: Bool = false,
         language: String? = nil,
-        importedFrom: String? = nil
+        importedFrom: String? = nil,
+        untranscribed: [UntranscribedSpan]? = nil
     ) {
         self.id = id
         self.title = title
@@ -219,6 +223,7 @@ public struct Meeting: Codable, Sendable, Identifiable {
         self.keepAudio = keepAudio
         self.language = language
         self.importedFrom = importedFrom
+        self.untranscribed = untranscribed
     }
 
     public var duration: TimeInterval {

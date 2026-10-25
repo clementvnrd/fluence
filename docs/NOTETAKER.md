@@ -156,9 +156,25 @@ names alone.
 - **Recovery** (`RecoveryPlan`): each attempt on an interrupted meeting is counted in
   `recovery.attempts` beside the marker *before* it runs, so a crash inside the final pass
   counts too. After two attempts the files stay as they are and the user is told once.
-- **Not yet** (they touch files being rewritten in FLU-52): confirming a quit during a
-  recording, retrying failed utterances before the spool goes, retrying notes on timeouts
-  and rate limits. A failed utterance is still dropped with a log line (M13).
+- **Quitting during a recording** (FLU-54, `QuitPlan`): ⌘Q, « Quitter Fluence », the Dock or
+  another app's quit event asks « Arrêter et enregistrer la réunion ? » (*Arrêter et
+  quitter* / *Annuler*); a log out, restart or shut down (the quit event carries a `why?`
+  reason) stops and saves without asking. Fluence then stops the meeting, takes in its last
+  sentences, saves the transcript and waits for the final pass, at most 30 s (15 s for a log
+  out). Past that it quits anyway: the transcript is on disk, the marker stays, and the
+  next launch's recovery runs the final pass. A quit while only a final pass runs does not
+  ask or wait: recovery finishes it. `applicationWillTerminate` also saves a meeting still
+  recording, as a last resort.
+- **Failed utterances** (FLU-54, `TranscriptionRetry`): an utterance the engine could not
+  transcribe (offline before the first download, a model error) is kept as a time span in
+  the encrypted meeting (`Meeting.untranscribed`, saved by the autosave too), never its
+  text or audio outside the spool. At the end of the meeting each is tried once more, from
+  the analysed history when it still holds it, otherwise from the spool (captured audio,
+  before echo cancellation). If the engine cannot even load, nothing is tried. Speech
+  still missing keeps the spools and the marker (`MeetingCompletion`), the panel says so,
+  the notes wait, and recovery at the next launches transcribes the spans from the spool
+  before the final pass (two launches, `RecoveryPlan`). When recovery gives up, the notes
+  are written from what was transcribed.
 
 ### 2.3 Echo and bleed
 On speakers, the mic hears the remote side → duplicated text attributed to "Me".
@@ -220,6 +236,14 @@ On speakers, the mic hears the remote side → duplicated text attributed to "Me
   consolidation group that fails is merged in code; the final call is retried once on a
   trimmed input. One hard part no longer fails a whole meeting. The log names the failing
   call, its size and the error's kind — never content.
+- **Retries (FLU-54, `NotesRetry`)**: a model call that times out or finds the model busy
+  (rate limited, another request) is tried again, three tries in all, each with a longer
+  limit (90, 135, 180 s); a busy model waits 10 s then 30 s. Notes still owed are kept on
+  disk beside the meeting (`notes.job`: a count and a failure label, nothing of the
+  meeting), so a quit or a crash mid-generation, a timeout or a busy model is taken up
+  again about 20 s after the next launch, at most twice; waiting for Apple Intelligence
+  uses no tries. A lasting failure (too short, declined, language, empty) is not retried
+  but its reason is shown again after a restart.
 - Output: Recap, Next steps, Decisions, full Transcript with speakers and timestamps, my
   side notes. Templates (1:1, client call, stand-up) as prompt presets.
 - Search across meetings (local full-text index). Export Markdown; copy uses concealed /

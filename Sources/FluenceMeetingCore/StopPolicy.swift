@@ -13,6 +13,8 @@ public enum StopReason: String, Sendable, Codable {
     /// Another user took the Mac (fast user switching).
     case userSwitched
     case captureFailed
+    /// Fluence was quitting (FLU-54): stopped and saved first.
+    case appQuit
 
     public var explanation: String {
         switch self {
@@ -24,6 +26,7 @@ public enum StopReason: String, Sendable, Codable {
         case .systemSleep: "Stopped: Mac going to sleep"
         case .userSwitched: "Stopped: another user took the Mac"
         case .captureFailed: "Stopped: audio capture failed"
+        case .appQuit: "Stopped: Fluence quit"
         }
     }
 }
