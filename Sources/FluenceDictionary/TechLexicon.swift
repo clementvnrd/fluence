@@ -24,7 +24,7 @@ public enum TechLexicon {
         .correction(hear: "refactore", write: "refactor"),
         .correction(hear: "tcherry pick", write: "cherry-pick"),
         .correction(hear: "branche menne", write: "branch main"),
-        .correction(hear: "branche master", write: "branch master"),
+        // Not « branche master » → « branch master »: « la branche master » is French (FLU-30).
         .correction(hear: "guite", write: "git"),
         .correction(hear: "guithub", write: "GitHub"),
         .correction(hear: "guite lab", write: "GitLab"),
@@ -89,9 +89,8 @@ public enum TechLexicon {
         .correction(hear: "code riouiou", write: "code review"),
         .correction(hear: "stande-up", write: "standup"),
         .correction(hear: "stand up", write: "standup"),
+        // Not « le colle » or « en colle »: « je le colle », « j'en colle » are French (FLU-30).
         .correction(hear: "un colle", write: "un call"),
-        .correction(hear: "le colle", write: "le call"),
-        .correction(hear: "en colle", write: "en call"),
         .correction(hear: "raude mape", write: "roadmap"),
         .correction(hear: "dède laigne", write: "deadline"),
         .correction(hear: "brenne storming", write: "brainstorming"),
@@ -127,6 +126,24 @@ public enum TechLexicon {
         .term("CoreML")
     ]
 
-    // TEMP stub for the red run.
-    public static func retiredEntries(in entries: [DictionaryEntry]) -> [DictionaryEntry] { [] }
+
+    /// Entries an earlier lexicon seeded into dictionaries and that were dropped because their
+    /// trigger is ordinary French (FLU-30): « je le colle dans Slack » became « je le call »,
+    /// « la branche master » « la branch master ». A dictionary seeded before keeps them until
+    /// its owner removes them: nothing rewrites the user's file on its own.
+    public static let retired: [DictionaryEntry] = [
+        .correction(hear: "le colle", write: "le call"),
+        .correction(hear: "en colle", write: "en call"),
+        .correction(hear: "branche master", write: "branch master"),
+    ]
+
+    /// The retired entries still in `entries` exactly as they were seeded — same trigger,
+    /// same spelling, still on. One the user edited or switched off is theirs now, and stays.
+    public static func retiredEntries(in entries: [DictionaryEntry]) -> [DictionaryEntry] {
+        entries.filter { entry in
+            entry.isEnabled && retired.contains {
+                $0.kind == entry.kind && $0.hear == entry.hear && $0.write == entry.write
+            }
+        }
+    }
 }

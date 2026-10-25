@@ -41,12 +41,27 @@ struct DictionaryPanel: View {
             : "Ajouter \(FrenchFormat.count(missing, "terme")) techniques, Git et anglicismes à votre dictionnaire.")
     }
 
+    /// Shown only while the dictionary still holds lexicon entries that rewrote ordinary
+    /// French (« le colle » → « le call »), as seeded: one click removes them (FLU-30).
+    @ViewBuilder private var retiredLexiconButton: some View {
+        let retired = store.retiredLexiconEntries
+        if !retired.isEmpty {
+            CapButton(title: "Retirer de mon dictionnaire", systemImage: "minus.circle") {
+                store.removeRetiredLexiconEntries()
+            }
+            .help("Retirer \(FrenchFormat.count(retired.count, "entrée")) de l'ancien Lexique Tech qui "
+                + "réécrivai\(retired.count > 1 ? "ent" : "t") du français courant : "
+                + retired.map { "\($0.hear) → \($0.write)" }.joined(separator: ", ") + ".")
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             PageHeader(
                 title: "Dictionnaire",
                 subtitle: FrenchFormat.count(store.entries.count, "entrée")
             ) {
+                retiredLexiconButton
                 lexiconButton
                 CapButton(title: "Scanner un projet…", systemImage: "folder.badge.plus") { scanFolder() }
                     .help("Scanner un dossier de code pour en extraire le vocabulaire")

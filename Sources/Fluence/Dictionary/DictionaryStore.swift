@@ -110,7 +110,22 @@ final class DictionaryStore {
             .map(\.write)
     }
 
-    private static let lexiconSpellings = Set(TechLexicon.defaultEntries.map { $0.write.lowercased() })
+    /// The lexicon's spellings, retired ones included: a dictionary seeded before FLU-30 still
+    /// holds them, and they are not the user's own words.
+    private static let lexiconSpellings = Set((TechLexicon.defaultEntries + TechLexicon.retired).map { $0.write.lowercased() })
+
+    /// Retired lexicon entries still in the dictionary exactly as seeded (FLU-30).
+    var retiredLexiconEntries: [DictionaryEntry] { TechLexicon.retiredEntries(in: entries) }
+
+    /// « Retirer de mon dictionnaire »: removes the retired lexicon entries the user never
+    /// touched, on their click only, and returns how many.
+    @discardableResult
+    func removeRetiredLexiconEntries() -> Int {
+        let retired = Set(retiredLexiconEntries.map(\.id))
+        guard !retired.isEmpty else { return 0 }
+        delete(ids: retired)
+        return retired.count
+    }
 
     /// How many of the tech lexicon's entries the dictionary lacks.
     var missingTechLexiconCount: Int {
