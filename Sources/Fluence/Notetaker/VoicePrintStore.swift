@@ -1,3 +1,4 @@
+import FluenceCore
 import Foundation
 
 /// Enrolled voice prints — biometric data (GDPR art. 9), so opt-in only
@@ -38,17 +39,31 @@ final class VoicePrintStore {
 
     // MARK: - Prints
 
+    /// For matching only: an unreadable file reads as no prints here, which is harmless
+    /// because nothing is written from it. Changes go through `change(_:)`.
     func prints() -> [VoicePrint] {
-        guard NotetakerSettings.shared.voicePrintsEnabled,
-              FileManager.default.fileExists(atPath: printsURL.path),
-              let data = try? Vault.read(printsURL)
-        else { return [] }
-        return (try? JSONDecoder().decode([VoicePrint].self, from: data)) ?? []
+        guard NotetakerSettings.shared.voicePrintsEnabled else { return [] }
+        do {
+            return try SealedJSONFile.read([VoicePrint].self, at: printsURL) { try Vault.open($0) } ?? []
+        } catch {
+            Log.app.error("voice prints unreadable (\(String(describing: type(of: error)), privacy: .public))")
+            return []
+        }
     }
 
-    private func save(_ prints: [VoicePrint]) throws {
+    /// Reads, changes and rewrites the prints. A file that exists but cannot be opened (the
+    /// Keychain refused, the key is lost) throws before anything is written: reading it as
+    /// « no prints » and saving used to erase every enrolled voice (R9).
+    private func change(_ edit: (inout [VoicePrint]) -> Void) throws {
         AppPaths.protect(root)
-        try Vault.write(JSONEncoder().encode(prints), to: printsURL)
+        try SealedJSONFile.update(
+            [VoicePrint].self,
+            at: printsURL,
+            empty: [],
+            open: { try Vault.open($0) },
+            seal: { try Vault.seal($0) },
+            change: edit
+        )
     }
 
     /// Cosine similarity of each voice to each enrolled print whose name is allowed
@@ -71,24 +86,27 @@ final class VoicePrintStore {
         guard NotetakerSettings.shared.voicePrintsEnabled,
               let embedding = candidates(for: meetingID)[speakerID], !embedding.isEmpty
         else { return }
-        var all = prints()
-        if let index = all.firstIndex(where: { Self.key($0.name) == Self.key(name) }) {
-            var print = all[index]
-            let n = Float(print.samples)
-            print.embedding = Self.normalized(zip(print.embedding, embedding).map { ($0 * n + $1) / (n + 1) })
-            print.samples += 1
-            print.updatedAt = Date()
-            all[index] = print
-        } else {
-            all.append(VoicePrint(name: name, embedding: Self.normalized(embedding), samples: 1, updatedAt: Date()))
+        try change { all in
+            if let index = all.firstIndex(where: { Self.key($0.name) == Self.key(name) }) {
+                var print = all[index]
+                let n = Float(print.samples)
+                print.embedding = Self.normalized(zip(print.embedding, embedding).map { ($0 * n + $1) / (n + 1) })
+                print.samples += 1
+                print.updatedAt = Date()
+                all[index] = print
+            } else {
+                all.append(VoicePrint(name: name, embedding: Self.normalized(embedding), samples: 1, updatedAt: Date()))
+            }
         }
-        try save(all)
     }
 
     func delete(name: String) {
-        var all = prints()
-        all.removeAll { Self.key($0.name) == Self.key(name) }
-        try? save(all)
+        guard FileManager.default.fileExists(atPath: printsURL.path) else { return }
+        do {
+            try change { all in all.removeAll { Self.key($0.name) == Self.key(name) } }
+        } catch {
+            Log.app.error("voice print not deleted, the file was left as it is (\(String(describing: type(of: error)), privacy: .public))")
+        }
     }
 
     /// The whole folder: every print, every candidate. Called when the setting is turned off
