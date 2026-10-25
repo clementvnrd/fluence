@@ -567,7 +567,9 @@ public sealed class DictationEngine : IAsyncDisposable
         }
 
         var entries = _dictionary();
-        var bias = DictionaryCorrector.BiasPhrases(entries);
+        // Newest entries first, so a word just added reaches the engine past the limit (FLU-40).
+        // No built-in lexicon on Windows, hence nothing seeded.
+        var bias = DictionaryCorrector.BiasPhrases(entries, seeded: []);
 
         var pieces = AudioSegmenter.SplitWithSeams(audio);
         var transcripts = new List<(string, bool)>(pieces.Count);

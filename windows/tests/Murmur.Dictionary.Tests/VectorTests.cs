@@ -24,7 +24,7 @@ public sealed class VectorTests
 
     private static readonly Suite TheSuite = Load();
 
-    public sealed record Suite(int Version, Case[] Cases);
+    public sealed record Suite(int Version, Case[] Cases, BiasCase[] BiasCases);
 
     public sealed record Case(
         string Name,
@@ -47,6 +47,12 @@ public sealed class VectorTests
     }
 
     public sealed record ExpectedCorrection(string To, int Count);
+
+    /// <summary>
+    /// One <c>biasCases</c> entry: a dictionary, the lexicon's spellings (none when missing),
+    /// and the bias list the engine must get, in order (FLU-40).
+    /// </summary>
+    public sealed record BiasCase(string Name, Entry[] Entries, string[]? Seeded, string[] ExpectedBias);
 
     private static Suite Load()
     {
@@ -103,6 +109,74 @@ public sealed class VectorTests
         TheSuite.Cases.ShouldNotBeEmpty();
         TheSuite.Cases.Select(c => c.Name).Distinct(StringComparer.Ordinal).Count()
             .ShouldBe(TheSuite.Cases.Length, "duplicate case names would be silently skipped");
+    }
+
+    /// <summary>Bias case names, not objects, for the same reason as <see cref="CaseNames"/>.</summary>
+    public static TheoryData<string> BiasCaseNames()
+    {
+        var data = new TheoryData<string>();
+        foreach (var c in TheSuite.BiasCases) data.Add(c.Name);
+        return data;
+    }
+
+    /// <summary>
+    /// The engine is handed the seeded list (<c>DictationEngine</c>), so that is what the shared
+    /// cases run; a case without a lexicon seeds nothing.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(BiasCaseNames))]
+    public void Shared_bias_case_gives_the_contracted_spellings_in_order(string caseName)
+    {
+        var testCase = TheSuite.BiasCases.Single(c => c.Name == caseName);
+
+        var phrases = DictionaryCorrector.BiasPhrases(
+            testCase.Entries.Select(e => e.ToEntry()), testCase.Seeded ?? []);
+
+        phrases.ToList().ShouldBe(testCase.ExpectedBias.ToList(), $"case '{testCase.Name}'");
+    }
+
+    [Fact]
+    public void Every_bias_case_is_uniquely_named_and_the_section_is_not_empty()
+    {
+        TheSuite.BiasCases.ShouldNotBeEmpty();
+        TheSuite.BiasCases.Select(c => c.Name).Distinct(StringComparer.Ordinal).Count()
+            .ShouldBe(TheSuite.BiasCases.Length, "duplicate case names would be silently skipped");
+    }
+
+    /// <summary>The macOS <c>userSpellingsFirst</c> (FLU-27), run against the Windows code.</summary>
+    [Fact]
+    public void The_users_own_spellings_lead_the_list_even_behind_a_long_lexicon()
+    {
+        var lexicon = Enumerable.Range(1, 70).Select(i => DictionaryEntry.Term($"Outil{i}")).ToList();
+        var dictionary = lexicon
+            .Append(DictionaryEntry.Term("Orsay"))
+            .Append(DictionaryEntry.Correction("zoo keeper", "ZooKeeper"))
+            .ToList();
+
+        var led = DictionaryCorrector.BiasPhrases(dictionary, lexicon.Select(e => e.Write));
+
+        led.Count.ShouldBe(DictionaryCorrector.BiasLimit);
+        led[0].ShouldBe("ZooKeeper");
+        led[1].ShouldBe("Orsay");
+        led[2].ShouldBe("Outil1");
+        led[^1].ShouldBe("Outil38");
+
+        // In file order, the 70 lexicon words fill the list first.
+        DictionaryCorrector.BiasPhrases(dictionary).ShouldNotContain("Orsay");
+    }
+
+    /// <summary>FLU-40: without a lexicon, a word just added still reaches the engine.</summary>
+    [Fact]
+    public void Past_the_limit_the_newest_entries_are_offered_first()
+    {
+        var dictionary = Enumerable.Range(1, 45).Select(i => DictionaryEntry.Term($"Mot{i}")).ToList();
+
+        var phrases = DictionaryCorrector.BiasPhrases(dictionary, []);
+
+        phrases.Count.ShouldBe(DictionaryCorrector.BiasLimit);
+        phrases[0].ShouldBe("Mot45");
+        phrases[^1].ShouldBe("Mot6");
+        phrases.ShouldNotContain("Mot5");
     }
 
     [Fact]

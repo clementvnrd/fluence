@@ -160,19 +160,76 @@ public sealed class DictionaryCorrector
     /// The correct spellings — Term words and the <i>write</i> side of corrections — capped
     /// at <see cref="BiasLimit"/>, de-duplicated case-insensitively, in file order.
     /// </summary>
+    /// <remarks>
+    /// File order is the 40 <i>oldest</i> entries, so the engine is handed
+    /// <see cref="BiasPhrases(IEnumerable{DictionaryEntry}, IEnumerable{string})"/> instead.
+    /// </remarks>
     public static IReadOnlyList<string> BiasPhrases(IEnumerable<DictionaryEntry> entries)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var phrases = new List<string>();
+        ArgumentNullException.ThrowIfNull(entries);
 
-        foreach (var entry in entries.Where(e => e.IsEnabled))
+        var phrases = new List<string>(BiasLimit);
+        Offer(entries, phrases, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        return phrases;
+    }
+
+    /// <summary>
+    /// The spellings the engine is handed: the user's own entries first, newest first, then
+    /// the built-in lexicon's in file order — capped at <see cref="BiasLimit"/> and
+    /// de-duplicated case-insensitively, the first spelling offered winning.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Newest first so that a word just added reaches the engine however long the dictionary
+    /// has grown (FLU-40); lexicon last so that a long lexicon never pushes the user's words out
+    /// of the limit (FLU-27 on macOS). The <c>biasCases</c> of
+    /// <c>shared/dictionary-test-vectors.json</c> pin this order on both apps.
+    /// </para>
+    /// <para>
+    /// An entry whose trimmed <i>write</i> is one of <paramref name="seeded"/>, in any case,
+    /// counts as the lexicon's. The Windows app ships no lexicon yet and passes an empty set.
+    /// </para>
+    /// </remarks>
+    /// <param name="entries">The dictionary, in file order: oldest first.</param>
+    /// <param name="seeded">The spellings of the built-in lexicon's entries.</param>
+    public static IReadOnlyList<string> BiasPhrases(IEnumerable<DictionaryEntry> entries, IEnumerable<string> seeded)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(seeded);
+
+        var builtIn = new HashSet<string>(seeded, StringComparer.OrdinalIgnoreCase);
+        var own = new List<DictionaryEntry>();
+        var lexicon = new List<DictionaryEntry>();
+
+        foreach (var entry in entries)
         {
+            (builtIn.Contains(entry.Write.Trim()) ? lexicon : own).Add(entry);
+        }
+
+        // List<T>.Reverse() reverses in place: the user's newest entry is now the first offered.
+        own.Reverse();
+
+        var phrases = new List<string>(BiasLimit);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Offer(own, phrases, seen);
+        Offer(lexicon, phrases, seen);
+        return phrases;
+    }
+
+    /// <summary>
+    /// Adds each enabled entry's trimmed spelling, in the order given, skipping blanks and
+    /// spellings already taken in another case, until <see cref="BiasLimit"/> is reached.
+    /// </summary>
+    private static void Offer(IEnumerable<DictionaryEntry> entries, List<string> phrases, HashSet<string> seen)
+    {
+        foreach (var entry in entries)
+        {
+            if (phrases.Count == BiasLimit) return;
+            if (!entry.IsEnabled) continue;
+
             var phrase = entry.Write.Trim();
             if (phrase.Length == 0 || !seen.Add(phrase)) continue;
             phrases.Add(phrase);
-            if (phrases.Count == BiasLimit) break;
         }
-
-        return phrases;
     }
 }

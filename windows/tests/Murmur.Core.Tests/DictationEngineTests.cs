@@ -133,6 +133,26 @@ public sealed class DictationEngineTests
     }
 
     [Fact]
+    public async Task A_word_just_added_reaches_the_engine_past_the_bias_limit()
+    {
+        var hotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("anything");
+        var dictionary = Enumerable.Range(1, DictionaryCorrector.BiasLimit + 5)
+            .Select(i => DictionaryEntry.Term($"Mot{i}"))
+            .ToArray();
+
+        await using var engine = Build(
+            FakeAudioCapture.Tone(0.4), hotkey, transcriber, new RecordingTextInjector(), dictionary);
+
+        await DictateAsync(hotkey, engine);
+
+        // FLU-40: the dictionary file is oldest first, and the engine gets the newest 40.
+        transcriber.LastBias.Count.ShouldBe(DictionaryCorrector.BiasLimit);
+        transcriber.LastBias[0].ShouldBe($"Mot{DictionaryCorrector.BiasLimit + 5}");
+        transcriber.LastBias.ShouldNotContain("Mot1");
+    }
+
+    [Fact]
     public async Task State_returns_to_idle_after_a_dictation()
     {
         var hotkey = new FakeHotkeySource();
