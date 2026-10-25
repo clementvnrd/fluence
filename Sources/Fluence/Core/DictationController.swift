@@ -81,6 +81,12 @@ final class DictationController {
     var isCommandMode: Bool { isCommand }
     /// Whether a shortcut is armed (Carbon or the event tap) — the main window's status pill.
     private(set) var isHotkeyActive = false
+    /// The engine is still loading a second after key-down — a Parakeet reload after it was
+    /// unloaded for idleness, or Core ML's recompile after a macOS update (FLU-31). The HUD
+    /// says so; the audio is recorded meanwhile, so nothing waits on it.
+    private(set) var isPreparingEngine = false
+    /// How long a load may take before the HUD mentions it: a warm reload (0.1–0.4 s) never shows.
+    private static let preparingNoticeDelay: Duration = .seconds(1)
 
     /// The comparison whose local engines are running, by group: its card shows a spinner.
     private(set) var runningComparisonGroup: String?
@@ -113,6 +119,7 @@ final class DictationController {
             guard session == nil else { return }
             isHandsFree = false
             isCommand = false
+            isPreparingEngine = false
             hotkey.sessionEnded()
         }
     }
@@ -358,8 +365,17 @@ final class DictationController {
         let engine = makeEngine()
         session.engine = engine
 
+        let preparingNotice = Task { [weak self] in
+            try? await Task.sleep(for: Self.preparingNoticeDelay)
+            guard !Task.isCancelled, let self, self.session === session else { return }
+            self.isPreparingEngine = true
+        }
+        defer { preparingNotice.cancel() }
+
         do {
             let snapshots = try await engine.start()
+            preparingNotice.cancel()
+            if self.session === session { isPreparingEngine = false }
             guard self.session === session else {
                 await engine.cancel()
                 return

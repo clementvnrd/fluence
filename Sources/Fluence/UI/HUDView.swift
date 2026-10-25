@@ -180,6 +180,17 @@ struct HUDView: View {
     }
 
     private func caption(_ content: Content) -> String? {
+        // FLU-31: the engine is still loading; what is said is being recorded meanwhile.
+        if controller.isPreparingEngine, preview == nil {
+            switch content {
+            case .listen, .transcribing: return "Préparation de \(settings.engine.shortName)…"
+            default: break
+            }
+        }
+        return steadyCaption(content)
+    }
+
+    private func steadyCaption(_ content: Content) -> String? {
         switch content {
         case .handsFree(let text):
             (text.isEmpty ? "" : "Mains libres · \(elapsedText) · ") + "Touchez \(key) pour arrêter · Échap pour annuler"
