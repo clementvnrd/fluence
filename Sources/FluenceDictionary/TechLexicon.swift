@@ -1,5 +1,4 @@
 import Foundation
-import FluenceDictionary
 
 /// Base native de vocabulaire technique, anglicismes et mapping phonétique
 /// pour les utilisateurs francophones travaillant dans la tech, le dev et le produit.
