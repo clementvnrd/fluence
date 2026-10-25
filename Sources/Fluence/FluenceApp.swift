@@ -411,7 +411,7 @@ private struct MenuContent: View {
             }
         }
 
-        Toggle("Mode comparaison (tous les moteurs)", isOn: $settings.compareMode)
+        Toggle("Mode comparaison", isOn: $settings.compareMode)
 
         if !settings.compareMode {
             Picker("Moteur", selection: $settings.engine) {
