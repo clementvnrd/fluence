@@ -104,7 +104,7 @@ export DEVELOPER_DIR := /Applications/Xcode.app/Contents/Developer
 endif
 endif
 
-.PHONY: all build app run install clean icon release notices
+.PHONY: all build app check-app run install clean icon release notices
 
 all: app
 
@@ -170,6 +170,13 @@ app: build
 		"$(BUNDLE)"
 	@codesign --verify --strict --deep "$(BUNDLE)"
 	@echo "built $(BUNDLE)  [$(APP_VERSION) ($(APP_BUILD)), signed: $(SIGN_ID)]"
+
+## What CI checks on every push and every night (FLU-35): the bundle as built — signature,
+## version, Sparkle and its rpath — then a launch with --selftest, which opens the settings and
+## the stores in a scratch folder of its own and exits. `make check-app PUBLIC=1` checks a
+## build for other people. Opens no window and touches neither /Applications nor your data.
+check-app: app
+	@Tools/check_app_bundle.sh "$(BUNDLE)" $(if $(PUBLIC),--public,)
 
 ## Only ever targets the Fluence executable — never another dictation app.
 run: app

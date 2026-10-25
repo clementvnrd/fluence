@@ -55,6 +55,12 @@ installed apps: nothing reaches them until the release is published.
    Keychain key (no prompt) and writes `appcast.xml` — all into
    `~/Library/Fluence Releases/<version>/`. It refuses an ad-hoc signature (every update would
    then lose the permissions), a feed that is not https, and uncommitted changes.
+
+   CI's *Release bundle launches* job (FLU-35) has already built that commit the same way
+   (ad-hoc), checked its signature, version, Sparkle and rpath, and launched it with
+   `--selftest`. The same check on the signed bundle, before uploading:
+   `Tools/check_app_bundle.sh <the path make release printed after "built"> --public`. (Not
+   `make check-app`, which would rebuild the bundle without the feed.)
 3. Upload, as a **draft** first: `gh release create v<version> --draft --repo clementvnrd/fluence
    --target <commit> --notes-file docs/releases/<version>.md <zip> <zip>.sha256 appcast.xml`.
    A draft creates no tag; publishing does. Publishing is Clement's call; installed copies see
