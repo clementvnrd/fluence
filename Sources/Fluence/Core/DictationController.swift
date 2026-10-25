@@ -117,9 +117,8 @@ final class DictationController {
         }
     }
 
-    /// How long the mic stays open after the key comes up. People release on the last
-    /// syllable, not after it.
-    private static let postRoll: Duration = .milliseconds(250)
+    // How long the mic stays open after the key comes up: see `PostRoll` (FLU-31). People
+    // release on the last syllable, not after it — unless they had already stopped talking.
 
     private var systemObservers: [(NotificationCenter, NSObjectProtocol)] = []
 
@@ -312,10 +311,14 @@ final class DictationController {
     /// - Returns: false if capture couldn't start; the session has then already failed.
     private func startCapture(for session: DictationSession) -> Bool {
         let input = session.audioInput
+        let trail = session.trail
         do {
             try capture.start(
                 deviceUID: Settings.shared.selectedMicrophoneUID,
-                onBuffer: { chunk in input.yield(chunk) },
+                onBuffer: { chunk in
+                    trail.observe(chunk)
+                    input.yield(chunk)
+                },
                 onLevel: { [weak self] level, duration in
                     Task { @MainActor in self?.updateLevel(level, over: duration) }
                 },
@@ -414,6 +417,7 @@ final class DictationController {
 
         releaseWispr()
         session.releasedAt = Date()
+        session.releasedHostTime = HostClock.now
         // MARK: FLU-5 text — where the text will go, read now while that app is in front.
         session.target = FrontmostApp.capture(readURL: Settings.shared.cleanupLevel.appliesStyle)
         session.limitTask?.cancel()
@@ -427,9 +431,23 @@ final class DictationController {
         }
     }
 
+    /// Keeps the microphone open until `PostRoll` says the last word is in: at once when the
+    /// audio before the release was already room tone, after the full 250 ms otherwise.
     private func stopCaptureAfterPostRoll(_ session: DictationSession) async {
-        if session.captureStarted, capture.isRunning {
-            try? await Task.sleep(for: Self.postRoll)
+        if session.captureStarted, capture.isRunning, let released = session.releasedHostTime {
+            var reason = PostRoll.Reason.elapsed
+            while capture.isRunning {
+                if case .stop(let why) = PostRoll.decide(session.trail.snapshot, releasedAt: released, now: HostClock.now) {
+                    reason = why
+                    break
+                }
+                try? await Task.sleep(for: .seconds(PostRoll.pollInterval))
+                // Cancelled meanwhile: the cancel already stopped everything.
+                guard self.session === session else { return }
+            }
+            let milliseconds = Int(((HostClock.now - released) * 1_000).rounded())
+            let why = reason == .trailingSilence ? "silence before release" : "full"
+            Log.audio.info("post-roll · \(milliseconds, privacy: .public) ms (\(why, privacy: .public))")
         }
         // Cancelled meanwhile: the cancel already stopped everything.
         guard self.session === session else { return }
@@ -986,6 +1004,10 @@ private final class DictationSession {
     let started = Date()
     var releasedAt: Date?
     var isReleased: Bool { releasedAt != nil }
+    /// The release on the host clock, which the capture's buffers are stamped with.
+    var releasedHostTime: TimeInterval?
+    /// Where the last sound ended, for the post-roll (FLU-31).
+    let trail = TrailingSilenceMonitor()
 
     /// Captured audio, waiting for the engine. Unbounded on purpose — this *is* the
     /// pre-roll, holding whatever was said while the engine loaded — and bounded in
