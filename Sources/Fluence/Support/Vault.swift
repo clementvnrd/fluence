@@ -75,6 +75,7 @@ enum Vault {
     static func write(_ plaintext: Data, to url: URL, with key: SymmetricKey? = nil) throws {
         try seal(plaintext, with: key).write(to: url, options: [.atomic])
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        AppPaths.keepOutOfBackup(url)
     }
 
     static func read(_ url: URL, with key: SymmetricKey? = nil) throws -> Data {

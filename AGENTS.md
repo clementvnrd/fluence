@@ -79,8 +79,13 @@ These are product requirements, not style:
 - **Never write personal data in plaintext.** Use `Vault` (`Support/Vault.swift`): AES-256-GCM
   under a Keychain master key, per-item wrapped keys for meetings. If the Vault fails, do not
   fall back to plaintext — skip the write and show the fault.
-- **Personal files live under `AppPaths.support`**, which is owner-only, out of Time Machine
-  and out of Spotlight.
+- **Personal files live under `AppPaths.support`**, which is owner-only and out of Spotlight.
+  Everything in it is out of Time Machine **except `dictionary.txt`** (and its `.bak`), plain
+  text the user edits by hand (FLU-36, `SupportFolder`): the folder itself is backed up and
+  each other item is excluded, at launch and after each atomic rewrite of a top-level file. A
+  new top-level file is excluded by the launch sweep; one rewritten by replacement calls
+  `AppPaths.keepOutOfBackup`. Sealed data moves between Macs by the encrypted backup file,
+  not Time Machine.
 - **Clipboard writes we did not get asked for** are transient + concealed and
   `.currentHostOnly`, and are cleaned up afterwards.
 - **Nothing destructive behind a URL scheme.** Any app or web page can open `fluence://`.

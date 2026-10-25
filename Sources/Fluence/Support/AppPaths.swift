@@ -4,8 +4,10 @@ import Foundation
 /// Where Fluence keeps its files, and the one-time move from the app's previous identity.
 ///
 /// Everything personal (history, dictionary, meetings) lives under one directory that is
-/// owner-only, excluded from Time Machine and never indexed by Spotlight — so a transcript
-/// cannot leak through a backup disk or a system-wide search.
+/// owner-only and never indexed by Spotlight. Everything in it is excluded from Time Machine
+/// except the dictionary (FLU-36, `SupportFolder`), so a transcript cannot leak through a
+/// backup disk or a system-wide search while the words the user typed by hand survive a
+/// restore.
 enum AppPaths {
     /// `~/Library/Application Support`.
     static let applicationSupport: URL =
@@ -34,17 +36,18 @@ enum AppPaths {
     /// `~/Library/Application Support/Fluence`.
     static let support: URL = {
         if let override {
-            protect(override)
+            protectSupport(override)
             return override
         }
         if let isolatedBundleID {
             let directory = applicationSupport.appendingPathComponent("Fluence-\(isolatedBundleID)", isDirectory: true)
-            protect(directory)
+            protectSupport(directory)
             return directory
         }
         let directory = applicationSupport.appendingPathComponent("Fluence", isDirectory: true)
-        protect(directory)
+        protectSupport(directory)
         LegacyMigration.mergeSupportFiles(into: directory)
+        SupportFolder.applyBackupPolicy(to: directory)
         return directory
     }()
 
@@ -55,8 +58,31 @@ enum AppPaths {
         return url
     }
 
+    /// The support folder itself: owner-only and no Spotlight like the rest, but backed up,
+    /// with every item in it excluded except the dictionary (FLU-36). Earlier versions
+    /// excluded the whole folder; this lifts that once and for all.
+    private static func protectSupport(_ directory: URL) {
+        prepare(directory)
+        SupportFolder.applyBackupPolicy(to: directory)
+    }
+
+    /// A top-level file of the support folder, written by replacing it: put back out of
+    /// Time Machine (an atomic write drops the exclusion). The dictionary is left in.
+    static func keepOutOfBackup(_ url: URL) {
+        SupportFolder.keepOutOfBackup(url)
+    }
+
     /// Owner-only permissions, no backup, no Spotlight. Idempotent.
     static func protect(_ directory: URL) {
+        prepare(directory)
+        var url = directory
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? url.setResourceValues(values)
+    }
+
+    /// Created, owner-only, never indexed.
+    private static func prepare(_ directory: URL) {
         let manager = FileManager.default
         try? manager.createDirectory(
             at: directory,
@@ -64,11 +90,6 @@ enum AppPaths {
             attributes: [.posixPermissions: 0o700]
         )
         try? manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-
-        var url = directory
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try? url.setResourceValues(values)
 
         // Spotlight honours this marker file for the directory it sits in.
         let marker = directory.appendingPathComponent(".metadata_never_index")

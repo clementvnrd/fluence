@@ -153,11 +153,13 @@ final class HistoryFile: @unchecked Sendable {
         // Atomic: a torn rewrite would lose history the user didn't ask to delete.
         try file.write(to: url, options: [.atomic])
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        AppPaths.keepOutOfBackup(url)
     }
 
     /// Restores a missing newline first: a torn last line must not swallow this one (R11).
     private func appendLine(_ line: Data) throws {
         try SealedLogFile.append(line, to: url)
+        AppPaths.keepOutOfBackup(url)  // when this append created the file
     }
 
     /// One-time move from the plaintext `runs.jsonl` files (and the HTML copy rendered
