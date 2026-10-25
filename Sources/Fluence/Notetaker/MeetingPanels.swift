@@ -43,6 +43,31 @@ class MeetingFloatingPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+    /// Every size change keeps the top-right corner where it was and stays on the screen.
+    /// The hosting view resizes the window itself as soon as SwiftUI lays out new content
+    /// (pill ↔ panel, a new transcript line), and AppKit grows it from its left edge: before
+    /// this, the unfolded panel ran past the right edge of the screen and `relayout()`, which
+    /// runs after, kept it there.
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        var rect = frameRect
+        if isVisible, rect.size != frame.size {
+            rect.origin = NSPoint(x: frame.maxX - rect.width, y: frame.maxY - rect.height)
+            if let visible = (screen ?? NSScreen.main)?.visibleFrame {
+                rect.origin = Self.origin(of: rect.size, at: rect.origin, inside: visible)
+            }
+        }
+        super.setFrame(rect, display: flag)
+    }
+
+    /// The closest origin that keeps a frame of `size` inside `visible`, top-left first when
+    /// it is larger than the screen.
+    static func origin(of size: NSSize, at origin: NSPoint, inside visible: NSRect) -> NSPoint {
+        NSPoint(
+            x: max(visible.minX, min(origin.x, visible.maxX - size.width)),
+            y: min(visible.maxY - size.height, max(origin.y, visible.minY))
+        )
+    }
+
     /// Sizes the panel to its content and parks it in the top-right corner of the screen.
     func present() {
         fitContent(keepingTopRight: isVisible)
