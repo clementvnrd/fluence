@@ -42,6 +42,13 @@ final class MeetingStore {
         loadIndex()
     }
 
+    /// Reads the folders again after a restore or a fresh start (FLU-36): restored meetings
+    /// have no line in the index yet, and are read from their folders.
+    func reload() {
+        AppPaths.protect(root)
+        loadIndex()
+    }
+
     // MARK: - Reading
 
     func load(_ id: UUID) throws -> Meeting {
@@ -165,6 +172,8 @@ final class MeetingStore {
         case 1: lastError = "Une réunion n'a pas pu être déchiffrée. Elle est conservée, rien n'est effacé."
         case let count: lastError = "\(count) réunions n'ont pas pu être déchiffrées. Elles sont conservées, rien n'est effacé."
         }
+        // No key for any of it (FLU-36): say that, rather than « N meetings unreadable ».
+        if Vault.isKeyLost { lastError = Vault.keyLostMessage }
         if !index.unreadable.isEmpty {
             Log.app.error("\(self.index.unreadable.count) meetings unreadable; the index is left as it is")
         }

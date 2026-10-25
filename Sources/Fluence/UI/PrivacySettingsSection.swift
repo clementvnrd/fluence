@@ -12,6 +12,7 @@ struct PrivacySettingsSection: View {
     @State private var hasAccessibility = Permissions.hasAccessibility
     @State private var hasMicrophone = Permissions.hasMicrophone
     @State private var isConfirmingEraseAll = false
+    @State private var safety = DataSafetyModel.shared
 
     private var notetaker: NotetakerSettings { model.settings }
 
@@ -26,6 +27,10 @@ struct PrivacySettingsSection: View {
     }
 
     var body: some View {
+        if safety.isKeyLost {
+            KeyLostCard(model: safety)
+        }
+
         summaryCard
 
         SectionCard {
@@ -41,6 +46,9 @@ struct PrivacySettingsSection: View {
             }
             if let problem = runs.problem {
                 RowNote(text: problem, color: DS.Color.fault)
+            }
+            if let note = safety.note {
+                RowNote(text: note.text, color: note.isFault ? DS.Color.fault : DS.Color.inkSecondary)
             }
             RowDivider()
             SettingsRow(systemImage: "person.2", title: "Réunions et notes", subtitle: retentionSubtitle, info: "Notes, résumés et transcriptions : effacés automatiquement au-delà.") {
@@ -118,6 +126,7 @@ struct PrivacySettingsSection: View {
         .onAppear {
             hasAccessibility = Permissions.hasAccessibility
             hasMicrophone = Permissions.hasMicrophone
+            safety.refresh()
         }
         .confirmationDialog(
             "Tout effacer ?",

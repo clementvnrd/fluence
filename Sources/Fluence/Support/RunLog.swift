@@ -113,6 +113,20 @@ final class RunStore {
         hasLoaded = true
     }
 
+    /// After the file changed under the app (a restore, a fresh start): the file's runs, plus
+    /// the ones in memory it lacks — recorded while it could not be written. Returns those,
+    /// so they can be written now.
+    fileprivate func reloaded(_ stored: [DictationRun]) -> [DictationRun] {
+        func identity(_ run: DictationRun) -> String { "\(run.date.timeIntervalSince1970)|\(run.text)" }
+        let onDisk = Set(stored.map(identity))
+        let unsaved = runs.filter { !onDisk.contains(identity($0)) }
+        runs = (stored + unsaved).enumerated()
+            .sorted { ($0.element.date, $0.offset) < ($1.element.date, $1.offset) }
+            .map(\.element)
+        hasLoaded = true
+        return unsaved
+    }
+
     fileprivate func append(_ run: DictationRun) { runs.append(run) }
     fileprivate func removeAll(where predicate: (DictationRun) -> Bool) { runs.removeAll(where: predicate) }
 }
@@ -131,13 +145,41 @@ enum RunLog {
     static func start() {
         HistoryFile.shared.load { result in
             switch result {
-            case .success(let runs):
+            case .success(let runs, let unreadable):
                 RunStore.shared.loaded(runs)
+                report(unreadableMessage(unreadable))
                 applyRetention()
             case .failure(let message):
                 RunStore.shared.loaded([])
                 report(message)
             }
+        }
+    }
+
+    /// Reads the file again after a restore or a fresh start (FLU-36), and writes the runs
+    /// dictated meanwhile that could not be saved.
+    static func reload() {
+        HistoryFile.shared.load { result in
+            switch result {
+            case .success(let runs, let unreadable):
+                let unsaved = RunStore.shared.reloaded(runs)
+                report(unreadableMessage(unreadable))
+                if retention.persists {
+                    for run in unsaved { HistoryFile.shared.append(run, then: report) }
+                }
+                applyRetention()
+            case .failure(let message):
+                report(message)
+            }
+        }
+    }
+
+    /// Lines that did not open used to be only logged (audit R6): say so, as for meetings.
+    private static func unreadableMessage(_ count: Int) -> String? {
+        switch count {
+        case 0: nil
+        case 1: "Une dictée n'a pas pu être déchiffrée. Elle est conservée, rien n'est effacé."
+        default: "\(count) dictées n'ont pas pu être déchiffrées. Elles sont conservées, rien n'est effacé."
         }
     }
 

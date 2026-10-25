@@ -15,7 +15,8 @@ final class HistoryFile: @unchecked Sendable {
     static let shared = HistoryFile()
 
     enum LoadResult: Sendable {
-        case success([DictationRun])
+        /// The runs, and how many lines did not open (kept as they are).
+        case success([DictationRun], unreadable: Int)
         case failure(String)
     }
 
@@ -41,9 +42,10 @@ final class HistoryFile: @unchecked Sendable {
             do {
                 try self.migrateLegacyFile()
                 let key = try Vault.masterKey()
-                result = .success(try self.read(with: key).runs)
+                let contents = try self.read(with: key)
+                result = .success(contents.runs, unreadable: contents.unreadable.count)
             } catch {
-                result = .failure("L'historique n'a pas pu être ouvert : \(Self.describe(error))")
+                result = .failure(Self.message("L'historique n'a pas pu être ouvert", error))
             }
             Task { @MainActor in completion(result) }
         }
@@ -53,7 +55,7 @@ final class HistoryFile: @unchecked Sendable {
         withKey { key in
             let line = try SealedLines.line(for: try Self.encode(run)) { try Vault.seal($0, with: key) }
             try self.appendLine(line)
-        } then: { report($0.map { "L'historique n'est pas enregistré : \($0)" }) }
+        } then: { report($0.map { Self.message("L'historique n'est pas enregistré", $0) }) }
     }
 
     func remove(where predicate: @escaping @Sendable (DictationRun) -> Bool, then report: @escaping Report) {
@@ -62,7 +64,7 @@ final class HistoryFile: @unchecked Sendable {
             let kept = current.runs.filter { !predicate($0) }
             guard kept.count != current.runs.count else { return }
             try self.rewrite(kept, preserving: current.unreadable, with: key)
-        } then: { report($0.map { "L'historique n'a pas pu être mis à jour : \($0)" }) }
+        } then: { report($0.map { Self.message("L'historique n'a pas pu être mis à jour", $0) }) }
     }
 
     func purge(_ retention: HistoryRetention, now: Date, then report: @escaping Report) {
@@ -98,17 +100,24 @@ final class HistoryFile: @unchecked Sendable {
     /// Without a key, `work` never runs.
     private func withKey(
         _ work: @escaping @Sendable (SymmetricKey) throws -> Void,
-        then report: @escaping @MainActor @Sendable (String?) -> Void
+        then report: @escaping @MainActor @Sendable (Error?) -> Void
     ) {
         queue.async {
-            var problem: String?
+            var problem: Error?
             do {
                 try work(try Vault.masterKey())
             } catch {
-                problem = Self.describe(error)
+                problem = error
             }
-            Task { @MainActor in report(problem) }
+            Task { @MainActor [problem] in report(problem) }
         }
+    }
+
+    /// Runs `work` on the history's queue, after every operation submitted before it and
+    /// before any submitted after: a fresh start or a restore rewrites the file under the
+    /// app, so no append may interleave (FLU-36).
+    func exclusively(_ work: @escaping @Sendable () -> Void) {
+        queue.async(execute: work)
     }
 
     // MARK: - File access (queue only)
@@ -220,6 +229,12 @@ final class HistoryFile: @unchecked Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
+    }
+
+    /// `prefix : cause`, except for a lost key, which says what happened in one sentence.
+    private static func message(_ prefix: String, _ error: Error) -> String {
+        if case VaultKeyError.keyLost? = error as? VaultKeyError { return Vault.keyLostMessage }
+        return "\(prefix) : \(describe(error))"
     }
 
     private static func describe(_ error: Error) -> String {
