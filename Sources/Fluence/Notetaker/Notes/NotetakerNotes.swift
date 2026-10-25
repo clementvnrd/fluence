@@ -6,6 +6,12 @@ enum NotetakerNotes {
     static func launch() {
         purgeExpired()
         MeetingNotesGenerator.shared.start()
+        // FLU-54: notes cut short by the last quit, or failed on a timeout or a busy model.
+        // After the launch's own work (models warming, interrupted meetings recovered).
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(20))
+            MeetingNotesGenerator.shared.resumePending()
+        }
     }
 
     /// Applies the retention setting: deletes meetings older than it (at launch and when

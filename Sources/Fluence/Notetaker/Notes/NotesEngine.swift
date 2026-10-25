@@ -9,8 +9,10 @@ enum NotesFailure: Error, Equatable, Sendable {
     case unavailable(String)
     /// Too little was said to summarise.
     case tooShort
-    /// The model took longer than the per-call limit.
+    /// The model took longer than the per-call limit, every try (FLU-54).
     case timedOut
+    /// The model was rate limited or serving another request, every try (FLU-54).
+    case busy
     /// The model's guardrails declined part of the transcript.
     case declined
     case unsupportedLanguage
@@ -23,7 +25,8 @@ enum NotesFailure: Error, Equatable, Sendable {
         switch self {
         case .unavailable(let reason): "Pas de notes : \(reason)"
         case .tooShort: "Pas de notes : trop peu de choses ont été dites pour un résumé."
-        case .timedOut: "Pas de notes : le modèle local a mis trop de temps. Essayez « Régénérer les notes »."
+        case .timedOut: "Pas de notes : le modèle local a mis trop de temps, même après plusieurs essais."
+        case .busy: "Pas de notes : le modèle local est resté occupé, même après plusieurs essais."
         case .declined: "Pas de notes : le modèle local a refusé une partie de cette transcription."
         case .unsupportedLanguage: "Pas de notes : le modèle local ne prend pas en charge la langue de cette réunion."
         case .empty: "Pas de notes : le modèle local n'a rien renvoyé d'exploitable."
@@ -70,9 +73,10 @@ struct NotesEngine: Sendable {
     /// Model label stored in `MeetingNotes.model`.
     static let modelName = "Apple Foundation Models (on-device)"
 
-    /// Per call. A full chunk prefills ~2,500 tokens and writes up to ~800; on Apple
-    /// silicon that is well under a minute, so this only trips on a stalled model.
-    var callTimeout: Duration = .seconds(90)
+    /// Per call, first try; later tries get longer (`NotesRetry.callTimeout`, FLU-54). A full
+    /// chunk prefills ~2,500 tokens and writes up to ~800; on Apple silicon that is well
+    /// under a minute, so this only trips on a stalled or very busy model.
+    var callTimeout: TimeInterval = 90
     /// Formatting work, not creative work.
     var temperature = 0.2
     /// Fewer words than this and there is nothing to summarise.
@@ -264,14 +268,40 @@ struct NotesEngine: Sendable {
 
     // MARK: - Calls
 
+    /// One model call, tried again on a timeout or a busy model (FLU-54): up to
+    /// `NotesRetry.callAttempts` tries, each with a longer limit, a busy model with a
+    /// backoff. Any other failure goes straight back to the caller, which may split the
+    /// part (FLU-21).
     private func respond<Output: Generable & Sendable>(
         _ type: Output.Type,
         _ instructions: String,
         _ prompt: String,
         _ budget: NotesBudget
     ) async throws -> Output {
+        var attempt = 1
+        while true {
+            do {
+                return try await respondOnce(type, instructions, prompt, budget, timeout: NotesRetry.callTimeout(attempt: attempt, base: callTimeout))
+            } catch {
+                guard let outcome = Self.outcome(of: Self.classify(error)),
+                      let delay = NotesRetry.delay(beforeAttempt: attempt + 1, after: outcome)
+                else { throw error }
+                attempt += 1
+                Log.app.info("notes call tried again (\(outcome.rawValue, privacy: .public)), try \(attempt, privacy: .public) in \(Int(delay), privacy: .public)s")
+                try await Task.sleep(for: .seconds(delay))
+            }
+        }
+    }
+
+    private func respondOnce<Output: Generable & Sendable>(
+        _ type: Output.Type,
+        _ instructions: String,
+        _ prompt: String,
+        _ budget: NotesBudget,
+        timeout seconds: TimeInterval
+    ) async throws -> Output {
         let options = GenerationOptions(temperature: temperature, maximumResponseTokens: budget.responseTokens)
-        let timeout = callTimeout
+        let timeout = Duration.seconds(seconds)
         return try await withThrowingTaskGroup(of: Output.self) { group in
             group.addTask {
                 let session = LanguageModelSession(model: SystemLanguageModel.default, instructions: instructions)
@@ -412,7 +442,7 @@ struct NotesEngine: Sendable {
             case .guardrailViolation, .refusal: return .declined
             case .unsupportedLanguageOrLocale: return .unsupportedLanguage
             case .timeout: return .timedOut
-            case .rateLimited: return .failed("le modèle local est occupé. Essayez « Régénérer les notes » dans un instant.")
+            case .rateLimited: return .busy
             default: return .failed("le modèle local n'a pas pu les rédiger.")
             }
         }
@@ -423,8 +453,7 @@ struct NotesEngine: Sendable {
             case .assetsUnavailable: return .unavailable("le modèle local n'est pas disponible.")
             case .guardrailViolation, .refusal: return .declined
             case .unsupportedLanguageOrLocale: return .unsupportedLanguage
-            case .rateLimited, .concurrentRequests:
-                return .failed("le modèle local est occupé. Essayez « Régénérer les notes » dans un instant.")
+            case .rateLimited, .concurrentRequests: return .busy
             case .decodingFailure, .unsupportedGuide: return .failed("le modèle local a renvoyé des notes mal formées.")
             @unknown default: return .failed("le modèle local n'a pas pu les rédiger.")
             }
@@ -433,12 +462,44 @@ struct NotesEngine: Sendable {
         return .failed("le modèle local n'a pas pu les rédiger.")
     }
 
+    /// What is kept on disk about a failure (FLU-54); `nil` for a cancellation, which leaves
+    /// the job as it was.
+    static func outcome(of failure: NotesFailure) -> NotesOutcome? {
+        switch failure {
+        case .unavailable: .unavailable
+        case .tooShort: .tooShort
+        case .timedOut: .timedOut
+        case .busy: .busy
+        case .declined: .declined
+        case .unsupportedLanguage: .unsupportedLanguage
+        case .empty: .empty
+        case .failed: .failed
+        case .cancelled: nil
+        }
+    }
+
+    /// The message for a failure read back from disk at launch (the detail of `.failed`
+    /// is not kept).
+    static func failure(for outcome: NotesOutcome) -> NotesFailure {
+        switch outcome {
+        case .unavailable: .unavailable(FoundationModelFormatter.unavailableReason ?? "le modèle local n'est pas disponible.")
+        case .tooShort: .tooShort
+        case .timedOut: .timedOut
+        case .busy: .busy
+        case .declined: .declined
+        case .unsupportedLanguage: .unsupportedLanguage
+        case .empty: .empty
+        case .failed: .failed("le modèle local n'a pas pu les rédiger.")
+        }
+    }
+
     /// For the log: the kind of failure only, never content.
     static func logLabel(_ failure: NotesFailure) -> String {
         switch failure {
         case .unavailable: "unavailable"
         case .tooShort: "too short"
         case .timedOut: "timed out"
+        case .busy: "busy"
         case .declined: "declined by guardrails"
         case .unsupportedLanguage: "unsupported language"
         case .empty: "empty"

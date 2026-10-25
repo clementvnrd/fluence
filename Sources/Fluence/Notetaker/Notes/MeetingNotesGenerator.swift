@@ -15,6 +15,12 @@ extension Notification.Name {
 /// from a FIFO queue. The result is applied to a freshly loaded copy of the meeting, so a
 /// rename or title edit made while the model was working is kept. If the model is
 /// unavailable or fails, nothing is saved and the reason is kept in `status` for the UI.
+///
+/// FLU-54: each model call is tried again on a timeout or a busy model (`NotesEngine`), and
+/// the notes a meeting is still owed are kept on disk beside it (`notes.job`, a count and a
+/// failure label, nothing of the meeting). At launch, `resumePending()` queues again the
+/// ones cut short by a quit or a crash or failed on a timeout or a busy model — at most
+/// `NotesRetry.launchResumes` times — and shows the reason of the others again.
 @MainActor
 @Observable
 final class MeetingNotesGenerator {
@@ -67,6 +73,23 @@ final class MeetingNotesGenerator {
         enqueue(id)
     }
 
+    /// FLU-54: at launch, takes up the notes still owed (`NotesRetry.atLaunch`). Oldest
+    /// meeting first.
+    func resumePending() {
+        for id in store.summaries.reversed().map(\.id) {
+            guard let job = readJob(id), let meeting = try? store.load(id) else { continue }
+            switch NotesRetry.atLaunch(job, hasNotes: meeting.notes != nil) {
+            case .forget:
+                removeJob(id)
+            case .resume(let counts):
+                Log.app.info("meeting notes taken up again at launch (\(job.lastOutcome?.rawValue ?? "interrupted", privacy: .public))")
+                enqueue(id, resumes: counts ? job.resumes + 1 : job.resumes)
+            case .showFailure(let outcome):
+                status[id] = .failed(NotesEngine.failure(for: outcome).message)
+            }
+        }
+    }
+
     func isBusy(_ id: UUID) -> Bool {
         switch status[id] {
         case .queued, .working: true
@@ -89,13 +112,17 @@ final class MeetingNotesGenerator {
 
     // MARK: - Queue
 
-    private func enqueue(_ id: UUID) {
+    /// `resumes`: launches that already took these notes up again (0 for a new request).
+    private func enqueue(_ id: UUID, resumes: Int = 0) {
         guard !isBusy(id) else { return }
-        // Say so at once rather than queueing work that cannot run.
+        // Say so at once rather than queueing work that cannot run; a later launch, with
+        // Apple Intelligence on, writes them.
         if let reason = FoundationModelFormatter.unavailableReason {
-            status[id] = .failed(NotesFailure.unavailable(reason).message)
+            status[id] = .failed(NotesFailure.unavailable(reason).message + " " + NotesRetry.resumeNotice)
+            writeJob(NotesJob(resumes: resumes, lastOutcome: .unavailable), for: id)
             return
         }
+        writeJob(NotesJob(resumes: resumes), for: id)
         status[id] = .queued
         queue.append(id)
         runNext()
@@ -121,6 +148,7 @@ final class MeetingNotesGenerator {
             return
         }
 
+        let resumes = readJob(id)?.resumes ?? 0
         status[id] = .working(.preparing)
         let request = meeting.notesRequest(template: NotesTemplateChoice.template(for: id))
         let started = Date()
@@ -135,16 +163,54 @@ final class MeetingNotesGenerator {
             guard var fresh = try? store.load(id) else { status[id] = nil; return }
             fresh.notes = MeetingNotes(draft)
             try store.save(fresh)
+            removeJob(id)
             status[id] = nil
             Log.app.info("meeting notes written in \(Int(Date().timeIntervalSince(started)), privacy: .public)s")
             NotificationCenter.default.post(name: .meetingNotesUpdated, object: id)
         } catch let failure as NotesFailure {
-            status[id] = failure == .cancelled ? nil : .failed(failure.message)
+            if let outcome = NotesEngine.outcome(of: failure) {
+                // Kept on disk, so the reason survives a restart and a transient one is
+                // taken up again at the next launch (FLU-54).
+                writeJob(NotesJob(resumes: resumes, lastOutcome: outcome), for: id)
+                let later = NotesRetry.willResume(after: outcome, resumes: resumes)
+                status[id] = .failed(failure.message + (later ? " " + NotesRetry.resumeNotice : ""))
+            } else {
+                // Cancelled: the meeting is being deleted, or everything is.
+                status[id] = nil
+            }
             Log.app.info("meeting notes not written: \(NotesEngine.logLabel(failure), privacy: .public)")
         } catch {
-            // Only the save can land here.
-            status[id] = .failed("Pas de notes : elles n'ont pas pu être enregistrées.")
+            // Only the save can land here. The job stays as it is, taken up at next launch.
+            let later = resumes < NotesRetry.launchResumes
+            status[id] = .failed("Pas de notes : elles n'ont pas pu être enregistrées." + (later ? " " + NotesRetry.resumeNotice : ""))
             Log.app.error("meeting notes not saved: \(String(describing: type(of: error)), privacy: .public)")
         }
+    }
+
+    // MARK: - Notes owed, on disk (FLU-54)
+
+    /// Beside the meeting, so deleting it deletes this too. Plain JSON: a count and a
+    /// failure label, nothing said in the meeting.
+    private func jobURL(_ id: UUID) -> URL {
+        store.directory(for: id).appendingPathComponent("notes.job")
+    }
+
+    private func readJob(_ id: UUID) -> NotesJob? {
+        guard let data = try? Data(contentsOf: jobURL(id)) else { return nil }
+        return try? JSONDecoder().decode(NotesJob.self, from: data)
+    }
+
+    private func writeJob(_ job: NotesJob, for id: UUID) {
+        // A meeting deleted meanwhile has no folder: nothing to keep.
+        guard FileManager.default.fileExists(atPath: store.directory(for: id).path) else { return }
+        do {
+            try JSONEncoder().encode(job).write(to: jobURL(id), options: [.atomic])
+        } catch {
+            Log.app.error("notes job not written: \(String(describing: type(of: error)), privacy: .public)")
+        }
+    }
+
+    private func removeJob(_ id: UUID) {
+        try? FileManager.default.removeItem(at: jobURL(id))
     }
 }
