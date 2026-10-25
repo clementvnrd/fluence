@@ -86,6 +86,12 @@ The first copy that contains Sparkle has to be installed by hand once (copy `Flu
   `com.apple.quarantine`, so Gatekeeper never assesses it. A first copy downloaded by a browser
   *is* quarantined and is refused until System Settings › Privacy & Security › *Open Anyway*
   (not re-tested here).
+* **An ad-hoc build gets `com.apple.security.cs.disable-library-validation`** (FLU-35). Without a
+  Team ID, the hardened runtime's library validation refuses the embedded Sparkle and the app
+  aborts before `main` (`different Team IDs`): every ad-hoc bundle since FLU-26 did, and only a
+  launch shows it. The Makefile adds that entitlement only when `SIGN_ID` is `-` (CI, a Mac
+  without a certificate); a build signed with an identity keeps `Resources/Fluence.entitlements`
+  as it is.
 * **No notarization** (decided 2026-10-08, FLU-39: no Developer ID, ever). It would need a
   paid Developer ID Application certificate. A first copy on another Mac therefore needs
   *Open Anyway* once; its updates do not.

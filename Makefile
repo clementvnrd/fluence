@@ -42,6 +42,17 @@ endif
 ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
+## An ad-hoc signature has no Team ID, so the hardened runtime's library validation refuses the
+## embedded Sparkle ("mapping process and mapped file have different Team IDs") and the app
+## aborts before main — every ad-hoc build since FLU-26, found by the launch check (FLU-35). An
+## ad-hoc build (CI, a Mac without a certificate) therefore gets one more entitlement, which
+## turns library validation off; a build signed with an identity never does, and `make release`
+## refuses ad-hoc anyway.
+ENTITLEMENTS := Resources/$(EXEC).entitlements
+ifeq ($(strip $(SIGN_ID)),-)
+ENTITLEMENTS := $(STAGE)/adhoc.entitlements
+endif
+
 ## A secure timestamp needs Apple's server: day-to-day builds skip it, `make release` asks for
 ## it (notarization will require it).
 TIMESTAMP ?= --timestamp=none
@@ -149,8 +160,11 @@ app: build
 	@codesign --force --sign "$(SIGN_ID)" --options runtime $(TIMESTAMP) "$(SPARKLE_DST)/Versions/B/Autoupdate"
 	@codesign --force --sign "$(SIGN_ID)" --options runtime $(TIMESTAMP) "$(SPARKLE_DST)/Versions/B/Updater.app"
 	@codesign --force --sign "$(SIGN_ID)" --options runtime $(TIMESTAMP) "$(SPARKLE_DST)"
+	@if [ "$(ENTITLEMENTS)" != "Resources/$(EXEC).entitlements" ]; then \
+		cp Resources/$(EXEC).entitlements "$(ENTITLEMENTS)" && /usr/libexec/PlistBuddy \
+		-c "Add :com.apple.security.cs.disable-library-validation bool true" "$(ENTITLEMENTS)" >/dev/null; fi
 	@codesign --force --sign "$(SIGN_ID)" \
-		--entitlements Resources/$(EXEC).entitlements \
+		--entitlements "$(ENTITLEMENTS)" \
 		--options runtime \
 		$(TIMESTAMP) \
 		"$(BUNDLE)"
