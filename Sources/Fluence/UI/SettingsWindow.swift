@@ -636,6 +636,24 @@ struct AboutSettingsSection: View {
     @Environment(\.openWindow) private var openWindow
     /// Mirrors Sparkle's setting, which SwiftUI cannot observe.
     @State private var checksAutomatically = AppUpdater.shared.checksAutomatically
+    @State private var exportFailed = false
+
+    /// FLU-35: the file goes where the user saves it, then shows in the Finder so it can be
+    /// attached to a message.
+    private func exportDiagnostic() {
+        Task {
+            do {
+                exportFailed = false
+                if let url = try await DiagnosticExport.save() {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            } catch {
+                exportFailed = true
+                Log.app.error("diagnostic export failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public)")
+                Diagnostics.error("diagnostics.export", error)
+            }
+        }
+    }
 
     /// "Vérifié aujourd'hui, 09:12", or "Jamais vérifié".
     private var lastCheckText: String {
@@ -720,6 +738,18 @@ struct AboutSettingsSection: View {
                     if let notices { NSWorkspace.shared.open(notices) }
                 }
                 .disabled(notices == nil)
+            }
+            RowDivider()
+            // FLU-35: a file the user saves and sends if they want to; nothing is sent.
+            SettingsRow(
+                systemImage: "stethoscope",
+                title: "Exporter un diagnostic",
+                info: "Versions, réglages, nombres et durées, dernières erreurs et dates des plantages. Aucun texte dicté, aucune réunion, aucun nom. Rien n'est envoyé : vous choisissez où l'enregistrer."
+            ) {
+                CapButton(title: "Exporter…", height: 24) { exportDiagnostic() }
+            }
+            if exportFailed {
+                RowNote(text: "Le diagnostic n'a pas pu être enregistré.", color: DS.Color.fault)
             }
         }
 
