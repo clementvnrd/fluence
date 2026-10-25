@@ -155,17 +155,9 @@ final class HistoryFile: @unchecked Sendable {
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
+    /// Restores a missing newline first: a torn last line must not swallow this one (R11).
     private func appendLine(_ line: Data) throws {
-        let manager = FileManager.default
-        if !manager.fileExists(atPath: url.path) {
-            guard manager.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
-                throw CocoaError(.fileWriteUnknown)
-            }
-        }
-        let handle = try FileHandle(forWritingTo: url)
-        defer { try? handle.close() }
-        try handle.seekToEnd()
-        try handle.write(contentsOf: line)
+        try SealedLogFile.append(line, to: url)
     }
 
     /// One-time move from the plaintext `runs.jsonl` files (and the HTML copy rendered
