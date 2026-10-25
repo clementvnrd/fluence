@@ -422,6 +422,9 @@ struct ShortcutLegend: View {
 struct TranscriptionSettingsSection: View {
     @State private var settings = Settings.shared
     @State private var boostStatus: BoostStatus = ParakeetModels.isVocabularyModelDownloaded ? .ready : .idle
+    @State private var models = SpeechModelStore.shared
+    /// The model whose *Supprimer…* was clicked, waiting for the confirmation.
+    @State private var pendingDeletion: InstalledSpeechModel?
     @Environment(\.openWindow) private var openWindow
 
     private enum BoostStatus: Equatable {
@@ -484,6 +487,15 @@ struct TranscriptionSettingsSection: View {
                 }
             }
         }
+        .task { await models.refresh() }
+        .onChange(of: settings.engine) { models.reclassify() }
+        .onChange(of: settings.whisperModel) { models.reclassify() }
+        .onChange(of: settings.parakeetVocabularyBoost) { models.reclassify() }
+        .onChange(of: settings.compareMode) { models.reclassify() }
+
+        if !models.installed.isEmpty {
+            modelsCard
+        }
 
         SectionCard {
             SettingsRow(systemImage: "text.magnifyingglass", title: "Renforcer les mots du dictionnaire dans Parakeet", subtitle: boostState, info: Self.boostInfo) {
@@ -511,6 +523,47 @@ struct TranscriptionSettingsSection: View {
     private func setLanguage(_ language: DictationLanguage) {
         settings.dictationLanguage = language
         settings.prewarmCurrentEngine()
+    }
+
+    // MARK: FLU-31 — models on this Mac
+
+    private static let modelsInfo = "Les modèles vocaux téléchargés. Ceux qui ne servent pas peuvent être supprimés ; Fluence les retélécharge si vous les choisissez à nouveau."
+
+    /// Every model on disk with its size; *Supprimer…* only on the ones nothing uses, and
+    /// nothing leaves the disk without the confirmation below.
+    private var modelsCard: some View {
+        SectionCard {
+            SettingsRow(
+                systemImage: "internaldrive",
+                title: "Modèles sur ce Mac",
+                subtitle: FrenchFormat.bytes(SpeechModelInventory.totalBytes(models.installed)),
+                info: Self.modelsInfo
+            ) { EmptyView() }
+            ForEach(models.installed) { model in
+                RowDivider()
+                SettingsRow(systemImage: "cpu", title: model.model.displayName, subtitle: model.subtitle) {
+                    if model.canDelete {
+                        DestructiveButton(title: "Supprimer…", height: 24) { pendingDeletion = model }
+                    }
+                }
+            }
+            if let failure = models.failure {
+                RowNote(text: failure, color: DS.Color.meterAmber)
+            }
+        }
+        .confirmationDialog(
+            pendingDeletion.map { "Supprimer \($0.model.displayName) ?" } ?? "",
+            isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingDeletion
+        ) { model in
+            Button("Placer dans la Corbeille", role: .destructive) {
+                Task { await models.moveToTrash(model.model) }
+            }
+            Button("Annuler", role: .cancel) {}
+        } message: { model in
+            Text("\(FrenchFormat.bytes(model.bytes)) libérés une fois la Corbeille vidée. Fluence le retélécharge si vous le choisissez à nouveau.")
+        }
     }
 
     private var languageNote: String {

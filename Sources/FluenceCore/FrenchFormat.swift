@@ -17,6 +17,18 @@ public enum FrenchFormat {
         return text + space + "s"
     }
 
+    /// "3,2 Go", "632 Mo", "20 Ko": decimal units, as the Finder counts them. One decimal
+    /// from a gigabyte up, whole numbers below.
+    public static func bytes(_ value: Int64) -> String {
+        let bytes = Double(max(0, value))
+        if bytes >= 999_500_000 {
+            return String(format: "%.1f", bytes / 1e9).replacingOccurrences(of: ".", with: ",") + space + "Go"
+        }
+        if bytes >= 999_500 { return "\(Int((bytes / 1e6).rounded()))" + space + "Mo" }
+        if bytes >= 1_000 { return "\(Int((bytes / 1e3).rounded()))" + space + "Ko" }
+        return "\(Int(bytes))" + space + "o"
+    }
+
     /// Whole seconds to show. NaN, the infinities and negatives read as 0, anything past
     /// `Int32.max` seconds (68 years) as that: converting a larger `Double` to `Int` crashes,
     /// and a damaged imported transcript can carry any number (FLU-27).
