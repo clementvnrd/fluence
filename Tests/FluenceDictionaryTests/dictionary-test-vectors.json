@@ -6,9 +6,10 @@
     "The inputs are the kind of thing Clement dictates: French sentences carrying English tech words. Next to every match sits plain ASCII, except in the one decomposed-accent case, so the two regex engines cannot read a neighbour differently.",
     "Deeper Unicode behaviour (full case folding, exotic spaces, letters and digits of other scripts, tie order, chained corrections) is pinned by the Swift tests alone.",
     "Edit this file before either implementation, and keep the Swift copy identical: cp shared/dictionary-test-vectors.json Tests/FluenceDictionaryTests/",
-    "'fileCases' (since version 2) pin how dictionary.txt is read: 'text' is the raw file, line endings spelled out (\\n, \\r\\n, or a lone \\r: any of them ends a line), and 'expectedEntries' are the entries that come back, in file order. A bare line is a term, 'hear -> write' a correction, '# off:' a disabled entry, any other '#' line a comment; each side is trimmed of spaces and tabs."
+    "'fileCases' (since version 2) pin how dictionary.txt is read: 'text' is the raw file, line endings spelled out (\\n, \\r\\n, or a lone \\r: any of them ends a line), and 'expectedEntries' are the entries that come back, in file order. A bare line is a term, 'hear -> write' a correction, '# off:' a disabled entry, any other '#' line a comment; each side is trimmed of spaces and tabs.",
+    "'biasCases' (since version 3, FLU-40) pin the spellings handed to the speech engine, in order: 'entries' as above, 'seeded' the spellings of a built-in lexicon (missing: none), and 'expectedBias' the list. The user's own enabled entries come first, newest (last in the file) first, then the lexicon's entries in file order; an entry whose trimmed write is a seeded spelling in any case is the lexicon's. Each write is trimmed, a blank one is skipped, and so is a spelling already taken in another case (the first one offered wins). At most 40."
   ],
-  "version": 2,
+  "version": 3,
   "cases": [
     {
       "name": "switched-off correction leaves its trigger alone",
@@ -310,6 +311,162 @@
       "name": "a file of line endings only holds nothing",
       "text": "\r\n\n\r",
       "expectedEntries": []
+    }
+  ],
+  "biasCases": [
+    {
+      "name": "past the limit, the newest entries reach the engine (FLU-40)",
+      "entries": [
+        { "kind": "term", "write": "Mot1" },
+        { "kind": "term", "write": "Mot2" },
+        { "kind": "term", "write": "Mot3" },
+        { "kind": "term", "write": "Mot4" },
+        { "kind": "term", "write": "Mot5" },
+        { "kind": "term", "write": "Mot6" },
+        { "kind": "term", "write": "Mot7" },
+        { "kind": "term", "write": "Mot8" },
+        { "kind": "term", "write": "Mot9" },
+        { "kind": "term", "write": "Mot10" },
+        { "kind": "term", "write": "Mot11" },
+        { "kind": "term", "write": "Mot12" },
+        { "kind": "term", "write": "Mot13" },
+        { "kind": "term", "write": "Mot14" },
+        { "kind": "term", "write": "Mot15" },
+        { "kind": "term", "write": "Mot16" },
+        { "kind": "term", "write": "Mot17" },
+        { "kind": "term", "write": "Mot18" },
+        { "kind": "term", "write": "Mot19" },
+        { "kind": "term", "write": "Mot20" },
+        { "kind": "term", "write": "Mot21" },
+        { "kind": "term", "write": "Mot22" },
+        { "kind": "term", "write": "Mot23" },
+        { "kind": "term", "write": "Mot24" },
+        { "kind": "term", "write": "Mot25" },
+        { "kind": "term", "write": "Mot26" },
+        { "kind": "term", "write": "Mot27" },
+        { "kind": "term", "write": "Mot28" },
+        { "kind": "term", "write": "Mot29" },
+        { "kind": "term", "write": "Mot30" },
+        { "kind": "term", "write": "Mot31" },
+        { "kind": "term", "write": "Mot32" },
+        { "kind": "term", "write": "Mot33" },
+        { "kind": "term", "write": "Mot34" },
+        { "kind": "term", "write": "Mot35" },
+        { "kind": "term", "write": "Mot36" },
+        { "kind": "term", "write": "Mot37" },
+        { "kind": "term", "write": "Mot38" },
+        { "kind": "term", "write": "Mot39" },
+        { "kind": "term", "write": "Mot40" },
+        { "kind": "term", "write": "Mot41" },
+        { "kind": "term", "write": "Mot42" },
+        { "kind": "term", "write": "Mot43" },
+        { "kind": "term", "write": "Mot44" },
+        { "kind": "term", "write": "Mot45" }
+      ],
+      "expectedBias": [
+        "Mot45", "Mot44", "Mot43", "Mot42", "Mot41", "Mot40", "Mot39", "Mot38", "Mot37", "Mot36",
+        "Mot35", "Mot34", "Mot33", "Mot32", "Mot31", "Mot30", "Mot29", "Mot28", "Mot27", "Mot26",
+        "Mot25", "Mot24", "Mot23", "Mot22", "Mot21", "Mot20", "Mot19", "Mot18", "Mot17", "Mot16",
+        "Mot15", "Mot14", "Mot13", "Mot12", "Mot11", "Mot10", "Mot9", "Mot8", "Mot7", "Mot6"
+      ]
+    },
+    {
+      "name": "the user's entries lead, newest first, even behind a long lexicon",
+      "entries": [
+        { "kind": "term", "write": "Lib1" },
+        { "kind": "term", "write": "Lib2" },
+        { "kind": "term", "write": "Lib3" },
+        { "kind": "term", "write": "Lib4" },
+        { "kind": "term", "write": "Lib5" },
+        { "kind": "term", "write": "Lib6" },
+        { "kind": "term", "write": "Lib7" },
+        { "kind": "term", "write": "Lib8" },
+        { "kind": "term", "write": "Lib9" },
+        { "kind": "term", "write": "Lib10" },
+        { "kind": "term", "write": "Lib11" },
+        { "kind": "term", "write": "Lib12" },
+        { "kind": "term", "write": "Lib13" },
+        { "kind": "term", "write": "Lib14" },
+        { "kind": "term", "write": "Lib15" },
+        { "kind": "term", "write": "Lib16" },
+        { "kind": "term", "write": "Lib17" },
+        { "kind": "term", "write": "Lib18" },
+        { "kind": "term", "write": "Lib19" },
+        { "kind": "term", "write": "Lib20" },
+        { "kind": "term", "write": "Lib21" },
+        { "kind": "term", "write": "Lib22" },
+        { "kind": "term", "write": "Lib23" },
+        { "kind": "term", "write": "Lib24" },
+        { "kind": "term", "write": "Lib25" },
+        { "kind": "term", "write": "Lib26" },
+        { "kind": "term", "write": "Lib27" },
+        { "kind": "term", "write": "Lib28" },
+        { "kind": "term", "write": "Lib29" },
+        { "kind": "term", "write": "Lib30" },
+        { "kind": "term", "write": "Lib31" },
+        { "kind": "term", "write": "Lib32" },
+        { "kind": "term", "write": "Lib33" },
+        { "kind": "term", "write": "Lib34" },
+        { "kind": "term", "write": "Lib35" },
+        { "kind": "term", "write": "Lib36" },
+        { "kind": "term", "write": "Lib37" },
+        { "kind": "term", "write": "Lib38" },
+        { "kind": "term", "write": "Lib39" },
+        { "kind": "term", "write": "Lib40" },
+        { "kind": "term", "write": "Lib41" },
+        { "kind": "term", "write": "Lib42" },
+        { "kind": "term", "write": "Lib43" },
+        { "kind": "term", "write": "Lib44" },
+        { "kind": "term", "write": "Lib45" },
+        { "kind": "term", "write": "Orsay" },
+        { "kind": "correction", "hear": "zoo keeper", "write": "ZooKeeper" }
+      ],
+      "seeded": [
+        "Lib1", "Lib2", "Lib3", "Lib4", "Lib5", "Lib6", "Lib7", "Lib8", "Lib9", "Lib10",
+        "Lib11", "Lib12", "Lib13", "Lib14", "Lib15", "Lib16", "Lib17", "Lib18", "Lib19", "Lib20",
+        "Lib21", "Lib22", "Lib23", "Lib24", "Lib25", "Lib26", "Lib27", "Lib28", "Lib29", "Lib30",
+        "Lib31", "Lib32", "Lib33", "Lib34", "Lib35", "Lib36", "Lib37", "Lib38", "Lib39", "Lib40",
+        "Lib41", "Lib42", "Lib43", "Lib44", "Lib45"
+      ],
+      "expectedBias": [
+        "ZooKeeper", "Orsay", "Lib1", "Lib2", "Lib3", "Lib4", "Lib5", "Lib6", "Lib7", "Lib8",
+        "Lib9", "Lib10", "Lib11", "Lib12", "Lib13", "Lib14", "Lib15", "Lib16", "Lib17", "Lib18",
+        "Lib19", "Lib20", "Lib21", "Lib22", "Lib23", "Lib24", "Lib25", "Lib26", "Lib27", "Lib28",
+        "Lib29", "Lib30", "Lib31", "Lib32", "Lib33", "Lib34", "Lib35", "Lib36", "Lib37", "Lib38"
+      ]
+    },
+    {
+      "name": "an entry spelled like a lexicon word, in any case and of any kind, joins the lexicon",
+      "entries": [
+        { "kind": "term", "write": "Rust" },
+        { "kind": "term", "write": "Mine1" },
+        { "kind": "correction", "hear": "go lang", "write": "go" },
+        { "kind": "term", "write": "Go" },
+        { "kind": "term", "write": "Mine2", "isEnabled": false },
+        { "kind": "term", "write": "Mine3" }
+      ],
+      "seeded": [ "Rust", "Go" ],
+      "expectedBias": [ "Mine3", "Mine1", "Rust", "go" ]
+    },
+    {
+      "name": "between the user's own spellings of one word, the newest wins",
+      "entries": [
+        { "kind": "term", "write": "Lua" },
+        { "kind": "term", "write": "Elm" },
+        { "kind": "term", "write": "ELM" }
+      ],
+      "seeded": [ "lua" ],
+      "expectedBias": [ "ELM", "Lua" ]
+    },
+    {
+      "name": "spellings are trimmed; blank and switched-off entries give nothing",
+      "entries": [
+        { "kind": "term", "write": " Postgres\t" },
+        { "kind": "term", "write": "" },
+        { "kind": "term", "write": "Cassandra", "isEnabled": false },
+        { "kind": "correction", "hear": "red is", "write": "  Redis " }
+      ],
+      "expectedBias": [ "Redis", "Postgres" ]
     }
   ]
 }

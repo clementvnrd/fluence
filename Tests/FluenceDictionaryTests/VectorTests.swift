@@ -10,6 +10,13 @@ struct SharedVector: Decodable, Sendable, CustomTestStringConvertible {
         let hear: String?
         let write: String
         let isEnabled: Bool?
+
+        /// The entry it stands for. A kind other than "correction" reads as a term; no `hear`
+        /// is an empty one, and no `isEnabled` means enabled.
+        var entry: DictionaryEntry {
+            DictionaryEntry(kind: kind == "correction" ? .correction : .term, write: write,
+                            hear: hear ?? "", isEnabled: isEnabled ?? true)
+        }
     }
 
     struct Report: Decodable, Hashable, Sendable {
@@ -25,14 +32,8 @@ struct SharedVector: Decodable, Sendable, CustomTestStringConvertible {
 
     var testDescription: String { name }
 
-    /// The case's dictionary. A kind other than "correction" reads as a term; no `hear` is an
-    /// empty one, and no `isEnabled` means enabled.
-    var dictionary: [DictionaryEntry] {
-        entries.map { rule in
-            DictionaryEntry(kind: rule.kind == "correction" ? .correction : .term, write: rule.write,
-                            hear: rule.hear ?? "", isEnabled: rule.isEnabled ?? true)
-        }
-    }
+    /// The case's dictionary.
+    var dictionary: [DictionaryEntry] { entries.map(\.entry) }
 
     private struct File: Decodable {
         let version: Int
@@ -45,6 +46,28 @@ struct SharedVector: Decodable, Sendable, CustomTestStringConvertible {
             throw CocoaError(.fileNoSuchFile)
         }
         return try JSONDecoder().decode(File.self, from: Data(contentsOf: url)).cases
+    }
+}
+
+/// One `biasCases` entry of shared/dictionary-test-vectors.json: a dictionary, the lexicon's
+/// spellings, and the bias list the engine must get, in order (FLU-40).
+struct BiasVector: Decodable, Sendable, CustomTestStringConvertible {
+    let name: String
+    let entries: [SharedVector.Rule]
+    let seeded: [String]?
+    let expectedBias: [String]
+
+    var testDescription: String { name }
+
+    private struct File: Decodable {
+        let biasCases: [BiasVector]
+    }
+
+    static func all() throws -> [BiasVector] {
+        guard let url = Bundle.module.url(forResource: "dictionary-test-vectors", withExtension: "json") else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return try JSONDecoder().decode(File.self, from: Data(contentsOf: url)).biasCases
     }
 }
 
@@ -69,6 +92,21 @@ struct VectorTests {
 
     private static func byTarget(_ lhs: SharedVector.Report, _ rhs: SharedVector.Report) -> Bool {
         (lhs.to, lhs.count) < (rhs.to, rhs.count)
+    }
+
+    @Test("the bias cases load, and each has its own name")
+    func biasShape() throws {
+        let cases = try BiasVector.all()
+        #expect(!cases.isEmpty)
+        #expect(Set(cases.map(\.name)).count == cases.count)
+    }
+
+    /// The app hands the engine the seeded list (`DictionaryStore.biasPhrases`), so that is what
+    /// the shared cases run; a case without a lexicon seeds nothing.
+    @Test("a shared bias case: the spellings the engine gets, in order", arguments: try BiasVector.all())
+    func biasCase(_ vector: BiasVector) {
+        let bias = DictionaryCorrector.biasPhrases(from: vector.entries.map(\.entry), seeded: Set(vector.seeded ?? []))
+        #expect(bias == vector.expectedBias)
     }
 
     @Test("a long list of terms is cut at the limit, each word once whatever its case")
