@@ -185,11 +185,8 @@ enum FrenchRules {
         var result = text
         let open = "(?:ouvrez|ouvre|ouvrir|ouvrons)"
         let close = "(?:fermez|ferme|fermer|fermons)"
-        let fixed: [(String, String)] = [
-            ("point d\(apostrophe)interrogation", "?"),
-            ("point d\(apostrophe)exclamation", "!"),
-            ("points? de suspension", "…"),
-            ("point[\\s-]virgule", ";"),
+        // Layout commands: nobody says these words in a sentence about something else.
+        let layout: [(String, String)] = [
             ("(?:nouveau|nouvel) paragraphe", "\n\n"),
             ("(?:retour [àa] la ligne|nouvelle ligne)", "\n"),
             // Not "à la ligne 3" or "à la ligne suivante": that is someone talking about a line.
@@ -198,44 +195,112 @@ enum FrenchRules {
             ("\(close) la parenth[èe]se", ") "),
             ("\(open) les guillemets", " « "),
             ("\(close) les guillemets", " » "),
-            ("point final", "."),
         ]
-        for (phrase, mark) in fixed {
+        for (phrase, mark) in layout {
             let template = NSRegularExpression.escapedTemplate(for: mark)
             result = RuleCleanup.replace(result, "(?i)\(start)\(phrase)\(end)", with: template)
         }
 
-        // "deux points" is also a score: not after words that count things.
-        result = rewrite(result, phrase: "deux points") { previous, _ in
-            guard let previous else { return ":" }
-            return quantityWords.contains(previous) ? nil : ":"
+        // Punctuation words are nouns as often as commands (FLU-30): « un point
+        // d'interrogation sur le budget », « j'ai deux points à voir », « le point final du
+        // projet ». A mark that closes a clause is a command only at a clause end — the end of
+        // the text, a line break, or a mark the engine wrote itself — and none of them is one
+        // after a determiner or an adjective, or before what completes a noun (« sur », « de »).
+        let closers: [(String, String)] = [
+            ("point d\(apostrophe)interrogation", "?"),
+            ("point d\(apostrophe)exclamation", "!"),
+            ("points? de suspension", "…"),
+            ("point final", "."),
+        ]
+        for (phrase, mark) in closers {
+            result = rewrite(result, phrase: phrase) { context in
+                guard context.before != nil, !context.isNoun, context.atClauseEnd else { return nil }
+                return .closingMark(mark)
+            }
+        }
+        // A semicolon and a colon sit inside a sentence, so they may be followed by words.
+        result = rewrite(result, phrase: "point[\\s-]virgule") { context in
+            context.before == nil || context.isNoun ? nil : .closingMark(";")
+        }
+        // "deux points" is also a count (« j'ai deux points à voir ») and a score.
+        result = rewrite(result, phrase: "deux points") { context in
+            // Nothing before it to introduce: « Deux points à voir » opens a sentence.
+            if context.before == nil { return nil }
+            if let previous = context.previous, quantityWords.contains(previous) { return nil }
+            if context.isNoun { return nil }
+            return .mark(":")
         }
         // "virgule" between two digits is a decimal comma ("3 virgule 5" → "3,5"), and after a
-        // determiner it is the noun ("la virgule").
-        result = rewrite(result, phrase: "virgule") { previous, next in
-            if let previous, determiners.contains(previous) { return nil }
-            if let previous, let next, previous.allSatisfy(\.isNumber), next.first?.isNumber == true {
-                return "\u{0},"
+        // determiner it is the noun (« la virgule », « un point-virgule » kept as words).
+        result = rewrite(result, phrase: "virgule") { context in
+            if context.before == "-" || context.previous == "point" { return nil }
+            if let previous = context.previous, determiners.contains(previous) { return nil }
+            if let previous = context.previous, let next = context.next,
+               previous.allSatisfy(\.isNumber), next.first?.isNumber == true {
+                return .decimalComma
             }
-            return ","
+            return .mark(",")
         }
-        // "point" only where nothing but a full stop fits: at the very end, or right before a
-        // line break — and never after a determiner ("à ce point", "le point").
-        result = rewrite(result, phrase: "point") { previous, next in
-            if let previous, determiners.contains(previous) || prepositions.contains(previous) { return nil }
-            guard next == nil || next == "\n" else { return nil }
-            return "."
+        // "point" only where nothing but a full stop fits: at the very end, before a line
+        // break, or before the full stop the engine already wrote (« …le devis point. », F5),
+        // which it replaces. Never after a determiner, a preposition or an adjective (« à ce
+        // point », « excellent point »).
+        result = rewrite(result, phrase: "point") { context in
+            // A number before it stays a command: « rendez-vous à 15 h point ».
+            if let previous = context.previous, nounBefore.contains(previous) { return nil }
+            let afterStop = context.previous == nil && context.before.map { ".!?".contains($0) } == true
+            if context.next == nil || context.next == "\n" {
+                // « …le devis. Point » : the engine's stop already is the one that was said.
+                return afterStop ? .drop : .closingMark(".")
+            }
+            guard context.next == "." else { return nil }
+            return afterStop ? .drop : .closingMark(".")
         }
         return result
     }
 
-    /// Replaces each whole-word `phrase` with what `decide` returns for its neighbours (the
-    /// previous word lowercased, the next word or "\n"), or leaves it when that is nil.
-    /// A result starting with NUL also swallows the spaces on both sides.
+    /// What surrounds a spoken punctuation word.
+    struct Context {
+        /// The word before, lowercased, elisions read as the word after the apostrophe
+        /// (« j'ai » → « ai »); nil when a mark or the start of the text comes first.
+        let previous: String?
+        /// The next word, "\n", or the mark that follows; nil at the end of the text.
+        let next: String?
+        /// The character right before the phrase, spaces skipped.
+        let before: Character?
+
+        /// The phrase reads as a noun: after a determiner, an adjective or a number, or
+        /// before what completes a noun.
+        var isNoun: Bool {
+            if let previous, nounBefore.contains(previous) || isNumberOrOrdinal(previous) { return true }
+            if let next, nounAfter.contains(next.lowercased()) { return true }
+            return false
+        }
+
+        /// The end of the text, a line break, or a mark the engine wrote.
+        var atClauseEnd: Bool {
+            guard let next else { return true }
+            return next == "\n" || pauses.contains(next)
+        }
+    }
+
+    enum Action {
+        /// The mark; an engine's own mark right after the phrase gives way to it.
+        case mark(String)
+        /// The same, and a comma the engine wrote before it goes too (« devis, point »).
+        case closingMark(String)
+        /// A comma glued to the digits around it.
+        case decimalComma
+        /// The phrase and the engine's stop after it go: the stop before already says it.
+        case drop
+    }
+
+    /// Replaces each whole-word `phrase` with what `decide` returns for its context, or
+    /// leaves it when that is nil.
     private static func rewrite(
         _ text: String,
         phrase: String,
-        decide: (_ previous: String?, _ next: String?) -> String?
+        decide: (Context) -> Action?
     ) -> String {
         guard let regex = try? NSRegularExpression(
             pattern: "\(start)\(phrase.replacingOccurrences(of: " ", with: "\\s+"))\(end)",
@@ -247,21 +312,53 @@ enum FrenchRules {
         // Back to front, so earlier ranges stay valid as later ones are rewritten.
         for match in matches.reversed() {
             guard let range = Range(match.range, in: result) else { continue }
-            let previous = previousWord(in: result, before: range.lowerBound)
-            let next = nextWord(in: result, after: range.upperBound)
-            guard var mark = decide(previous, next) else { continue }
+            let context = Context(
+                previous: previousWord(in: result, before: range.lowerBound),
+                next: nextWord(in: result, after: range.upperBound),
+                before: result[..<range.lowerBound].last(where: { $0 != " " && $0 != "\t" })
+            )
+            guard let action = decide(context) else { continue }
             var lower = range.lowerBound
             var upper = range.upperBound
-            if mark.first == "\u{0}" {
-                mark.removeFirst()
+            let replacement: String
+            switch action {
+            case .mark(let mark):
+                replacement = mark
+                upper = engineMark(in: result, after: upper) ?? upper
+            case .closingMark(let mark):
+                replacement = mark
+                upper = engineMark(in: result, after: upper) ?? upper
+                var cursor = lower
+                while cursor > result.startIndex, result[result.index(before: cursor)] == " " {
+                    cursor = result.index(before: cursor)
+                }
+                if cursor > result.startIndex, result[result.index(before: cursor)] == "," {
+                    lower = result.index(before: cursor)
+                }
+            case .decimalComma:
+                replacement = ","
                 while lower > result.startIndex, result[result.index(before: lower)] == " " {
                     lower = result.index(before: lower)
                 }
                 while upper < result.endIndex, result[upper] == " " { upper = result.index(after: upper) }
+            case .drop:
+                replacement = ""
+                while lower > result.startIndex, result[result.index(before: lower)] == " " {
+                    lower = result.index(before: lower)
+                }
+                upper = engineMark(in: result, after: upper) ?? upper
             }
-            result.replaceSubrange(lower..<upper, with: mark)
+            result.replaceSubrange(lower..<upper, with: replacement)
         }
         return result
+    }
+
+    /// The end of a mark the engine wrote right after `index` (spaces skipped), if any.
+    private static func engineMark(in text: String, after index: String.Index) -> String.Index? {
+        var cursor = index
+        while cursor < text.endIndex, text[cursor] == " " { cursor = text.index(after: cursor) }
+        guard cursor < text.endIndex, pauses.contains(String(text[cursor])) else { return nil }
+        return text.index(after: cursor)
     }
 
     private static func previousWord(in text: String, before index: String.Index) -> String? {
@@ -269,10 +366,11 @@ enum FrenchRules {
         guard let last = head.last, last.isLetter || last.isNumber || last == "'" || last == "’" else { return nil }
         let word = head.reversed().prefix { $0.isLetter || $0.isNumber || $0 == "'" || $0 == "’" }
         let forward = String(word.reversed()).lowercased()
-        // "l'" / "d'" elisions read as their determiner.
+        // « j'ai », « qu'un »: the word that counts is the one after the elision.
         if let apostrophe = forward.lastIndex(where: { $0 == "'" || $0 == "’" }) {
+            let after = forward[forward.index(after: apostrophe)...]
             let elided = forward[..<apostrophe]
-            return elided.isEmpty ? forward : String(elided)
+            return after.isEmpty ? String(elided) : String(after)
         }
         return forward
     }
@@ -285,14 +383,45 @@ enum FrenchRules {
         return word.isEmpty ? String(first) : String(word)
     }
 
+    static func isNumberOrOrdinal(_ word: String) -> Bool {
+        word.allSatisfy(\.isNumber) || word.hasSuffix("ième") || word.hasSuffix("ièmes")
+            || SpeechRepairs.RevisionKind.numberWords.contains(word)
+    }
+
+    /// Marks an engine writes at a pause.
+    static let pauses: Set<String> = [".", ",", ";", ":", "!", "?", "…"]
+
     private static let determiners: Set<String> = [
         "le", "la", "l", "les", "un", "une", "ce", "cet", "cette", "ces", "du", "de", "d", "des",
         "au", "aux", "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses", "notre", "votre",
         "nos", "vos", "leur", "leurs", "quel", "quelle", "quels", "quelles", "chaque", "tel", "telle",
     ]
     private static let prepositions: Set<String> = ["à", "a", "en", "sur", "par", "vers", "bon", "mauvais"]
+    /// Adjectives and quantifiers that come before a noun: « excellent point », « gros point
+    /// d'interrogation », « plusieurs points de suspension ».
+    private static let adjectives: Set<String> = [
+        "excellent", "bon", "bons", "mauvais", "gros", "petit", "petits", "grand", "grands", "vrai",
+        "vrais", "dernier", "derniers", "premier", "premiers", "seul", "seuls", "autre", "autres",
+        "même", "mêmes", "nouveau", "nouveaux", "nouvel", "sacré", "joli", "beau", "beaux", "bel",
+        "sale", "énorme", "énormes", "léger", "simple", "simples", "quelques", "plusieurs",
+        "certains", "divers", "tout", "tous", "moindre", "unique", "principal", "véritable",
+    ]
+    static let nounBefore: Set<String> = determiners.union(prepositions).union(adjectives)
+    /// Words that complete a noun right after it: « point d'interrogation sur le budget »,
+    /// « deux points à voir », « deux points importants ».
+    static let nounAfter: Set<String> = [
+        "sur", "de", "d", "du", "des", "à", "au", "aux", "qui", "que", "qu", "dont", "dans", "en",
+        "pour", "concernant", "quant", "entre", "avec", "chez",
+        "important", "importants", "importante", "essentiel", "essentiels", "principal", "principaux",
+        "commun", "communs", "fort", "forts", "faible", "faibles", "clé", "clés", "crucial", "cruciaux",
+        "positif", "positifs", "négatif", "négatifs", "majeur", "majeurs", "bloquant", "bloquants",
+        "ouvert", "ouverts", "précis", "noir", "noirs",
+    ]
     private static let quantityWords: Set<String> = determiners.union([
         "à", "avec", "sur", "en", "par", "marqué", "gagné", "perdu", "obtenu", "pris", "rendu",
         "plus", "moins", "que", "seulement", "environ",
+        // Having or lacking two of something: « j'ai deux points à voir ».
+        "ai", "as", "a", "avons", "avez", "ont", "avait", "avais", "aura", "auras", "reste",
+        "restent", "manque", "manquent", "encore", "derniers", "premiers", "autres",
     ])
 }
