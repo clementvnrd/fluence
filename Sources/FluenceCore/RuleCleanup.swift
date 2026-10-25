@@ -1,5 +1,17 @@
 import Foundation
 
+/// Level Light before layout: Clement's repairs on the words as spoken, then the rules.
+///
+/// The one function every caller uses — Light itself, and the fallback of Medium and High
+/// when the model is unavailable, slow or rejected — so a failed model pass falls back to
+/// exactly Light and never to less (FLU-30: the fallback ran the rules without the repairs).
+/// `SpeechRepairs.after` runs after it, as after the model.
+public enum LightCleanup {
+    public static func apply(_ raw: String, language: DictationLanguage) -> String {
+        RuleCleanup.apply(SpeechRepairs.before(raw, language: language), language: language)
+    }
+}
+
 /// The deterministic cleanup pass (level Light), and the fallback for every model pass.
 ///
 /// It can only delete fillers, turn spoken punctuation into marks, and fix spacing and

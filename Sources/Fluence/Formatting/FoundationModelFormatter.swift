@@ -53,8 +53,9 @@ struct FoundationModelFormatter: TextFormatter {
     }
 
     func format(_ raw: String) async -> String {
-        // Light first: the model starts from text with the fillers gone and the spoken
-        // commands already turned into punctuation, and the fallback is that same text.
+        // Light first: the model starts from text with the fillers gone, the repairs made and
+        // the spoken commands already turned into punctuation, and the fallback is that same
+        // text — exactly Light, never less (FLU-30).
         let trimmed = await fallback.format(raw)
         if trimmed.isEmpty { return trimmed }
 

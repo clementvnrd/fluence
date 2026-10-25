@@ -11,9 +11,7 @@ import Testing
 /// unchanged. Every rule added to Light extends this list first.
 struct DoNoHarmTests {
     static func light(_ text: String, _ language: DictationLanguage) -> String {
-        let repaired = SpeechRepairs.before(text, language: language)
-        let cleaned = RuleCleanup.apply(repaired, language: language)
-        return SpeechRepairs.after(cleaned, language: language, developer: false)
+        SpeechRepairs.after(LightCleanup.apply(text, language: language), language: language, developer: false)
     }
 
     /// French typography puts a no-break space before « ? ! : ; »; it is not a change of words.
@@ -130,9 +128,15 @@ struct DoNoHarmTests {
     // MARK: - FLU-30
 
     static func developer(_ text: String, _ language: DictationLanguage) -> String {
-        let repaired = SpeechRepairs.before(text, language: language)
-        let cleaned = RuleCleanup.apply(repaired, language: language)
-        return SpeechRepairs.after(cleaned, language: language, developer: true)
+        SpeechRepairs.after(LightCleanup.apply(text, language: language), language: language, developer: true)
+    }
+
+    /// The model's fallback is Light itself (F9): the repairs included, not the rules alone.
+    @Test func lightIsRepairsThenRules() {
+        let said = "un pro problème, en fait c'est c'est réglé"
+        #expect(LightCleanup.apply(said, language: .french)
+            == RuleCleanup.apply(SpeechRepairs.before(said, language: .french), language: .french))
+        #expect(LightCleanup.apply("un pro problème", language: .french) == "Un problème.")
     }
 
     @Test(arguments: frenchInDeveloperTools)

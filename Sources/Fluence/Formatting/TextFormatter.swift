@@ -12,14 +12,15 @@ protocol TextFormatter: Sendable {
 /// Deterministic, zero-latency cleanup (level Light). Good enough to be useful on its own and
 /// always the fallback when a model-backed formatter is unavailable, times out or is rejected.
 ///
-/// The rules themselves live in `FluenceCore.RuleCleanup`, where they are unit tested; this
-/// only carries the language they run for.
+/// The rules themselves live in `FluenceCore.LightCleanup` (Clement's repairs, then
+/// `RuleCleanup`), where they are unit tested; this only carries the language they run for.
+/// A fallback is the whole of Light, never the rules alone (FLU-30).
 struct RuleBasedFormatter: TextFormatter {
     /// The transcript's language: fillers and spoken punctuation are language-specific.
     var language: DictationLanguage = .english
 
     func format(_ raw: String) async -> String {
-        RuleCleanup.apply(raw, language: language)
+        LightCleanup.apply(raw, language: language)
     }
 }
 
