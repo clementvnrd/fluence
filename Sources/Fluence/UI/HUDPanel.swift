@@ -58,6 +58,7 @@ final class HUDPanel: NSPanel {
     func reposition() {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else {
             Log.app.error("HUD: no screen available to place the panel")
+            Diagnostics.error("hud.noScreen")
             return
         }
         let visible = screen.visibleFrame

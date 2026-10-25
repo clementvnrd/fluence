@@ -42,6 +42,7 @@ enum WisprTrigger {
     private static func post(flags: CGEventFlags) {
         guard let event = CGEvent(source: nil) else {
             Log.speech.error("WisprTrigger: could not create the flags-changed event")
+            Diagnostics.error("wispr.trigger.event")
             return
         }
         event.type = .flagsChanged

@@ -122,6 +122,7 @@ final class SnippetStore {
             imported = try LegacyMerge.snippets(fromLegacyJSON: Data(contentsOf: legacy))
         } catch {
             Log.app.error("snippets: the legacy file couldn't be read and was left in place")
+            Diagnostics.error("snippets.legacy.read", error)
             return
         }
         let merged = LegacyMerge.mergeSnippets(current: snippets, imported: imported)
@@ -136,6 +137,7 @@ final class SnippetStore {
                 Log.app.info("snippets: \(added, privacy: .public) imported from the plaintext file, which was removed")
             } catch {
                 Log.app.error("snippets: legacy import not sealed — \(Self.describe(error), privacy: .public)")
+                Diagnostics.error("snippets.legacy.seal", error)
             }
         }
     }
@@ -154,6 +156,7 @@ final class SnippetStore {
             let cause = Vault.isKeyLost ? Vault.keyLostMessage : "Les snippets n'ont pas pu être ouverts : \(Self.describe(error))."
             problem = "\(cause) Les changements sont gardés jusqu'à ce que vous quittiez, sans être enregistrés."
             Log.app.error("snippets: load failed — \(Self.describe(error), privacy: .public)")
+            Diagnostics.error("snippets.load", error)
         }
     }
 
@@ -172,7 +175,10 @@ final class SnippetStore {
                 SnippetStore.shared.problem = failure.map {
                     Vault.isKeyLost ? Vault.keyLostMessage : "Les snippets ne sont pas enregistrés : \($0)"
                 }
-                if let failure { Log.app.error("snippets: save failed — \(failure, privacy: .public)") }
+                if let failure {
+                    Log.app.error("snippets: save failed — \(failure, privacy: .public)")
+                    Diagnostics.error("snippets.save")
+                }
             }
         }
     }

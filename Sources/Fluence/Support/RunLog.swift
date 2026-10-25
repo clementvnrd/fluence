@@ -257,7 +257,10 @@ enum RunLog {
 
     /// nil clears a previous problem: the last disk operation succeeded.
     private static func report(_ problem: String?) {
-        if let problem { Log.app.error("history: \(problem)") }
+        if let problem {
+            Log.app.error("history: \(problem)")
+            Diagnostics.error("history.problem")
+        }
         RunStore.shared.problem = problem
     }
 }

@@ -48,6 +48,7 @@ enum TextInjector {
                 // A posted ⌘V would be dropped: the dictation stays on the pasteboard (still
                 // concealed and transient) for the user's own ⌘V.
                 Log.inject.error("no Accessibility grant — transcript left on the pasteboard")
+                Diagnostics.error("inject.noAccessibility")
                 putOnPasteboard(text)
                 return .onClipboard
             }
@@ -183,12 +184,14 @@ enum TextInjector {
             // *its* contents — possibly a password — into the user's document.
             guard pasteboard.changeCount == ours else {
                 Log.inject.error("pasteboard changed before ⌘V — paste skipped")
+                Diagnostics.error("inject.pasteboardChanged")
                 return
             }
             guard postCommandV() else {
                 // No paste is possible, so the dictation stays on the pasteboard (still
                 // concealed and transient) for the user's own ⌘V instead of being restored away.
                 Log.inject.error("no Accessibility grant — transcript left on the pasteboard")
+                Diagnostics.error("inject.noAccessibility")
                 return
             }
             Log.inject.info("pasted (\(text.count) chars)")

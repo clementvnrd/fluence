@@ -163,6 +163,7 @@ enum LegacyMigration {
                 Log.app.info("migration: dictionary moved into Fluence")
             } catch {
                 Log.app.error("migration: dictionary not moved — \(error.localizedDescription)")
+                Diagnostics.error("migration.dictionary.move", error)
             }
         case .merge:
             do {
@@ -176,6 +177,7 @@ enum LegacyMigration {
             } catch {
                 // Both files stay as they are; the merge is tried again next launch.
                 Log.app.error("migration: dictionary not merged — \(error.localizedDescription)")
+                Diagnostics.error("migration.dictionary.merge", error)
             }
         }
         removeIfEmpty(legacy)

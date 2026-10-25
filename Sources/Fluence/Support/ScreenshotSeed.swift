@@ -34,6 +34,7 @@ enum ScreenshotSeed {
               let seed = try? decoder.decode(Seed.self, from: data)
         else {
             Log.app.error("screenshot seed unreadable")
+            Diagnostics.error("screenshotSeed.read")
             return
         }
         for run in seed.runs ?? [] { RunLog.record(run) }

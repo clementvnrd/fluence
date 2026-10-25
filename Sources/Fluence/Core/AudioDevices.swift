@@ -88,6 +88,7 @@ public enum AudioDevices {
         )
         guard status == noErr, dataSize > 0 else {
             logger.warning("failed to get audio devices list size: \(status)")
+            Diagnostics.error("audio.devices.size", code: Int(status))
             return []
         }
 
@@ -103,6 +104,7 @@ public enum AudioDevices {
         )
         guard status == noErr else {
             logger.warning("failed to get audio devices list: \(status)")
+            Diagnostics.error("audio.devices.list", code: Int(status))
             return []
         }
 

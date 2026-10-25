@@ -47,6 +47,7 @@ final class VoicePrintStore {
             return try SealedJSONFile.read([VoicePrint].self, at: printsURL) { try Vault.open($0) } ?? []
         } catch {
             Log.app.error("voice prints unreadable (\(String(describing: type(of: error)), privacy: .public))")
+            Diagnostics.error("voicePrints.read", error)
             return []
         }
     }
@@ -106,6 +107,7 @@ final class VoicePrintStore {
             try change { all in all.removeAll { Self.key($0.name) == Self.key(name) } }
         } catch {
             Log.app.error("voice print not deleted, the file was left as it is (\(String(describing: type(of: error)), privacy: .public))")
+            Diagnostics.error("voicePrints.delete", error)
         }
     }
 

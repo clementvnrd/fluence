@@ -65,6 +65,7 @@ enum MeetingFinalizer {
                 }
             } catch {
                 Log.speech.error("diarization failed, remote speech stays unattributed: \(error.localizedDescription, privacy: .public)")
+                Diagnostics.error("meeting.diarization", error)
             }
         }
 

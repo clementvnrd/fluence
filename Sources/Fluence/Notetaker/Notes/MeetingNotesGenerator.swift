@@ -184,6 +184,7 @@ final class MeetingNotesGenerator {
             let later = resumes < NotesRetry.launchResumes
             status[id] = .failed("Pas de notes : elles n'ont pas pu être enregistrées." + (later ? " " + NotesRetry.resumeNotice : ""))
             Log.app.error("meeting notes not saved: \(String(describing: type(of: error)), privacy: .public)")
+            Diagnostics.error("meeting.notes.save", error)
         }
     }
 
@@ -207,6 +208,7 @@ final class MeetingNotesGenerator {
             try JSONEncoder().encode(job).write(to: jobURL(id), options: [.atomic])
         } catch {
             Log.app.error("notes job not written: \(String(describing: type(of: error)), privacy: .public)")
+            Diagnostics.error("meeting.notes.job", error)
         }
     }
 

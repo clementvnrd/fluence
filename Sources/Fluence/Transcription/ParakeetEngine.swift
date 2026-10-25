@@ -86,6 +86,7 @@ actor ParakeetEngine: TranscriptionEngine {
             samples.append(contentsOf: try converter.resampleBuffer(buffer))
         } catch {
             Log.speech.error("Parakeet: audio conversion failed — \(error.localizedDescription)")
+            Diagnostics.error("speech.parakeet.convert", error)
         }
     }
 
@@ -130,6 +131,7 @@ actor ParakeetEngine: TranscriptionEngine {
             )
         } catch {
             Log.speech.error("Parakeet failed: \(error.localizedDescription)")
+            Diagnostics.error("speech.parakeet.failed", error)
             continuation?.finish(throwing: error)
             continuation = nil
         }
@@ -171,6 +173,7 @@ actor ParakeetEngine: TranscriptionEngine {
             return rescored.text
         } catch {
             Log.speech.error("Parakeet: vocabulary boost unavailable — \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("speech.parakeet.vocabularyBoost", error)
             return result.text
         }
     }

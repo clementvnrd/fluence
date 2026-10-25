@@ -481,6 +481,7 @@ final class HotkeyMonitor {
             windowTimer?.cancel()
             swallowed.removeAll()
             Log.hotkey.error("event tap was disabled by the system — re-armed")
+            Diagnostics.recovery("hotkey.eventTap.rearmed")
             onTapDisabled?()
             return false
         default:

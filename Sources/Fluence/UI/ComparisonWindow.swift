@@ -151,6 +151,7 @@ struct ComparisonWindow: View {
                 parakeetDownload = .idle
             } catch {
                 Log.speech.error("compare: Parakeet download failed: \(error.localizedDescription, privacy: .public)")
+                Diagnostics.error("compare.parakeet.download", error)
                 parakeetDownload = .failed
             }
             parakeetOnDisk = ParakeetModels.isDownloaded

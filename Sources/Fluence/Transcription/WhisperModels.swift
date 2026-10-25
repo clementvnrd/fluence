@@ -121,6 +121,7 @@ actor WhisperModels {
             if attempt == 1 {
                 guard promptTokens != nil, TranscriptHealth.isDegenerate(text) else { break }
                 Log.speech.error("WhisperKit: output repeated itself with a prompt — retrying without it")
+                Diagnostics.recovery("speech.whisper.retryWithoutPrompt")
             }
             let results = await kit.transcribe(
                 audioArrays: [samples],
@@ -205,6 +206,7 @@ actor WhisperModels {
         } catch {
             loadTasks[variant] = nil
             Log.speech.error("WhisperKit: initialization failed: \(error.localizedDescription)")
+            Diagnostics.error("speech.whisper.init", error)
             throw error
         }
     }

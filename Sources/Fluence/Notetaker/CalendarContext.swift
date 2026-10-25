@@ -45,6 +45,7 @@ final class CalendarContext {
             return try await store.requestFullAccessToEvents()
         } catch {
             Log.app.error("calendar access request failed: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("calendar.request", error)
             return false
         }
     }

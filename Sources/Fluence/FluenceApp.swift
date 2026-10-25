@@ -346,6 +346,7 @@ private struct MenuContent: View {
                 parakeetOnDisk = ParakeetModels.isDownloaded
             } catch {
                 Log.speech.error("Parakeet models could not be prepared: \(error.localizedDescription)")
+                Diagnostics.error("speech.parakeet.prepare", error)
             }
             isPreloadingParakeet = false
         }

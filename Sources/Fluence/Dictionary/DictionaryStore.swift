@@ -183,6 +183,7 @@ final class DictionaryStore {
             return false
         case .failed(let error):
             Log.app.error("dictionary unreadable, keeping the current entries: \(error.localizedDescription)")
+            Diagnostics.error("dictionary.read", error)
             return false
         }
     }
@@ -197,6 +198,7 @@ final class DictionaryStore {
             lastText = text
         } catch {
             Log.app.error("dictionary not saved: \(error.localizedDescription)")
+            Diagnostics.error("dictionary.save", error)
         }
         // The atomic write replaced the file, so the old watcher is on a dead inode.
         watchFile()
@@ -215,8 +217,10 @@ final class DictionaryStore {
         do {
             try current.write(to: backup, atomically: true, encoding: .utf8)
             Log.app.error("dictionary copied to dictionary.txt.bak before saving (unreadable lines: \(unread), emptied: \(emptied))")
+            Diagnostics.recovery("dictionary.backup")
         } catch {
             Log.app.error("dictionary backup failed: \(error.localizedDescription)")
+            Diagnostics.error("dictionary.backup.failed", error)
         }
     }
 

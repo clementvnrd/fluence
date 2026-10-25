@@ -97,6 +97,7 @@ extension Permissions {
             return try await EKEventStore().requestFullAccessToEvents()
         } catch {
             Log.app.error("calendar access request failed: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("permission.calendar.request", error)
             return false
         }
     }
