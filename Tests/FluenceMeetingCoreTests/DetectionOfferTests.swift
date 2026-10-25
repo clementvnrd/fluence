@@ -20,6 +20,16 @@ struct DetectionOfferTests {
         #expect(DetectionOffer.autoRecordChoices.first == 0)
     }
 
+    @Test("a stored delay Settings never offers reads as none (R13)")
+    func corruptedDelayIsNever() {
+        for choice in DetectionOffer.autoRecordChoices {
+            #expect(DetectionOffer.storedDelay(choice) == choice)
+        }
+        for raw in [-1, 1, 5, 61, Int.max, Int.min] {
+            #expect(DetectionOffer.storedDelay(raw) == 0)
+        }
+    }
+
     @Test("a delay chosen in Settings counts down, then records once")
     func chosenDelayRecords() {
         var offer = DetectionOffer(autoRecordSeconds: 3)

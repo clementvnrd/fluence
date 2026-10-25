@@ -1,3 +1,5 @@
+import FluenceCore
+import FluenceMeetingCore
 import Foundation
 import Observation
 
@@ -70,13 +72,15 @@ final class NotetakerSettings {
     private init() {
         detectMeetings = defaults.object(forKey: Keys.detectMeetings) as? Bool ?? true
         defaults.removeObject(forKey: Keys.oldCountdownSeconds)
-        autoRecordSeconds = max(0, defaults.integer(forKey: Keys.autoRecordSeconds))
+        // Every number below is read with bounds (R13): an edited or corrupted value falls
+        // back to the default instead of recording without a click, deleting meetings or
+        // stopping at once.
+        autoRecordSeconds = DetectionOffer.storedDelay(defaults.integer(forKey: Keys.autoRecordSeconds))
         keepAudioByDefault = defaults.object(forKey: Keys.keepAudioByDefault) as? Bool ?? false
         voicePrintsEnabled = defaults.object(forKey: Keys.voicePrintsEnabled) as? Bool ?? false
         readNamesFromMeetingWindow = defaults.object(forKey: Keys.readNamesFromMeetingWindow) as? Bool ?? true
         useCalendar = defaults.object(forKey: Keys.useCalendar) as? Bool ?? true
-        let days = defaults.integer(forKey: Keys.retentionDays)
-        retentionDays = days > 0 ? days : nil
-        maxDurationMinutes = defaults.object(forKey: Keys.maxDurationMinutes) as? Int ?? 180
+        retentionDays = StoredSettings.meetingRetention(defaults.integer(forKey: Keys.retentionDays))
+        maxDurationMinutes = StoredSettings.meetingDuration(defaults.object(forKey: Keys.maxDurationMinutes) as? Int)
     }
 }

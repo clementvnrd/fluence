@@ -19,6 +19,13 @@ public struct DetectionOffer: Equatable, Sendable {
     /// The delays offered in Settings; 0 is *Jamais* (wait for a click), the default.
     public static let autoRecordChoices = [0, 10, 20, 30, 60]
 
+    /// The delay read back from the defaults (R13). Only a value Settings offers counts: any
+    /// other, corrupted or hand-edited, means *Jamais* — a broken setting must never be what
+    /// starts a recording nobody clicked.
+    public static func storedDelay(_ raw: Int) -> Int {
+        autoRecordChoices.contains(raw) ? raw : 0
+    }
+
     /// Seconds left before recording starts on its own; `nil` waits for a click.
     public private(set) var remaining: Int?
     /// The delay the card counts down from, for its ring; `nil` without one.
