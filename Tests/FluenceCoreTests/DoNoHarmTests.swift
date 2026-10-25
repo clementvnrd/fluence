@@ -114,7 +114,8 @@ struct DoNoHarmTests {
         ("rendez-vous mardi, en fait mercredi", DictationLanguage.french, "Rendez-vous mercredi."),
         ("envoie-le à Paul, en fait Marie", .french, "Envoie-le à Marie."),
         ("on se voit le 12, en fait 14", .french, "On se voit le 14."),
-        ("le budget est de 300 non attends 400 euros", .french, "Le budget est de 400 euros."),
+        // French typography writes the amount as « 400 € » (FLU-30, F13).
+        ("le budget est de 300 non attends 400 euros", .french, "Le budget est de 400 €."),
         ("un pro problème", .french, "Un problème."),
         ("c'est c'est bien", .french, "C'est bien."),
         ("bonjour efface tout, salut", .french, "Salut."),
