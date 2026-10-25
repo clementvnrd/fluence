@@ -2,7 +2,17 @@ import AppKit
 import FluenceCore
 import SwiftUI
 
+/// The entry point. `--selftest` (FLU-35) runs and exits before SwiftUI, the app delegate and
+/// `SingleInstance` exist; anything else starts the app.
 @main
+enum FluenceMain {
+    @MainActor
+    static func main() {
+        if SelfTest.isRequested { SelfTest.run() }
+        FluenceApp.main()
+    }
+}
+
 struct FluenceApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 

@@ -15,9 +15,26 @@ enum AppPaths {
 
     /// Development only: `FLUENCE_SUPPORT_DIRECTORY` points the app at a scratch folder (for
     /// screenshots of a fresh install). Legacy data is then never touched — the migration
-    /// below works on the real folders only.
-    static let override: URL? = ProcessInfo.processInfo.environment["FLUENCE_SUPPORT_DIRECTORY"]
-        .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+    /// below works on the real folders only. `--selftest` always gets a new folder of its own
+    /// in the temporary directory, whatever the environment says (FLU-35).
+    static let override: URL? = SelfTest.isRequested
+        ? SelfTest.folder
+        : ProcessInfo.processInfo.environment["FLUENCE_SUPPORT_DIRECTORY"]
+            .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+
+    /// Where the settings are kept: the app's preferences, except under `--selftest`, whose
+    /// settings live in `defaults.plist` inside its scratch folder (an absolute path as the
+    /// suite name) and never mix with the user's (FLU-35). `UserDefaults` is thread-safe, as
+    /// `.standard` already is to every caller.
+    nonisolated(unsafe) static let defaults: UserDefaults = {
+        guard SelfTest.isRequested else { return .standard }
+        guard let scratch = UserDefaults(suiteName: support.appendingPathComponent("defaults").path) else {
+            // Never fall back to the user's preferences.
+            print("selftest: FAIL scratch settings could not be created")
+            exit(1)
+        }
+        return scratch
+    }()
 
     /// The identity of the app Clement uses. TCC grants, the Keychain item and the data folder
     /// all belong to it.

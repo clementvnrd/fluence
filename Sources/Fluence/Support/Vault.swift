@@ -42,8 +42,13 @@ enum Vault {
     /// The master key and its safeguards (FLU-36, `FluenceCore.VaultKeyring`): read once and
     /// cached; made only when nothing sealed is on disk. Sealed data without its key is
     /// `VaultKeyError.keyLost` — never a silent new key over it.
+    ///
+    /// FLU-35: the self-test's scratch account lives and dies with a key held in memory; it
+    /// never reads, creates or prompts for the Keychain item.
     static let keyring = VaultKeyring(
-        store: KeychainMasterKeyStore(service: service, account: "master-key"),
+        store: SelfTest.isRequested
+            ? InMemoryMasterKeyStore()
+            : KeychainMasterKeyStore(service: service, account: "master-key"),
         layout: VaultLayout(root: AppPaths.support)
     )
 
@@ -153,5 +158,24 @@ struct KeychainMasterKeyStore: MasterKeyStore {
     func replaceKey(_ key: Data) throws {
         let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: key] as CFDictionary)
         guard status == errSecSuccess else { throw Vault.Failure.keychain(status) }
+    }
+}
+
+/// The self-test's key store (FLU-35): starts empty, so the keyring makes a key on the first
+/// seal of the empty scratch folder, and forgets it when the process exits.
+final class InMemoryMasterKeyStore: MasterKeyStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var key: Data?
+
+    func readKey() throws -> Data? {
+        lock.withLock { key }
+    }
+
+    func addKey(_ key: Data) throws {
+        lock.withLock { self.key = key }
+    }
+
+    func replaceKey(_ key: Data) throws {
+        lock.withLock { self.key = key }
     }
 }
