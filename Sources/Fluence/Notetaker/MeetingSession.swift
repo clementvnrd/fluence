@@ -41,8 +41,13 @@ final class MeetingSession {
     private var warnedPermission = false
     /// Audio blocks the bounded queues had to drop since the ticker last asked.
     private let dropped: DroppedBlocks
+    /// Utterances the engine failed on (FLU-54), saved with the meeting.
+    private let failedUtterances = UntranscribedLog()
 
     var hasSystemAudio: Bool { tap != nil }
+    /// Speech not transcribed so far; after `finish()`, what the retry at the end could not
+    /// recover either (FLU-54).
+    var untranscribed: [UntranscribedSpan] { failedUtterances.all }
     var systemSpoolURL: URL? { systemPipeline == nil ? nil : MeetingAudioSpool.url(in: directory, source: .system) }
     var elapsed: TimeInterval { MeetingAudioFormat.seconds(from: startHost, to: MeetingAudioFormat.now) }
 
@@ -94,9 +99,11 @@ final class MeetingSession {
         }
 
         let clock = speechClock
+        let failedUtterances = failedUtterances
         let callbacks = ChannelPipeline.Callbacks(
             segment: { segment in Task { @MainActor in onSegment(segment) } },
-            speech: { _, time in clock.heard(at: time) }
+            speech: { _, time in clock.heard(at: time) },
+            untranscribed: { span in failedUtterances.add(span) }
         )
         let reference = self.tap == nil ? nil : ReferenceBuffer()
         if self.tap != nil {
@@ -253,16 +260,49 @@ final class MeetingSession {
 
     // MARK: - End
 
-    /// Stops both captures and drains the pipelines: every utterance is transcribed and
-    /// the spools are closed when this returns.
+    /// Stops both captures and drains the pipelines: every utterance is transcribed (or
+    /// tried twice and listed in `untranscribed`, FLU-54) and the spools are closed when
+    /// this returns.
     func finish() async {
         mic.stop()
         tap?.stop()
         micContinuation.finish()
         systemContinuation.finish()
         for consumer in consumers { await consumer.value }
-        micSegments = await micPipeline.finish()
-        if let systemPipeline { systemSegments = await systemPipeline.finish() }
+        let micOutcome = await micPipeline.finish()
+        micSegments = micOutcome.segments
+        var missing = micOutcome.untranscribed
+        if let systemPipeline {
+            let systemOutcome = await systemPipeline.finish()
+            systemSegments = systemOutcome.segments
+            missing += systemOutcome.untranscribed
+        }
+        failedUtterances.replace(with: missing)
+    }
+}
+
+/// Utterances the engine failed on, written from the pipelines' executors and read on the
+/// main actor by the autosave (FLU-54). Times only, never audio or text.
+final class UntranscribedLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var spans: [UntranscribedSpan] = []
+
+    var all: [UntranscribedSpan] {
+        lock.lock()
+        defer { lock.unlock() }
+        return spans
+    }
+
+    func add(_ span: UntranscribedSpan) {
+        lock.lock()
+        spans.append(span)
+        lock.unlock()
+    }
+
+    func replace(with spans: [UntranscribedSpan]) {
+        lock.lock()
+        self.spans = spans
+        lock.unlock()
     }
 }
 

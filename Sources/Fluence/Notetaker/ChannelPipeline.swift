@@ -68,6 +68,16 @@ actor ChannelPipeline {
         var segment: @Sendable (TranscriptSegment) -> Void
         /// Speech was heard on this channel at this meeting time (seconds).
         var speech: @Sendable (AudioSource, TimeInterval) -> Void
+        /// An utterance the engine could not transcribe (FLU-54): kept, tried again at the
+        /// end, and saved with the meeting meanwhile.
+        var untranscribed: @Sendable (UntranscribedSpan) -> Void
+    }
+
+    /// What a channel hands back once drained.
+    struct Outcome: Sendable {
+        var segments: [TranscriptSegment]
+        /// Utterances still not transcribed after the retry at the end.
+        var untranscribed: [UntranscribedSpan]
     }
 
     static let hop = 4_096
@@ -105,6 +115,8 @@ actor ChannelPipeline {
     /// Every segment this channel produced, returned by `finish()` so the caller does not
     /// depend on the order in which the live callbacks land.
     private var produced: [TranscriptSegment] = []
+    /// Utterances the engine failed on (FLU-54). Their audio stays in the spool.
+    private var failed: [UntranscribedSpan] = []
 
     init(
         source: AudioSource,
@@ -136,9 +148,10 @@ actor ChannelPipeline {
     }
 
     /// Flushes everything still buffered, transcribes the last utterance, waits for every
-    /// transcription in flight and closes the spool. Returns every segment produced.
+    /// transcription in flight, closes the spool, and tries each failed utterance once more
+    /// (FLU-54). Returns every segment produced and what is still missing.
     @discardableResult
-    func finish() async -> [TranscriptSegment] {
+    func finish() async -> Outcome {
         if source == .microphone, !rawBlock.isEmpty {
             rawBlock += [Float](repeating: 0, count: Self.hop - rawBlock.count)
             await runEchoStage()
@@ -160,7 +173,89 @@ actor ChannelPipeline {
         } catch {
             Log.audio.error("spool close failed: \(error.localizedDescription, privacy: .public)")
         }
-        return produced
+        await retryFailed()
+        return Outcome(segments: produced, untranscribed: failed)
+    }
+
+    /// FLU-54: each utterance the engine failed on, once more, now that the meeting is
+    /// over. The audio comes from the analysed history when it still holds it (echo
+    /// already cancelled), otherwise from the spool on disk (as captured). Whatever still
+    /// fails stays listed, and its audio is kept for the next launch.
+    private func retryFailed() async {
+        let spans = TranscriptionRetry.plan(failed)
+        guard !spans.isEmpty else { return }
+        guard let manager = await Self.loadEngine(keeping: spans.count) else {
+            failed = spans
+            return
+        }
+        let reader = spool.flatMap { try? MeetingAudioSpoolReader(url: $0.url, key: $0.key) }
+        var still: [UntranscribedSpan] = []
+        for span in spans {
+            let start = Int((span.start * Self.rate).rounded())
+            let end = Int((span.end * Self.rate).rounded())
+            let audio = history.holds(from: start, to: end)
+                ? history.samples(from: start, to: end)
+                : reader?.samples(from: start, count: end - start) ?? []
+            guard !audio.isEmpty else {
+                still.append(span)
+                continue
+            }
+            do {
+                if let segment = try await Self.transcribe(audio, start: span.start, source: source, corrector: corrector, manager: manager) {
+                    produced.append(segment)
+                }
+            } catch {
+                still.append(span)
+            }
+        }
+        failed = still
+        Log.speech.info("""
+            meeting \(self.source.rawValue, privacy: .public): \(spans.count - still.count, privacy: .public) \
+            of \(spans.count, privacy: .public) failed utterances transcribed on retry
+            """)
+    }
+
+    /// The speech engine for a retry, or `nil` when it cannot be loaded (offline before the
+    /// first download): then nothing is tried, as every utterance would fail the same way,
+    /// each after its own network wait.
+    static func loadEngine(keeping count: Int) async -> AsrManager? {
+        do {
+            return try await ParakeetModels.shared.manager()
+        } catch {
+            Log.speech.error("meeting retry: speech engine unavailable, \(count, privacy: .public) utterances kept: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// FLU-54, at a later launch: `spans` from the meeting's spools on disk.
+    static func retranscribe(
+        _ spans: [UntranscribedSpan],
+        readers: [AudioSource: MeetingAudioSpoolReader],
+        corrector: DictionaryCorrector
+    ) async -> Outcome {
+        guard !spans.isEmpty else { return Outcome(segments: [], untranscribed: []) }
+        guard let manager = await loadEngine(keeping: spans.count) else {
+            return Outcome(segments: [], untranscribed: spans)
+        }
+        var segments: [TranscriptSegment] = []
+        var still: [UntranscribedSpan] = []
+        for span in spans {
+            let start = Int((span.start * rate).rounded())
+            let end = Int((span.end * rate).rounded())
+            guard let reader = readers[span.source], end > start else {
+                still.append(span)
+                continue
+            }
+            do {
+                let audio = reader.samples(from: start, count: end - start)
+                if let segment = try await transcribe(audio, start: span.start, source: span.source, corrector: corrector, manager: manager) {
+                    segments.append(segment)
+                }
+            } catch {
+                still.append(span)
+            }
+        }
+        return Outcome(segments: segments, untranscribed: still)
     }
 
     private func accept(_ samples: [Float]) async {
@@ -297,35 +392,51 @@ actor ChannelPipeline {
 
     private func transcribe(_ samples: [Float], startSample: Int) async {
         let start = Double(startSample) / Self.rate
-        let end = start + Double(samples.count) / Self.rate
+        do {
+            let manager = try await ParakeetModels.shared.manager()
+            guard let segment = try await Self.transcribe(samples, start: start, source: source, corrector: corrector, manager: manager) else { return }
+            produced.append(segment)
+            callbacks.segment(segment)
+        } catch {
+            // FLU-54: kept, not dropped. Its audio is in the spool; `finish()` tries again.
+            let span = UntranscribedSpan(source: source, start: start, end: start + Double(samples.count) / Self.rate)
+            failed.append(span)
+            callbacks.untranscribed(span)
+            Log.speech.error("meeting utterance not transcribed, kept for a retry: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// One utterance through Parakeet, on the meeting clock. `nil` when it held no words;
+    /// throws when the engine failed.
+    static func transcribe(
+        _ samples: [Float],
+        start: TimeInterval,
+        source: AudioSource,
+        corrector: DictionaryCorrector,
+        manager: AsrManager
+    ) async throws -> TranscriptSegment? {
+        let end = start + Double(samples.count) / rate
         // Parakeet refuses less than 0.3 s; trailing silence does not move the timings.
         var audio = samples
         if audio.count < 8_000 { audio += [Float](repeating: 0, count: 8_000 - audio.count) }
 
-        do {
-            let manager = try await ParakeetModels.shared.manager()
-            var decoderState = try TdtDecoderState()
-            let result = try await manager.transcribe(audio, decoderState: &decoderState, language: nil)
-            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return }
+        var decoderState = try TdtDecoderState()
+        let result = try await manager.transcribe(audio, decoderState: &decoderState, language: nil)
+        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
 
-            let tokens = (result.tokenTimings ?? []).map {
-                TimedToken(text: $0.token, start: $0.startTime, end: $0.endTime, confidence: $0.confidence)
-            }
-            let words = WordBuilder.words(from: tokens, offset: start)
-            let segment = TranscriptSegment(
-                source: source,
-                speakerID: source == .microphone ? Speaker.meID : Speaker.othersID,
-                start: words.first.map { min($0.start, end) } ?? start,
-                end: words.last.map { min(max($0.end, start), end) } ?? end,
-                text: corrector.apply(to: text).text,
-                words: words
-            )
-            produced.append(segment)
-            callbacks.segment(segment)
-        } catch {
-            Log.speech.error("meeting utterance not transcribed: \(error.localizedDescription, privacy: .public)")
+        let tokens = (result.tokenTimings ?? []).map {
+            TimedToken(text: $0.token, start: $0.startTime, end: $0.endTime, confidence: $0.confidence)
         }
+        let words = WordBuilder.words(from: tokens, offset: start)
+        return TranscriptSegment(
+            source: source,
+            speakerID: source == .microphone ? Speaker.meID : Speaker.othersID,
+            start: words.first.map { min($0.start, end) } ?? start,
+            end: words.last.map { min(max($0.end, start), end) } ?? end,
+            text: corrector.apply(to: text).text,
+            words: words
+        )
     }
 }
 
@@ -344,6 +455,11 @@ struct SampleHistory {
             ring[count % ring.count] = sample
             count += 1
         }
+    }
+
+    /// Whether `[start, end)` is entirely still held.
+    func holds(from start: Int, to end: Int) -> Bool {
+        start >= max(count - ring.count, 0) && end <= count && end > start
     }
 
     /// `[start, end)`, clamped to what is still held.

@@ -77,6 +77,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let comparisonTitle = "Comparaison des moteurs"
 
     let controller = DictationController()
+    /// A quit is waiting for a meeting to stop and save (FLU-54).
+    private var quitPending = false
     private var hud: HUDPanel?
     private var previewHUD: HUDPanel?
     private var stateObservation: NSObjectProtocol?
@@ -202,7 +204,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// FLU-54: a meeting is recorded once. Quitting during one asks « Arrêter et enregistrer
+    /// la réunion ? », then stops and saves it before Fluence goes; a log out, restart or
+    /// shut down does the same without asking (`QuitPlan`). Outside quit events are not
+    /// refused (FLU-64): they get the same question, and *Annuler* is the user's choice.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // A second ⌘Q while the first waits: the first one's answer still ends the app.
+        if quitPending { return .terminateCancel }
+        let meetings = MeetingController.shared
+        let reason = NSAppleEventManager.shared().currentAppleEvent?
+            .paramDescriptor(forKeyword: AEKeyword(QuitPlan.quitReasonKeyword))?.enumCodeValue
+        let origin = QuitPlan.origin(quitReason: reason)
+        switch QuitPlan.decide(recording: meetings.isRecording, origin: origin) {
+        case .quitNow:
+            return .terminateNow
+        case .ask:
+            guard confirmStoppingMeeting() else {
+                Log.app.info("quit cancelled: a meeting is recording")
+                return .terminateCancel
+            }
+        case .stopAndSave:
+            break
+        }
+        quitPending = true
+        Log.app.info("quit: stopping the meeting first (\(origin == .system ? "system" : "user", privacy: .public))")
+        Task { @MainActor in
+            await meetings.stopForQuit(origin: origin)
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    /// « Arrêter et enregistrer la réunion ? » — true for *Arrêter et quitter*.
+    private func confirmStoppingMeeting() -> Bool {
+        // From the menu bar Fluence may have no window and no Dock icon: bring it forward,
+        // or the question opens behind the call.
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = QuitPlan.question
+        alert.informativeText = QuitPlan.detail
+        alert.addButton(withTitle: QuitPlan.confirmTitle)
+        alert.addButton(withTitle: QuitPlan.cancelTitle).keyEquivalent = "\u{1b}"
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        // FLU-54: normally stopped and saved above already; this covers a termination that
+        // skipped the question. The meeting's marker stays, the next launch finishes it.
+        MeetingController.shared.saveBeforeExit()
         let isOpen = NSApp.windows.contains { $0.title == Self.comparisonTitle && $0.isVisible }
         UserDefaults.standard.set(isOpen, forKey: "comparisonWindowOpen")
         controller.deactivate()
