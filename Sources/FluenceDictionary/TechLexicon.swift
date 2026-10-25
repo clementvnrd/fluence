@@ -126,4 +126,7 @@ public enum TechLexicon {
         .term("WhisperKit"),
         .term("CoreML")
     ]
+
+    // TEMP stub for the red run.
+    public static func retiredEntries(in entries: [DictionaryEntry]) -> [DictionaryEntry] { [] }
 }
