@@ -29,9 +29,9 @@ the Windows app 27.6 % (removed since, FLU-75), bench / Makefile / Package.swift
 author (FLU-39). He first decided to go public only once those lines were rewritten (FLU-43,
 2026-10-09), then **reversed it on 2026-10-11 (FLU-66): public now, the rewrite (FLU-44) aims at
 the next release**. The risk is his and is known: until the rewrite is done, the public repository
-and the app contain lines whose author gave no licence. Making the repository public and
-publishing a release stay explicit acts: **never do either without Clement's confirmation phrase
-on FLU-73**, and only after the history audit (FLU-72) is accepted.
+and the app contain lines whose author gave no licence. The repository went public with the
+0.2.0 release (FLU-73). Publishing a release stays an explicit act: **only when Clement asks
+for it** (0.2.1 on 2026-10-26, FLU-79), never as a side effect of other work.
 
 ---
 
