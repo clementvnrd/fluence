@@ -64,10 +64,8 @@ struct FluenceApp: App {
         MenuBarExtra {
             MenuContent(controller: delegate.controller)
         } label: {
-            // MARK: Notetaker (capture) — the icon shows a meeting is being recorded.
-            Image(systemName: MeetingController.shared.isRecording
-                ? "record.circle"
-                : (delegate.controller.state.isActive ? "waveform.circle.fill" : "waveform"))
+            // The meeting and dictation states, and FLU-80's dot while an update waits.
+            MenuBarIcon(controller: delegate.controller)
         }
 
         Window(AppDelegate.comparisonTitle, id: "comparison") {
@@ -292,19 +290,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Tells the updater when a dictation or a meeting (recording or being processed) is in
-    /// progress, so no update question or relaunch lands in the middle of one (FLU-26).
+    /// progress, so no update question or relaunch lands in the middle of one (FLU-26), and
+    /// which one, for the menu's « À la fin de la réunion » (FLU-80).
     private func observeBusy() {
         // Read under tracking, written outside it: the updater's own reads (when it offers
         // an update as the recording ends) must not become part of what is observed here.
-        let busy = withObservationTracking {
-            UpdatePolicy.isBusy(
+        let recording = withObservationTracking {
+            UpdateRecording.from(
                 dictating: controller.state.isActive,
                 meetingInProgress: MeetingController.shared.isBusy
             )
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeBusy() }
         }
-        if AppUpdater.shared.isBusy != busy { AppUpdater.shared.isBusy = busy }
+        if AppUpdater.shared.recording != recording { AppUpdater.shared.recording = recording }
     }
 
     private func retryActivation() {
@@ -320,14 +319,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 /// « Rechercher des mises à jour… », or « Installer Fluence x.y.z… » once a new version is
 /// downloaded (FLU-26). Hidden in a build without an update feed.
+///
+/// In the menu bar menu (FLU-80) it is only « Rechercher des mises à jour… »: a waiting
+/// version has its own item at the top instead (`UpdateReadyMenuItem`).
 private struct UpdateMenuButton: View {
+    var inMenuBar = false
     private let updater = AppUpdater.shared
 
     var body: some View {
-        if updater.isRunning {
+        if inMenuBar {
+            if UpdateMenuItem.showsCheckForUpdates(updaterRunning: updater.isRunning, readyVersion: updater.readyVersion) {
+                Button("Rechercher des mises à jour…") { updater.checkNow() }
+            }
+        } else if updater.isRunning {
             Button(updater.readyVersion.map { "Installer Fluence \($0)…" } ?? "Rechercher des mises à jour…") {
                 updater.checkNow()
             }
+        }
+    }
+}
+
+/// FLU-80: « Installer Fluence x.y.z » at the top of the menu bar menu, alone above a
+/// separator, while a downloaded version waits. One click installs and relaunches. During a
+/// recording it is greyed out and says when: « À la fin de la réunion » / « de la dictée ».
+private struct UpdateReadyMenuItem: View {
+    private let updater = AppUpdater.shared
+
+    var body: some View {
+        let item = updater.menuItem
+        if let title = item.title {
+            Button {
+                updater.install(from: .menu)
+            } label: {
+                if item.isEnabled {
+                    // Palette rendering keeps the accent: a plain symbol is drawn as a template.
+                    Image(systemName: "arrow.down.circle")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(DS.Color.accent)
+                } else {
+                    Image(systemName: "arrow.down.circle")
+                }
+                Text(title)
+                if let subtitle = item.subtitle {
+                    Text(subtitle)
+                }
+            }
+            .disabled(!item.isEnabled)
+
+            Divider()
         }
     }
 }
@@ -363,6 +402,9 @@ private struct MenuContent: View {
     }
 
     var body: some View {
+        // FLU-80: a downloaded update first, alone in its section.
+        UpdateReadyMenuItem()
+
         // FLU-59: the way back to the app from the menu bar, first and plain.
         Button {
             AppPresence.shared.showMainWindow(openWindow: openWindow)
@@ -500,7 +542,7 @@ private struct MenuContent: View {
 
         // MARK: FLU-5 input
         Button("Configurer Fluence…") { OnboardingWindow.shared.show() }
-        UpdateMenuButton()
+        UpdateMenuButton(inMenuBar: true)
 
         if !Permissions.hasAccessibility {
             Button("Autoriser l'Accessibilité…") { Permissions.openAccessibilitySettings() }

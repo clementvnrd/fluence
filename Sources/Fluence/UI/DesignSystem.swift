@@ -220,6 +220,15 @@ enum DS {
 
 extension DS {
     /// Fixed and minimum window sizes.
+    /// The menu bar icon (FLU-80): the symbol size SwiftUI gives a menu bar label, so the
+    /// icon drawn with the update dot matches the plain one, and the dot itself.
+    enum MenuBar {
+        static let symbolSize: CGFloat = 13
+        static let dotSize: CGFloat = 6
+        /// Clear ring between the dot and the symbol.
+        static let dotRing: CGFloat = 1.5
+    }
+
     enum Window {
         /// The main window: a sidebar and a content area (FLU-12, navigation B).
         static let main = CGSize(width: 1_100, height: 720)
