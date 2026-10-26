@@ -1,14 +1,14 @@
 name: macOS
 
-# Builds the whole app and runs every Swift test target, including the shared contracts
-# (dictionary vectors, meeting vectors) that the Windows app runs too.
+# Builds the whole app and runs every Swift test target, including the behaviour contracts
+# (dictionary vectors, meeting vectors).
 #
 # Pull requests and manual runs only: on a private repository a macOS minute costs ten
 # included minutes, and a merge to main has already passed this on its pull request.
 
 on:
   pull_request:
-    paths: ['Sources/**', 'Tests/**', 'shared/**', 'Resources/**', 'Package.swift', 'Package.resolved', '.github/workflows/macos.yml']
+    paths: ['Sources/**', 'Tests/**', 'Resources/**', 'Package.swift', 'Package.resolved', '.github/workflows/macos.yml']
   workflow_dispatch:
 
 permissions:
@@ -52,19 +52,3 @@ jobs:
       - name: Test
         run: swift test
 
-      - name: Confirm the shared vectors and their test copies are identical
-        run: |
-          status=0
-          for pair in \
-            "shared/dictionary-test-vectors.json Tests/FluenceDictionaryTests/dictionary-test-vectors.json" \
-            "shared/meeting-test-vectors.json Tests/FluenceMeetingCoreTests/meeting-test-vectors.json" \
-            "shared/transcript-import-vectors.json Tests/FluenceMeetingCoreTests/transcript-import-vectors.json" \
-            "shared/speaker-consolidation-vectors.json Tests/FluenceMeetingCoreTests/speaker-consolidation-vectors.json"; do
-            set -- $pair
-            [ -f "$1" ] || continue
-            if ! diff -q "$1" "$2"; then
-              echo "::error::$2 has drifted from $1. Run: cp $1 $2"
-              status=1
-            fi
-          done
-          exit $status

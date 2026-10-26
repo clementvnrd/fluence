@@ -10,64 +10,52 @@ fine and will bite you.
 
 **Fluence** — push-to-talk dictation, and (in progress) local meeting notes. Hold a key,
 talk, release, and cleaned-up text is typed into whatever had focus. Everything runs
-on-device. Two independent implementations:
+on-device. A macOS app in Swift 6 and SwiftUI, at the repo root; speech by Apple
+`SpeechAnalyzer`, Whisper via WhisperKit, or Parakeet Ultra via FluidAudio.
 
-| | macOS | Windows |
-|---|---|---|
-| Language | Swift 6 | C# / .NET 10 |
-| UI | SwiftUI | Avalonia |
-| Speech | Apple `SpeechAnalyzer`, Whisper via WhisperKit, or Parakeet Ultra via FluidAudio | Parakeet v3 via sherpa-onnx |
-| Location | repo root | `windows/` |
+A Windows app (C# / .NET, Avalonia, under `windows/`) was removed from the repository on
+Clement's decision (FLU-75) rather than rewritten; it lives on under the tag `windows-archive`.
 
 **The macOS app works and was in daily use** under its previous name, "Murmur YouTube".
 The October 2026 hardening (`docs/AUDIT-2026-10.md`) is typechecked and unit tested but not
 yet exercised by hand.
 
-**The Windows app has run on real hardware once, by an outside contributor** (upstream
-pull request #1 on `per-simmons/murmur-youtube`): it did not transcribe at all until their
-five fixes, which are merged here. The later audit fixes have not been on hardware yet.
-Describe it that way — not as "working", not as "unfinished".
-
-The repository is `clementvnrd/fluence` (private until FLU-73, see below). Fluence's own code is under the **PolyForm
+The repository is `clementvnrd/fluence`, public since FLU-73. Fluence's own code is under the **PolyForm
 Strict 1.0.0** licence (`LICENSE.md`, FLU-42): readable and usable for non-commercial purposes,
 no distribution, no changes. It started as a copy of the public `per-simmons/murmur-youtube`,
 which has **no licence**, and about 17 % of the lines are still its author's (measured
 2026-10-09, FLU-43; re-measured 2026-10-11 by `git blame -w -C -C`: macOS `Sources/` 8.9 %,
-the Windows app 27.6 %, bench / Makefile / Package.swift 62.9 %). Clement chose not to ask that
+the Windows app 27.6 % (removed since, FLU-75), bench / Makefile / Package.swift 62.9 %). Clement chose not to ask that
 author (FLU-39). He first decided to go public only once those lines were rewritten (FLU-43,
 2026-10-09), then **reversed it on 2026-10-11 (FLU-66): public now, the rewrite (FLU-44) aims at
 the next release**. The risk is his and is known: until the rewrite is done, the public repository
-and the app contain lines whose author gave no licence. Making the repository public and
-publishing a release stay explicit acts: **never do either without Clement's confirmation phrase
-on FLU-73**, and only after the history audit (FLU-72) is accepted.
+and the app contain lines whose author gave no licence. The repository went public with the
+0.2.0 release (FLU-73). Publishing a release stays an explicit act: **only when Clement asks
+for it** (0.2.1 on 2026-10-26, FLU-79), never as a side effect of other work.
 
 ---
 
 ## The one rule that matters
 
-**`shared/dictionary-test-vectors.json` is the specification for correction behaviour.**
+**`Tests/FluenceDictionaryTests/dictionary-test-vectors.json` is the specification for the
+macOS app's correction behaviour.**
 
-Both implementations run it in CI. If you change how corrections work, change the vectors
-first, watch both sides go red, then make them green. Changing one implementation to "fix"
-a failing vector without changing the other is how the two silently diverge — and only one
-of them can be exercised by hand.
+CI runs it on every pull request. If you change how corrections work, change the vectors
+first, watch the tests go red, then make them green. A vector changes only because the
+intended behaviour changes, never to make failing code pass.
 
 Its `fileCases` section (version 2, FLU-53) does the same for reading `dictionary.txt`: raw
-file text, line endings spelled out, and the entries that must come back. macOS runs it
-against `DictionaryFileFormat` (`FileVectorTests`), Windows against `DictionaryFile.Parse`
-(`Murmur.Core.Tests`). Any line ending ends a line: `\n`, `\r\n`, or a lone `\r`.
+file text, line endings spelled out, and the entries that must come back, run against
+`DictionaryFileFormat` (`FileVectorTests`). Any line ending ends a line: `\n`, `\r\n`, or a
+lone `\r`.
 
 ```bash
-swift test --filter VectorTests                    # macOS side
-cd windows && dotnet test Murmur.CrossPlatform.slnf # Windows side, runs anywhere
+swift test --filter VectorTests
 ```
 
-The Swift copy at `Tests/FluenceDictionaryTests/dictionary-test-vectors.json` is a copy, and
-CI fails if it drifts from `shared/`. After editing the shared file:
-
-```bash
-cp shared/dictionary-test-vectors.json Tests/FluenceDictionaryTests/
-```
+The meeting logic has the same kind of contracts beside its tests, in
+`Tests/FluenceMeetingCoreTests/` (`meeting-test-vectors.json`, `transcript-import-vectors.json`,
+`speaker-consolidation-vectors.json`). Each file exists once; there is no copy to keep in step.
 
 ---
 
@@ -109,11 +97,6 @@ without Xcode. CI builds the whole app on every pull request. Locally:
 ---
 
 ## Things that look like bugs and are not
-
-**`dotnet build Murmur.sln` fails on macOS** with `NETSDK1073` — unless you pass
-`-p:EnableWindowsTargeting=true`, which compiles `Murmur.Platform.Windows` (and runs its
-analyzers) on a Mac too. `Murmur.CrossPlatform.slnf` omits it and holds every test (149);
-the whole UI suite runs headless on macOS in about a second.
 
 **`swift build` fails with "input file was modified during the build."** The repo lives in an
 iCloud-synced folder and the sync engine touches files mid-compile. **Always build with
@@ -290,86 +273,15 @@ Facts measured on 2026-10-08, not assumptions:
 
 ---
 
-## Windows specifics
-
-The specifics below were expensive to establish and several were found the hard way. Treat
-them as load-bearing. Full detail in `windows/README.md` and `docs/PARAKEET-WINDOWS.md`.
-
-**The look stays as it is for now** (FLU-14, Clement, 2026-10-08: « 3 B »): the Windows app
-keeps its dark field-recorder look; the macOS design (FLU-12, FLU-19) is not ported until he
-asks for it.
-
-**Three pinned versions that break silently at "latest":**
-
-| Package | Pin | Why |
-|---|---|---|
-| `NAudio` | 2.3.0 | 3.x is a new major version — moving is a port that needs real-hardware testing. 3.1 is needed later for the Notetaker's process loopback (FLU-10) |
-| `Avalonia.Headless.XUnit` | 11.3.20 | 12.x requires xUnit **v3**, a different package line |
-| `org.k2fsa.sherpa.onnx` | 1.13.8 | Bundles ONNX Runtime — never also reference `Microsoft.ML.OnnxRuntime` |
-
-**Right Alt is AltGr** on German, Polish, UK, Nordic and most Latin-American layouts. Binding
-push-to-talk there — and especially suppressing it — breaks typing `@`, `€`, `\`, `|` for
-those users. Default is **Right Ctrl**, and the hook **observes without swallowing**: if the
-key-down is swallowed and the key-up escapes, the target app believes Ctrl is held forever.
-
-**UI Automation cannot inject text.** `TextPattern` is documented read-only and
-`ValuePattern` replaces a whole field rather than inserting at the caret. `SendInput` is the
-primary path, not a fallback.
-
-**`Murmur.App` loads the platform layer by reflection, not by reference.** A direct
-reference would force the UI onto `net10.0-windows` and you would lose the ability to run it
-on your own machine. Two consequences that have already bitten once: the assembly is
-invisible to `PublishSingleFile`, so it is published as a loose file beside the exe *and*
-resolved by an explicit `AssemblyLoadContext` handler; and the published self-test checks
-this, because when it breaks the app starts perfectly and then does nothing at all when the
-key is pressed.
-
-**Keep `Murmur.Platform.Windows` logic-free.** Anything living there is code CI cannot
-exercise. Retries, debouncing and device-change handling belong in the platform-neutral
-projects behind an interface — those target plain `net10.0`, so `CA1416` turns any accidental
-Win32 call into a build error.
-
-**CI is the only place the Windows code is compiled.** Warnings are errors and the analyzers
-are strict on purpose. `--no-incremental` is mandatory: Roslyn does not re-emit analyzer
-warnings on a cached build, so without it the gate proves nothing.
-
----
-
 ## Regex, if you touch the dictionary
 
-The two engines are not identical. Measured across 30 cases, **9 diverged**. Two affect this
-code and are handled — don't remove either:
-
-- `RegexOptions.CultureInvariant` on the C# side, or Turkish `İ` matches `i`.
-- **NFC normalization on both sides.** macOS returns decomposed strings, so without it an
-  accented trigger silently never fires.
-
-Two more are unfixable and simply avoided: ICU folds `ß` to `ss` and .NET doesn't; .NET's `.`
-splits surrogate pairs. Stay inside the safe subset — `\b`, `\d`, `\w`, `\s`, character
-classes, greedy/lazy quantifiers, alternation, `(?<name>…)`, fixed-length lookbehind,
-lookahead, `\p{L}`, and `$1`–`$9` in replacements. Nothing else.
+**NFC normalization is load-bearing — don't remove it.** macOS returns decomposed strings,
+so without it an accented trigger silently never fires.
 
 ---
 
 ## What isn't built
 
 1. **Context awareness** — reading the text around the caret (opt-in) to spell names right.
-2. **Code signing** (Windows): unsigned for distribution, so Windows users will meet
-   SmartScreen. macOS **notarization is not planned**: no Developer ID, decided 2026-10-08
-   (FLU-39); a first copy on another Mac needs *Open Anyway* once.
-3. **An installer** for Windows, and model download from inside the app rather than by
-   following `docs/PARAKEET-WINDOWS.md` by hand.
-
-## What no amount of CI can verify
-
-On Windows, nobody has yet held the key and spoken. Specifically unverified:
-
-- Text injection landing in a foreground app — runners have an interactive desktop but
-  cannot take the foreground.
-- A real microphone: format negotiation, the OS privacy block, unplugging mid-capture.
-- The keyboard hook firing on a physical keypress.
-- Parakeet transcribing real speech, and whether ~2 GB resident is tolerable.
-
-Everything those feed into is behind an interface and tested with fakes. The bindings
-themselves are not. **First real-hardware run should start with `--selftest`, then a single
-short dictation into Notepad.**
+2. **Notarization** is not planned: no Developer ID, decided 2026-10-08 (FLU-39); a first
+   copy on another Mac needs *Open Anyway* once.

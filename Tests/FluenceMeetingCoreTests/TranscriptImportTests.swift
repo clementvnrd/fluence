@@ -3,8 +3,7 @@ import Testing
 
 @testable import FluenceMeetingCore
 
-/// Runs the shared contract in `shared/transcript-import-vectors.json` (FLU-16); this copy
-/// must stay byte-identical to the shared one (CI checks).
+/// Runs the contract in `transcript-import-vectors.json`, beside this file (FLU-16).
 struct TranscriptImportVectorTests {
     struct Vectors: Decodable {
         let version: Int

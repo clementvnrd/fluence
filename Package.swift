@@ -18,8 +18,7 @@ let package = Package(
     ],
     targets: [
         // Dictionary corrections and bias phrases. A target of its own so it is tested alone:
-        // its behaviour is the cross-platform contract in shared/dictionary-test-vectors.json,
-        // which the Windows app runs too.
+        // its behaviour is specified by Tests/FluenceDictionaryTests/dictionary-test-vectors.json.
         .target(
             name: "FluenceDictionary",
             path: "Sources/FluenceDictionary",
@@ -27,8 +26,8 @@ let package = Package(
         ),
         // Notetaker (capture): the platform-neutral meeting logic — model, merge, echo dedupe,
         // word→speaker, naming, VAD segmentation. No AppKit or AVFoundation, so it is tested
-        // directly, and its behaviour is shared with the Windows port through
-        // shared/meeting-test-vectors.json.
+        // directly, and its behaviour is specified by
+        // Tests/FluenceMeetingCoreTests/meeting-test-vectors.json.
         .target(
             name: "FluenceMeetingCore",
             path: "Sources/FluenceMeetingCore",

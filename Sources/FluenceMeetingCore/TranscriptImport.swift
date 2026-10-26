@@ -14,7 +14,7 @@ import Foundation
 ///   without a name continue the current turn; a blank line ends it; `# Title` names the
 ///   meeting.
 ///
-/// The contract is `shared/transcript-import-vectors.json`.
+/// The contract is `Tests/FluenceMeetingCoreTests/transcript-import-vectors.json`.
 public struct ImportedTranscript: Sendable, Equatable {
     public enum Format: String, Sendable, Codable {
         case webVTT = "vtt"

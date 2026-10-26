@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Behavioural contract for consolidating the diarizer's voices before word attribution (FLU-22): merge near-duplicate voices (cosine >= 0.68), absorb minor voices (< min(8 s, 3 % of remote speech)) into the closest major one by embedding, else the one speaking nearest in time, then merge the closest pair until the count fits the cap. The larger voice absorbs the smaller; on a tie, the one heard first. Rules in Sources/FluenceMeetingCore/SpeakerConsolidation.swift. macOS runs every case; the Windows port runs them once it gains the step. The Swift copy in Tests/FluenceMeetingCoreTests must stay identical to this file.",
+  "about": "Behavioural contract for consolidating the diarizer's voices before word attribution (FLU-22): merge near-duplicate voices (cosine >= 0.68), absorb minor voices (< min(8 s, 3 % of remote speech)) into the closest major one by embedding, else the one speaking nearest in time, then merge the closest pair until the count fits the cap. The larger voice absorbs the smaller; on a tie, the one heard first. Rules in Sources/FluenceMeetingCore/SpeakerConsolidation.swift. FluenceMeetingCore runs every case.",
   "consolidate": [
     {
       "name": "one voice split by the call's audio merges back",

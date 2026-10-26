@@ -3,7 +3,7 @@ import Testing
 
 @testable import FluenceDictionary
 
-/// One `fileCases` entry of shared/dictionary-test-vectors.json: a raw dictionary.txt and the
+/// One `fileCases` entry of dictionary-test-vectors.json: a raw dictionary.txt and the
 /// entries it must give, in order.
 struct FileVector: Decodable, Sendable, CustomTestStringConvertible {
     let name: String
@@ -24,7 +24,7 @@ struct FileVector: Decodable, Sendable, CustomTestStringConvertible {
     }
 }
 
-/// What the Mac reads from dictionary.txt, against the cases the Windows app runs too.
+/// What the Mac reads from dictionary.txt, against the vectors' `fileCases`.
 struct FileVectorTests {
     /// Entries compared without their ids, which are made fresh on every read.
     private struct Seen: Equatable, CustomStringConvertible {

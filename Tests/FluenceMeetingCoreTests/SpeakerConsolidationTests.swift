@@ -3,7 +3,7 @@ import Testing
 
 @testable import FluenceMeetingCore
 
-/// FLU-22: `shared/speaker-consolidation-vectors.json`.
+/// FLU-22: `speaker-consolidation-vectors.json`, beside this file.
 struct SpeakerConsolidationVectorTests {
     struct Vectors: Decodable {
         var consolidate: [Case]

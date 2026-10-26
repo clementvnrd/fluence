@@ -3,8 +3,8 @@ import Foundation
 /// How `dictionary.txt` is read and written, apart from the file itself (which the app owns).
 ///
 /// One entry per line: a bare line is a term, `hear -> write` a correction, `# off:` in front
-/// keeps a disabled entry, and any other `#` line is a comment. The shared vectors'
-/// `fileCases` pin this, and the Windows app reads the same files the same way.
+/// keeps a disabled entry, and any other `#` line is a comment. The dictionary vectors'
+/// `fileCases` pin this.
 public enum DictionaryFileFormat {
     /// The entries of a file, in order. Any line ending ends a line (`\n`, `\r\n`, a lone
     /// `\r`): a file saved by a Windows editor once read as a single comment line, so the

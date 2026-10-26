@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Behavioural contract for the Notetaker's platform-neutral logic: token normalisation, mic/system merge with the echo backstop, word-to-speaker assignment, segment attribution and speaker naming. Both the macOS (FluenceMeetingCore) and Windows implementations must run every case. The rules are documented in Sources/FluenceMeetingCore (TextTokens, TranscriptMerger, SpeakerAssignment, SpeakerNaming). Times are seconds from the meeting start. The Swift copy in Tests/FluenceMeetingCoreTests must stay identical to this file.",
+  "about": "Behavioural contract for the Notetaker's platform-neutral logic: token normalisation, mic/system merge with the echo backstop, word-to-speaker assignment, segment attribution and speaker naming. FluenceMeetingCore runs every case. The rules are documented in Sources/FluenceMeetingCore (TextTokens, TranscriptMerger, SpeakerAssignment, SpeakerNaming). Times are seconds from the meeting start.",
   "normalization": [
     { "name": "punctuation and apostrophes split words, accents fold", "input": "Bonjour, l'équipe !", "tokens": ["bonjour", "l", "equipe"] },
     { "name": "uppercase, digits and a dash", "input": "Q3 RÉSULTATS—OK?", "tokens": ["q3", "resultats", "ok"] },

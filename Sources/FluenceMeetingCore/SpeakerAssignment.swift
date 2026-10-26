@@ -16,7 +16,7 @@ public struct SpeakerTurn: Codable, Sendable, Hashable {
 /// Attributes the system channel's words to diarized voices, splits segments where the
 /// voice changes, and relabels the voices `S1…Sn` in order of first appearance.
 ///
-/// Cross-platform contract: shared/meeting-test-vectors.json, `wordSpeaker` and
+/// Contract: Tests/FluenceMeetingCoreTests/meeting-test-vectors.json, `wordSpeaker` and
 /// `attribution`.
 ///
 /// **Word → speaker.** For a span [s, e], each turn's overlap is

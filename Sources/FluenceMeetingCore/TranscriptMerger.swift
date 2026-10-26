@@ -3,7 +3,7 @@ import Foundation
 /// Merges the microphone and system transcripts into one time-ordered list, dropping mic
 /// segments that are only the loudspeaker's echo of the remote side.
 ///
-/// Cross-platform contract: shared/meeting-test-vectors.json, `merge`.
+/// Contract: Tests/FluenceMeetingCoreTests/meeting-test-vectors.json, `merge`.
 ///
 /// **Echo backstop.** On speakers the mic hears the remote side, so the same words come
 /// back attributed to "me". The echo canceller removes most of it; this catches the rest.
