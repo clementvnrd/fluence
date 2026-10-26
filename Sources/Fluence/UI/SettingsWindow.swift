@@ -242,7 +242,7 @@ struct DictationSettingsSection: View {
         HStack(spacing: 6) {
             MenuChip(title: microphoneName) {
                 Button {
-                    settings.selectedMicrophoneUID = "default"
+                    settings.selectMicrophone(nil)
                 } label: {
                     if isDefaultMicrophone { Label("Système (par défaut)", systemImage: "checkmark") } else { Text("Système (par défaut)") }
                 }
@@ -250,7 +250,7 @@ struct DictationSettingsSection: View {
                     Divider()
                     ForEach(devices) { device in
                         Button {
-                            settings.selectedMicrophoneUID = device.id
+                            settings.selectMicrophone(device)
                         } label: {
                             if settings.selectedMicrophoneUID == device.id { Label(device.name, systemImage: "checkmark") } else { Text(device.name) }
                         }

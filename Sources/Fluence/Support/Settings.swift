@@ -68,6 +68,19 @@ final class Settings {
         didSet { defaults.set(selectedMicrophoneUID, forKey: Keys.selectedMicrophoneUID) }
     }
 
+    /// FLU-37: the chosen microphone's name, kept so the banner can name it once it is
+    /// unplugged (it is no longer in the system's list then). A device name, not personal
+    /// data — but never logged.
+    var selectedMicrophoneName: String? {
+        didSet { defaults.set(selectedMicrophoneName, forKey: Keys.selectedMicrophoneName) }
+    }
+
+    /// Chooses the microphone dictation listens to: a device, or nil for the system input.
+    func selectMicrophone(_ device: AudioInputDevice?) {
+        selectedMicrophoneUID = device?.id ?? MicrophoneAvailability.systemUID
+        selectedMicrophoneName = device?.name
+    }
+
     /// The engine the user picked, or nil while they never did: the language's default then
     /// applies (FLU-29, `EngineDefault`).
     private(set) var engineChoice: SpeechEngineChoice? {
@@ -250,6 +263,7 @@ final class Settings {
         static let historyRetention = "historyRetention"
         static let maxRecordingMinutes = "maxRecordingMinutes"
         static let selectedMicrophoneUID = "selectedMicrophoneUID"
+        static let selectedMicrophoneName = "selectedMicrophoneName"
         // MARK: FLU-5 input
         static let lastTranscriptShortcuts = "lastTranscriptShortcuts"
         // MARK: FLU-5 text
@@ -276,6 +290,7 @@ final class Settings {
         let raw = defaults.string(forKey: Keys.pushToTalkKey) ?? PushToTalkKey.optionSpace.rawValue
         pushToTalkKey = PushToTalkKey(rawValue: raw) ?? .optionSpace
         selectedMicrophoneUID = defaults.string(forKey: Keys.selectedMicrophoneUID) ?? "default"
+        selectedMicrophoneName = defaults.string(forKey: Keys.selectedMicrophoneName)
         // Nothing stored: no explicit choice, the language decides (FLU-29). Parakeet for
         // French and Auto, used once downloaded; Apple, which comes with macOS, until then.
         engineChoice = SpeechEngineChoice(rawValue: defaults.string(forKey: Keys.engine) ?? "")

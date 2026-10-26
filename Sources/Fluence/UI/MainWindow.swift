@@ -43,6 +43,8 @@ struct MainWindow: View {
     @State private var navigation = MainNavigation.shared
     /// FLU-37: granted, missing, or wedged (switch on, not applied).
     @State private var accessibilityState = Permissions.accessibilityState
+    /// FLU-37: whether the microphone chosen in Réglages is plugged in.
+    @State private var microphone = MicrophoneState.read()
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -57,6 +59,7 @@ struct MainWindow: View {
                     case .missing: AccessibilityBanner()
                     case .granted: EmptyView()
                     }
+                    if microphone == .unplugged { MicrophoneUnpluggedBanner() }
                     LearnedWordsStrip()
                 }
                 .padding(.horizontal, DS.Space.panel)
@@ -77,6 +80,7 @@ struct MainWindow: View {
             if DevPreview.settingsSection != nil { openSettings() }
             while !Task.isCancelled {
                 accessibilityState = Permissions.accessibilityState
+                microphone = MicrophoneState.read()
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -84,7 +88,7 @@ struct MainWindow: View {
 
     /// Banners sit under the title bar; without one the content title does.
     private var bannerTopPadding: CGFloat {
-        MeetingController.shared.isBusy || accessibilityState != .granted || !LearnedWords.shared.proposals.isEmpty
+        MeetingController.shared.isBusy || accessibilityState != .granted || microphone == .unplugged || !LearnedWords.shared.proposals.isEmpty
             ? DS.Space.wide : 0
     }
 
@@ -210,15 +214,33 @@ extension SpeechEngineChoice {
     }
 }
 
-/// The selected microphone's name for the brand line: "Micro système" or the device.
+/// The selected microphone's name for the brand line: the device in use — « Micro système »
+/// when the chosen one is unplugged, since the system input stands in (FLU-37).
 enum MicrophoneName {
     @MainActor
     static func current(_ uid: String) -> String {
-        if uid == "default" || uid.isEmpty { return "Micro système" }
-        if let device = AudioDevices.availableInputDevices().first(where: { $0.id == uid }) {
-            return device.name
+        guard uid != MicrophoneAvailability.systemUID, !uid.isEmpty else { return "Micro système" }
+        let devices = AudioDevices.availableInputDevices()
+        let state = MicrophoneAvailability.state(selectedUID: uid, availableUIDs: devices.map(\.id))
+        return MicrophoneAvailability.inUseName(state: state, presentName: devices.first { $0.id == uid }?.name)
+    }
+}
+
+/// FLU-37: whether the chosen microphone is plugged in, read without listing devices when
+/// dictation follows the system input.
+enum MicrophoneState {
+    @MainActor
+    static func read() -> MicrophoneAvailability.State {
+        let settings = Settings.shared
+        let uid = settings.selectedMicrophoneUID
+        guard MicrophoneAvailability.state(selectedUID: uid, availableUIDs: []) != .system else { return .system }
+        let devices = AudioDevices.availableInputDevices()
+        let state = MicrophoneAvailability.state(selectedUID: uid, availableUIDs: devices.map(\.id))
+        // A device chosen before Fluence kept names gets its name now, while it is plugged in.
+        if state == .present, let name = devices.first(where: { $0.id == uid })?.name, settings.selectedMicrophoneName != name {
+            settings.selectedMicrophoneName = name
         }
-        return "Micro externe"
+        return state
     }
 }
 
@@ -284,6 +306,22 @@ private struct AccessibilityBanner: View {
                 Task { await Permissions.repairAccessibility() }
             }
             .help("Réinitialise l'autorisation si macOS affiche l'interrupteur activé sans l'appliquer.")
+        }
+    }
+}
+
+/// FLU-37 (Clement): « Logitech BRIO débranché » — the chosen microphone is gone, dictation
+/// records from the system input meanwhile (`AudioCapture.selectDevice` falls back to it).
+private struct MicrophoneUnpluggedBanner: View {
+    @State private var settings = Settings.shared
+
+    var body: some View {
+        AttentionBanner(
+            systemImage: "mic.slash.fill",
+            title: MicrophoneAvailability.bannerTitle(rememberedName: settings.selectedMicrophoneName),
+            detail: MicrophoneAvailability.bannerDetail
+        ) {
+            MicrophoneMenu()
         }
     }
 }
