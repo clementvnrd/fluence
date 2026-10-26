@@ -464,6 +464,12 @@ struct TranscriptionSettingsSection: View {
             if let engineCaveat {
                 RowNote(text: engineCaveat, color: DS.Color.meterAmber)
             }
+            // FLU-29: Parakeet selected (or the French default) but not on disk yet — its
+            // download, asked for here, with Apple standing in meanwhile.
+            if settings.isWaitingForParakeet {
+                RowDivider()
+                ParakeetDownloadRow()
+            }
             if settings.engine == .whisper {
                 RowDivider()
                 SettingsRow(
@@ -487,7 +493,10 @@ struct TranscriptionSettingsSection: View {
                 }
             }
         }
-        .task { await models.refresh() }
+        .task {
+            await models.refresh()
+            ParakeetDownload.shared.refresh()
+        }
         .onChange(of: settings.engine) { models.reclassify() }
         .onChange(of: settings.whisperModel) { models.reclassify() }
         .onChange(of: settings.parakeetVocabularyBoost) { models.reclassify() }
@@ -558,7 +567,11 @@ struct TranscriptionSettingsSection: View {
             presenting: pendingDeletion
         ) { model in
             Button("Placer dans la Corbeille", role: .destructive) {
-                Task { await models.moveToTrash(model.model) }
+                Task {
+                    await models.moveToTrash(model.model)
+                    // FLU-29: Parakeet gone from disk means Apple again until it is fetched.
+                    ParakeetDownload.shared.refresh()
+                }
             }
             Button("Annuler", role: .cancel) {}
         } message: { model in
@@ -616,6 +629,57 @@ struct TranscriptionSettingsSection: View {
             } catch {
                 boostStatus = .failed(error.localizedDescription)
             }
+        }
+    }
+}
+
+/// FLU-29 (mock-up 04): Parakeet Ultra's download in Réglages › Transcription — a button
+/// before, a bar with ✕ during, « Réessayer » after a failure. Apple takes the dictations
+/// until it is done, and the subtitle says so.
+private struct ParakeetDownloadRow: View {
+    @State private var download = ParakeetDownload.shared
+
+    private var failed: Bool { download.phase == .failed }
+
+    var body: some View {
+        SettingsRow(
+            systemImage: failed ? "exclamationmark.triangle.fill" : "arrow.down.circle",
+            title: "Parakeet Ultra",
+            subtitle: subtitle,
+            iconTint: failed ? DS.Color.meterAmber : DS.Color.accent
+        ) {
+            switch download.phase {
+            case .downloading(let fraction):
+                HStack(spacing: 10) {
+                    DownloadBar(fraction: fraction).frame(width: 150)
+                    Text(FrenchFormat.percent(fraction))
+                        .font(DS.Font.counter)
+                        .foregroundStyle(DS.Color.accent)
+                        .frame(width: 44, alignment: .trailing)
+                    Button { download.cancel() } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundStyle(DS.Color.silkscreen)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Annuler le téléchargement")
+                }
+            case .idle:
+                CapButton(title: "Télécharger", systemImage: "arrow.down", height: 26) { download.start() }
+            case .failed:
+                CapButton(title: "Réessayer", systemImage: "arrow.clockwise", height: 26) { download.start() }
+            }
+        }
+    }
+
+    private var subtitle: String {
+        switch download.phase {
+        case .downloading(let fraction):
+            DownloadProgressText.amount(fraction: fraction, totalBytes: ParakeetDownload.totalBytes) + " · Apple en attendant"
+        case .idle:
+            "Environ " + FrenchFormat.bytes(ParakeetDownload.totalBytes) + " · Apple en attendant"
+        case .failed:
+            "Échec du téléchargement · Apple en attendant"
         }
     }
 }

@@ -53,6 +53,12 @@ enum Permissions {
         openPane("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
     }
 
+    /// Réglages Système › Son, where the input device is chosen (FLU-29: « Micro
+    /// indisponible » when the capture could not start).
+    static func openSoundInputSettings() {
+        openPane("x-apple.systempreferences:com.apple.Sound-Settings.extension?input")
+    }
+
     /// Resets the TCC accessibility entry for this app when macOS permission gets wedged across rebuilds.
     ///
     /// Only this app's row: the bundle ID is always passed, because a bare

@@ -823,3 +823,87 @@ struct MiniWave: View {
         return min(maxHeight, floor + max(0, amount) * (maxHeight - floor))
     }
 }
+
+// MARK: - Progress (FLU-29)
+
+/// A download in the capsule's small icon slot: the Finder/Safari pie, an accent outline with
+/// a filled wedge (Clement's choice A on the FLU-29 mock-ups).
+struct DownloadPie: View {
+    var fraction: Double
+    var size: CGFloat = 16
+
+    var body: some View {
+        ZStack {
+            Circle().strokeBorder(DS.Color.accent, lineWidth: 1.5)
+            PieWedge(fraction: min(1, max(0, fraction))).fill(DS.Color.accent).padding(3)
+        }
+        .frame(width: size, height: size)
+        .animation(DS.Motion.readout, value: fraction)
+    }
+}
+
+private struct PieWedge: Shape {
+    var fraction: Double
+
+    var animatableData: Double {
+        get { fraction }
+        set { fraction = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        path.move(to: center)
+        path.addArc(
+            center: center,
+            radius: min(rect.width, rect.height) / 2,
+            startAngle: .degrees(-90),
+            endAngle: .degrees(-90 + 360 * fraction),
+            clockwise: false
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// A model loading with no measurable progress (« Préparation de Parakeet… »): an accent arc
+/// turning on a faint track, in the same slot and size as `DownloadPie`.
+struct SpinningArc: View {
+    var size: CGFloat = 16
+    var lineWidth: CGFloat = 2
+    /// Screenshots draw it still.
+    var isAnimated = true
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isAnimated)) { timeline in
+            let turn = isAnimated ? timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) : 0.08
+            ZStack {
+                Circle().stroke(DS.Color.accent.opacity(0.2), lineWidth: lineWidth)
+                Circle()
+                    .trim(from: 0.05, to: 0.33)
+                    .stroke(DS.Color.accent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(360 * turn))
+            }
+            .frame(width: size, height: size)
+        }
+    }
+}
+
+/// A thin determinate bar on a faint accent track (downloads in Réglages and the onboarding).
+struct DownloadBar: View {
+    var fraction: Double
+    var height: CGFloat = 5
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(DS.Color.accent.opacity(0.15))
+                Capsule()
+                    .fill(DS.Color.accent)
+                    .frame(width: max(height, geometry.size.width * min(1, max(0, fraction))))
+            }
+        }
+        .frame(height: height)
+        .animation(DS.Motion.readout, value: fraction)
+    }
+}

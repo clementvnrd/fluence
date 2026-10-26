@@ -55,9 +55,14 @@ final class OnboardingWindow {
 @MainActor
 @Observable
 final class OnboardingModel {
+    /// Every step there can be, in order. Which ones a window shows is `steps`: a step that
+    /// does not apply (FLU-29's `transcription` once Parakeet is on disk) is left out, and the
+    /// numbering, the progress and Next / Back follow the list — a new step is one case here
+    /// and one line in `applies`.
     enum Step: Int, CaseIterable, Identifiable {
         /// `systemAudio` is the meetings step: call detection and the call's sound (FLU-34).
-        case accessibility, microphone, systemAudio, calendar, ready
+        /// `transcription` downloads Parakeet with the user's consent (FLU-29).
+        case accessibility, microphone, transcription, systemAudio, calendar, ready
 
         var id: Int { rawValue }
 
@@ -65,6 +70,7 @@ final class OnboardingModel {
             switch self {
             case .accessibility: "Accessibilité"
             case .microphone: "Micro"
+            case .transcription: "Transcription"
             case .systemAudio: "Réunions"
             case .calendar: "Calendrier"
             case .ready: "Prêt"
@@ -73,6 +79,10 @@ final class OnboardingModel {
 
         var isOptional: Bool { self == .systemAudio || self == .calendar }
     }
+
+    /// The steps this window walks through, fixed when it opens: a download finishing
+    /// mid-way does not make its step vanish under the user.
+    let steps: [Step]
 
     enum Status: Equatable {
         case granted
@@ -85,14 +95,40 @@ final class OnboardingModel {
     private(set) var statuses: [Step: Status] = [:]
 
     init() {
-        // A local first: under @Observable the closure would otherwise capture `self`
+        // Locals first: under @Observable the closures would otherwise capture `self`
         // before `step` is initialized.
         let initial = Self.readStatuses()
         statuses = initial
+        let steps = Step.allCases.filter(Self.applies)
+        self.steps = steps
         // Start where the work is: the first grant still missing, or the end.
         step = DevPreview.onboardingStep.flatMap(Step.init(rawValue:))
-            ?? Step.allCases.first { initial[$0] == .missing } ?? .ready
+            ?? steps.first { initial[$0] == .missing } ?? .ready
     }
+
+    /// Whether a step is part of this run of the window.
+    private static func applies(_ step: Step) -> Bool {
+        switch step {
+        case .transcription:
+            // FLU-29: only when dictation is in French or Auto, Parakeet is the engine (the
+            // default there), and its model is not on disk — or its download is under way.
+            let settings = Settings.shared
+            let download = ParakeetDownload.shared
+            download.refresh()
+            if DevPreview.onboardingStep == Step.transcription.rawValue { return true }
+            return settings.engine == .parakeet
+                && (EngineDefault.offersParakeetStep(language: settings.dictationLanguage, parakeetReady: download.isReady)
+                    || download.isDownloading)
+        default:
+            return true
+        }
+    }
+
+    /// The steps listed in the sidebar (`ready` is the end, not a step).
+    var listed: [Step] { steps.filter { $0 != .ready } }
+
+    /// 1-based position in the list, for « Étape 2 sur 5 » and the step's circle.
+    func number(of step: Step) -> Int { (listed.firstIndex(of: step) ?? 0) + 1 }
 
     func status(of step: Step) -> Status? { statuses[step] }
 
@@ -104,24 +140,26 @@ final class OnboardingModel {
         if previous[step] != .granted, statuses[step] == .granted {
             // On to the next step that still has something to say; steps already granted
             // (the microphone, often) are not worth a stop.
-            step = Step.allCases.first { $0.rawValue > step.rawValue && statuses[$0] != .granted } ?? .ready
+            step = steps.first { $0.rawValue > step.rawValue && statuses[$0] != .granted } ?? .ready
         }
     }
 
     func advance() {
-        guard let next = Step(rawValue: step.rawValue + 1) else { return }
-        step = next
+        guard let index = steps.firstIndex(of: step), index + 1 < steps.count else { return }
+        step = steps[index + 1]
     }
 
     func back() {
-        guard let previous = Step(rawValue: step.rawValue - 1) else { return }
-        step = previous
+        guard let index = steps.firstIndex(of: step), index > 0 else { return }
+        step = steps[index - 1]
     }
 
     private static func readStatuses() -> [Step: Status] {
         [
             .accessibility: Permissions.hasAccessibility ? .granted : .missing,
             .microphone: Permissions.hasMicrophone ? .granted : .missing,
+            // FLU-29: done once Parakeet is whole on disk.
+            .transcription: ParakeetDownload.shared.refresh() ? .granted : .missing,
             .systemAudio: .askedOnFirstUse,
             .calendar: Permissions.hasCalendar ? .granted : .missing,
         ]
@@ -136,8 +174,7 @@ private struct OnboardingView: View {
     let onDone: () -> Void
 
     @State private var model = OnboardingModel()
-
-    private static let listed = OnboardingModel.Step.allCases.filter { $0 != .ready }
+    @State private var download = ParakeetDownload.shared
 
     var body: some View {
         HStack(spacing: 0) {
@@ -169,7 +206,7 @@ private struct OnboardingView: View {
             .padding(.leading, 10)
             .padding(.bottom, DS.Space.wide)
 
-            ForEach(Self.listed) { step in
+            ForEach(model.listed) { step in
                 Button {
                     withAnimation(DS.Motion.panel) { model.step = step }
                 } label: {
@@ -179,7 +216,7 @@ private struct OnboardingView: View {
             }
             Spacer()
             VStack(alignment: .leading, spacing: 6) {
-                Text(model.step == .ready ? "Terminé" : "Étape \(model.step.rawValue + 1) sur \(Self.listed.count)")
+                Text(model.step == .ready ? "Terminé" : "Étape \(model.number(of: model.step)) sur \(model.listed.count)")
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Color.inkSecondary)
                 GeometryReader { geometry in
@@ -201,7 +238,7 @@ private struct OnboardingView: View {
     }
 
     private var progress: CGFloat {
-        model.step == .ready ? 1 : CGFloat(model.step.rawValue + 1) / CGFloat(Self.listed.count)
+        model.step == .ready ? 1 : CGFloat(model.number(of: model.step)) / CGFloat(max(1, model.listed.count))
     }
 
     private func stepRow(_ step: OnboardingModel.Step) -> some View {
@@ -214,7 +251,7 @@ private struct OnboardingView: View {
                     Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
                 } else {
                     Circle().strokeBorder(isCurrent ? DS.Color.accent : DS.Color.seam, lineWidth: 1.5)
-                    Text("\(step.rawValue + 1)")
+                    Text("\(model.number(of: step))")
                         .font(.system(size: 10, weight: .bold, design: .rounded))
                         .foregroundStyle(isCurrent ? DS.Color.accent : DS.Color.silkscreen)
                 }
@@ -224,7 +261,13 @@ private struct OnboardingView: View {
                 .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
                 .foregroundStyle(isCurrent || isDone ? DS.Color.ink : DS.Color.inkSecondary)
             Spacer(minLength: 0)
-            if step.isOptional {
+            if step == .transcription, let fraction = download.fraction {
+                // FLU-29: the download runs on while the user moves through the other steps.
+                Text(FrenchFormat.percent(fraction))
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(DS.Color.accent)
+            } else if step.isOptional {
                 Text("optionnel").font(.system(size: 10, weight: .medium)).foregroundStyle(DS.Color.silkscreen)
             }
         }
@@ -262,7 +305,18 @@ private struct OnboardingView: View {
                 DetectionSwitch().padding(.bottom, DS.Space.wide)
             }
 
-            if model.step == .ready {
+            if model.step == .transcription {
+                ParakeetModelCard(download: download)
+                if download.isDownloading {
+                    HStack(spacing: 6) {
+                        Image(systemName: "info.circle").font(.system(size: 11, weight: .medium))
+                        Text("Apple est utilisé en attendant.")
+                    }
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Color.inkSecondary)
+                    .padding(.top, DS.Space.base)
+                }
+            } else if model.step == .ready {
                 if Self.requiredGranted(model) { ShortcutLegend() }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
@@ -315,7 +369,18 @@ private struct OnboardingView: View {
             Spacer()
             if model.step == .ready {
                 RecordPill(kind: .start, title: "Terminer", systemImage: "checkmark", action: onDone)
-            } else if model.status(of: model.step) == .granted {
+            } else if model.step == .transcription, model.status(of: .transcription) != .granted, !download.isDownloading {
+                // FLU-29: nothing is downloaded without this click. « Plus tard » leaves Apple
+                // in place; Réglages › Transcription offers the download again.
+                CapButton(title: "Plus tard", height: 32) {
+                    withAnimation(DS.Motion.panel) { model.advance() }
+                }
+                RecordPill(
+                    kind: .start,
+                    title: download.phase == .failed ? "Réessayer" : "Télécharger",
+                    systemImage: download.phase == .failed ? "arrow.clockwise" : "arrow.down"
+                ) { download.start() }
+            } else if model.status(of: model.step) == .granted || model.step == .transcription {
                 RecordPill(kind: .start, title: "Suivant", systemImage: "chevron.right") {
                     withAnimation(DS.Motion.panel) { model.advance() }
                 }
@@ -414,6 +479,14 @@ private struct OnboardingView: View {
                         Task { await MeetingPreparation.shared.prepare(only: Self.meetingSteps) }
                     }
             )
+        case .transcription:
+            Page(
+                symbol: "waveform",
+                title: "Télécharger Parakeet",
+                body: "Le moteur le plus précis en français, sur ce Mac.",
+                facts: [],
+                action: nil
+            )
         case .calendar:
             Page(
                 symbol: "calendar",
@@ -444,6 +517,56 @@ private struct OnboardingView: View {
 
     private static func requiredGranted(_ model: OnboardingModel) -> Bool {
         model.status(of: .accessibility) == .granted && model.status(of: .microphone) == .granted
+    }
+}
+
+/// FLU-29 (mock-up 03): Parakeet Ultra and its size before, its progress during, « Installé »
+/// after. The download is `ParakeetDownload`'s, shared with Réglages › Transcription.
+private struct ParakeetModelCard: View {
+    let download: ParakeetDownload
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(download.phase == .failed ? DS.Color.meterAmber : DS.Color.accent)
+                    .frame(width: 20)
+                Text("Parakeet Ultra").font(DS.Font.bodyEmphasis).foregroundStyle(DS.Color.ink)
+                Spacer(minLength: 8)
+                if let fraction = download.fraction {
+                    Text(DownloadProgressText.amount(fraction: fraction, totalBytes: ParakeetDownload.totalBytes))
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(DS.Color.inkSecondary)
+                } else if download.isReady {
+                    GrantBadge(text: "Installé", isOK: true)
+                } else if download.phase == .failed {
+                    Text("Échec du téléchargement").font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary)
+                } else {
+                    MetaChip(text: "Environ " + FrenchFormat.bytes(ParakeetDownload.totalBytes), systemImage: "arrow.down")
+                }
+            }
+            if let fraction = download.fraction {
+                HStack(spacing: 10) {
+                    DownloadBar(fraction: fraction, height: 6)
+                    Text(FrenchFormat.percent(fraction))
+                        .font(DS.Font.counter)
+                        .foregroundStyle(DS.Color.accent)
+                        .frame(width: 44, alignment: .trailing)
+                }
+                .padding(.leading, 30)
+            }
+        }
+        .padding(.horizontal, DS.Space.roomy)
+        .padding(.vertical, 14)
+        .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var symbol: String {
+        if download.isDownloading { return "arrow.down.circle" }
+        if download.isReady { return "checkmark.circle" }
+        return download.phase == .failed ? "exclamationmark.triangle.fill" : "cpu"
     }
 }
 

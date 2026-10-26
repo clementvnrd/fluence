@@ -165,7 +165,7 @@ private struct AppSidebar: View {
     private var statusText: String {
         guard controller.isHotkeyActive else { return "Raccourci inactif" }
         return "Raccourci \(ShortcutLabel.modifiers(settings.pushToTalkKey.shortName)) · "
-            + "\(settings.engine.shortName) · \(settings.dictationLanguage.displayName)"
+            + "\(settings.activeEngine.shortName) · \(settings.dictationLanguage.displayName)"
     }
 
     private func group(_ title: String) -> some View {
