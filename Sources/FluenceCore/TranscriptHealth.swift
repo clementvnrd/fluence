@@ -30,12 +30,31 @@ public enum TranscriptHealth {
                     repeats += 1
                     next += size
                 }
-                if repeats >= needed { return true }
+                if repeats >= needed, !isEmphasis(group, repeats: repeats, followedByWords: next < words.count) {
+                    return true
+                }
                 start += 1
             }
         }
         return false
     }
+
+    /// « Oui, oui, oui, oui, oui, d'accord. »: a short answer said over and over, then the
+    /// sentence goes on (FLU-30). A loop does not stop to say something else after a few
+    /// repeats; it runs on, or comes back far more than this.
+    static func isEmphasis(_ group: ArraySlice<String>, repeats: Int, followedByWords: Bool) -> Bool {
+        guard followedByWords, repeats <= maximumEmphasis, group.count == 1, let word = group.first else {
+            return false
+        }
+        return emphaticWords.contains(word)
+    }
+
+    static let maximumEmphasis = 8
+    static let emphaticWords: Set<String> = [
+        "oui", "ouais", "non", "nan", "si", "ok", "okay", "d'accord", "merci", "allez", "bravo",
+        "voilà", "vas-y", "attends", "stop", "bon", "ah", "oh", "eh", "hop", "très",
+        "yes", "yeah", "no", "go", "thanks", "wait", "very",
+    ]
 
     /// One content word making up more than 40 % of a longer transcript.
     static func dominantWord(in words: [String]) -> Bool {

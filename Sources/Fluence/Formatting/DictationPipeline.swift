@@ -57,7 +57,7 @@ enum DictationPipeline {
             case .light:
                 // Clement's repairs (stutters, "scratch that", self-corrections) around the
                 // tested rules.
-                cleaned = RuleCleanup.apply(SpeechRepairs.before(shielded, language: language), language: language)
+                cleaned = LightCleanup.apply(shielded, language: language)
             case .medium, .high:
                 let style = level.appliesStyle
                     ? CleanupPrompt.Style(style: settings.style(for: category), category: category)
@@ -85,7 +85,7 @@ enum DictationPipeline {
         // or falls back to the rules, which do. Redo it with the rules rather than type a
         // placeholder or lose a snippet.
         Log.speech.info("snippet placeholders lost in cleanup — redoing it with the rules")
-        let ruled = corrector.apply(to: RuleCleanup.apply(shielded, language: language))
+        let ruled = corrector.apply(to: LightCleanup.apply(shielded, language: language))
         let text = SnippetMatcher.restore(ruled.text, expansions: expansions) ?? ruled.text
         return Output(text: text, corrections: ruled.applied, snippetCount: expansions.count)
     }

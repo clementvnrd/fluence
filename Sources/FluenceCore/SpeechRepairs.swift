@@ -23,16 +23,25 @@ public enum SpeechRepairs {
     ///
     /// - Parameter developer: the text is going into a code editor or a terminal and the
     ///   "Formatage code & terminaux" switch is on.
+    ///
+    /// Code formatting (symbols, no final stop) applies only to text that looks like a command
+    /// — no French function word once the spoken symbols are set aside — or that opens with
+    /// the spoken prefix « code : ». French prose typed into a terminal (a prompt to Claude
+    /// Code) is prose: « différent de ce qu'on attendait » is not « != » (FLU-30).
     public static func after(_ text: String, language: DictationLanguage, developer: Bool) -> String {
         guard applies(to: language) else { return text }
+        if developer, let code = afterCodePrefix(text) {
+            return suppressTrailingPeriod(developerSymbols(code))
+        }
+        let formatsCode = developer && looksLikeCommand(text)
         var result = text
-        if developer { result = developerSymbols(result) }
+        if formatsCode { result = developerSymbols(result) }
         let listed = smartLists(result)
         if listed != result {
             result = RuleCleanup.capitalizeSentences(RuleCleanup.collapseWhitespace(listed))
         }
         result = conversationalTransitions(result)
-        if developer { result = suppressTrailingPeriod(result) }
+        if formatsCode { result = suppressTrailingPeriod(result) }
         return result
     }
 
@@ -249,12 +258,14 @@ public enum SpeechRepairs {
             with: "\n- ",
             options: .regularExpression
         )
+        // « En premier lieu », « en deuxième position »: a set phrase, not a list item (FLU-30).
+        let notSetPhrase = #"(?!\s+(?:lieu|temps|plan|ressort|rang|position|choix|niveau|ligne)\b)"#
         let ordinals: [(String, String)] = [
-            ("premièrement|en premier", "1"),
-            ("deuxièmement|en deuxième", "2"),
-            ("troisièmement|en troisième", "3"),
-            ("quatrièmement|en quatrième", "4"),
-            ("cinquièmement|en cinquième", "5"),
+            ("premièrement|en premier\(notSetPhrase)", "1"),
+            ("deuxièmement|en deuxième\(notSetPhrase)", "2"),
+            ("troisièmement|en troisième\(notSetPhrase)", "3"),
+            ("quatrièmement|en quatrième\(notSetPhrase)", "4"),
+            ("cinquièmement|en cinquième\(notSetPhrase)", "5"),
             ("firstly|first of all", "1"),
             ("secondly|second of all", "2"),
             ("thirdly", "3"),
@@ -301,6 +312,58 @@ public enum SpeechRepairs {
 
     // MARK: - Developer tools
 
+    /// The spoken symbols, as `developerSymbols` writes them.
+    static let spokenSymbols: [(String, String)] = [
+        ("accolade ouvrante", "{"), ("accolade fermante", "}"),
+        ("crochet ouvrant", "["), ("crochet fermant", "]"),
+        ("anti slash", "\\\\"), ("point barre", "/"),
+        ("égal égal", "=="), ("différent de", "!="),
+        ("flèche droite", "->"), ("grosse flèche", "=>"),
+    ]
+
+    /// Words that only French prose has: articles, pronouns, prepositions, conjunctions,
+    /// « être » and « avoir ». A single letter is left out (« a » is also a variable).
+    static let frenchFunctionWords: Set<String> = [
+        "le", "la", "les", "un", "une", "des", "du", "de", "au", "aux", "ce", "cet", "cette", "ces",
+        "ça", "cela", "je", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles", "me", "te",
+        "se", "moi", "toi", "lui", "leur", "leurs", "mon", "ma", "mes", "ton", "ta", "tes", "son",
+        "sa", "ses", "notre", "votre", "nos", "vos", "que", "qui", "quoi", "dont", "où", "et", "ou",
+        "mais", "donc", "car", "puis", "ne", "pas", "plus", "est", "sont", "suis", "es", "était",
+        "sera", "ai", "as", "ont", "avec", "pour", "dans", "sur", "sous", "chez", "sans", "vers",
+        "par", "comme", "quand", "très", "aussi", "à", "en", "si", "y",
+    ]
+    /// Elisions: « qu'on », « l'erreur », « c'est ».
+    static let frenchElisions: Set<String> = ["qu", "l", "d", "j", "c", "n", "s", "m", "t", "jusqu", "lorsqu", "puisqu"]
+
+    /// Whether the text reads as a command rather than French prose.
+    static func looksLikeCommand(_ text: String) -> Bool {
+        var rest = text.lowercased()
+        for (spoken, _) in spokenSymbols {
+            rest = rest.replacingOccurrences(of: "\\b\(spoken)\\b", with: " ", options: .regularExpression)
+        }
+        let tokens = rest.split(whereSeparator: { !($0.isLetter || $0 == "'" || $0 == "’") })
+        for token in tokens {
+            let parts = token.split(whereSeparator: { $0 == "'" || $0 == "’" })
+            if token.contains(where: { $0 == "'" || $0 == "’" }),
+               let first = parts.first, frenchElisions.contains(String(first)) {
+                return false
+            }
+            if frenchFunctionWords.contains(String(token)) { return false }
+        }
+        return true
+    }
+
+    /// The text after a spoken « code : » (« code deux points » when no rule made it a
+    /// colon), or nil when it does not open with it.
+    static func afterCodePrefix(_ text: String) -> String? {
+        guard let prefix = text.range(
+            of: "^\\s*code[ \u{00A0}\u{202F}]*(?::|deux points)\\s*",
+            options: [.regularExpression, .caseInsensitive]
+        ) else { return nil }
+        let code = String(text[prefix.upperBound...])
+        return code.isEmpty ? nil : code
+    }
+
     static func developerSymbols(_ text: String) -> String {
         var result = text.replacingOccurrences(
             of: #"(?i)\b(?:double tiret|tiret tiret|dash dash)\s+([a-zA-Z0-9_\-]+)\b"#,
@@ -312,14 +375,7 @@ public enum SpeechRepairs {
             with: "-$1",
             options: .regularExpression
         )
-        let symbols: [(String, String)] = [
-            ("accolade ouvrante", "{"), ("accolade fermante", "}"),
-            ("crochet ouvrant", "["), ("crochet fermant", "]"),
-            ("anti slash", "\\\\"), ("point barre", "/"),
-            ("égal égal", "=="), ("différent de", "!="),
-            ("flèche droite", "->"), ("grosse flèche", "=>"),
-        ]
-        for (spoken, symbol) in symbols {
+        for (spoken, symbol) in spokenSymbols {
             result = result.replacingOccurrences(
                 of: "(?i)\\b\(spoken)\\b",
                 with: symbol,
