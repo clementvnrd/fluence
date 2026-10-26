@@ -484,7 +484,7 @@ final class MeetingController {
             windowRoster: windowRoster
         )
         let output = await Task.detached(priority: .utility) { await MeetingFinalizer.attribute(input) }.value
-        return (MeetingFinalizer.name(output, windowParticipants: windowRoster.names), output.voices)
+        return (MeetingFinalizer.name(output, window: windowRoster), output.voices)
     }
 
     enum Completion {

@@ -95,17 +95,18 @@ enum MeetingFinalizer {
         return Output(meeting: meeting, voices: voices)
     }
 
-    /// Step 4. `windowParticipants`: remote display names read from the meeting window,
-    /// already cleaned (`ParticipantNames.clean`).
+    /// Step 4. `window`: remote display names read from the meeting window, already cleaned
+    /// (`ParticipantNames.clean`), and whether its list looked complete (FLU-33).
     @MainActor
-    static func name(_ output: Output, windowParticipants: [String]) -> Meeting {
+    static func name(_ output: Output, window: ParticipantRoster) -> Meeting {
         var meeting = output.meeting
         var similarity: [String: [String: Double]] = [:]
         if NotetakerSettings.shared.voicePrintsEnabled, !meeting.attendees.isEmpty {
             similarity = VoicePrintStore.shared.similarities(for: output.voices, allowedNames: meeting.attendees)
         }
         let candidates = SpeakerNaming.Candidates(
-            windowParticipants: windowParticipants,
+            windowParticipants: window.names,
+            windowListComplete: window.isComplete,
             attendees: meeting.attendees,
             voicePrintSimilarity: similarity
         )

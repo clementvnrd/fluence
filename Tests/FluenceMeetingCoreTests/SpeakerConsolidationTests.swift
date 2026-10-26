@@ -86,7 +86,8 @@ struct SpeakerConsolidationVectorTests {
         #expect(voices.count == testCase.voices)
 
         let named = SpeakerNaming.name([.me()] + voices.map { Speaker(id: $0) }, candidates: .init(
-            windowParticipants: roster.names
+            windowParticipants: roster.names,
+            windowListComplete: roster.isComplete
         ))
         let names = Dictionary(uniqueKeysWithValues: named.compactMap { speaker in speaker.name.map { (speaker.id, $0) } })
         #expect(names == testCase.names)

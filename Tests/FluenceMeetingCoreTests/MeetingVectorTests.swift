@@ -90,6 +90,8 @@ struct MeetingVectorTests {
         let name: String
         let speakers: [VectorSpeaker]
         let windowParticipants: [String]
+        /// FLU-33: the window's list looked complete. Absent means false.
+        var windowComplete: Bool?
         let attendees: [String]
         let voicePrintSimilarity: [String: [String: Double]]
         let expected: [VectorSpeaker]
@@ -154,6 +156,7 @@ struct MeetingVectorTests {
             }
             let named = SpeakerNaming.name(speakers, candidates: .init(
                 windowParticipants: testCase.windowParticipants,
+                windowListComplete: testCase.windowComplete ?? false,
                 attendees: testCase.attendees,
                 voicePrintSimilarity: testCase.voicePrintSimilarity
             ))

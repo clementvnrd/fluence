@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Behavioural contract for the Notetaker's platform-neutral logic: token normalisation, mic/system merge with the echo backstop, word-to-speaker assignment, segment attribution and speaker naming. FluenceMeetingCore runs every case. The rules are documented in Sources/FluenceMeetingCore (TextTokens, TranscriptMerger, SpeakerAssignment, SpeakerNaming). Times are seconds from the meeting start.",
+  "about": "Behavioural contract for the Notetaker's platform-neutral logic: token normalisation, mic/system merge with the echo backstop, word-to-speaker assignment, segment attribution and speaker naming. FluenceMeetingCore runs every case. The rules are documented in Sources/FluenceMeetingCore (TextTokens, TranscriptMerger, SpeakerAssignment, SpeakerNaming). Times are seconds from the meeting start. In `naming`, `windowComplete` (false when absent) says the meeting window's list looked complete (FLU-33, ParticipantRoster); only then may a window name be given by elimination.",
   "normalization": [
     { "name": "punctuation and apostrophes split words, accents fold", "input": "Bonjour, l'équipe !", "tokens": ["bonjour", "l", "equipe"] },
     { "name": "uppercase, digits and a dash", "input": "Q3 RÉSULTATS—OK?", "tokens": ["q3", "resultats", "ok"] },
@@ -192,8 +192,26 @@
     {
       "name": "a name the user typed is never overwritten or reused; the window fills the last voice by elimination",
       "speakers": [ { "id": "me" }, { "id": "S1", "name": "Grace", "nameSource": "user" }, { "id": "S2" } ],
-      "windowParticipants": ["grace", "Alan Turing"], "attendees": [], "voicePrintSimilarity": {},
+      "windowParticipants": ["grace", "Alan Turing"], "windowComplete": true, "attendees": [], "voicePrintSimilarity": {},
       "expected": [ { "id": "me" }, { "id": "S1", "name": "Grace", "nameSource": "user" }, { "id": "S2", "name": "Alan Turing", "nameSource": "meetingWindow" } ]
+    },
+    {
+      "name": "a window list that may be partial never names a voice by elimination",
+      "speakers": [ { "id": "me" }, { "id": "S1", "name": "Grace", "nameSource": "user" }, { "id": "S2" } ],
+      "windowParticipants": ["grace", "Alan Turing"], "windowComplete": false, "attendees": [], "voicePrintSimilarity": {},
+      "expected": [ { "id": "me" }, { "id": "S1", "name": "Grace", "nameSource": "user" }, { "id": "S2" } ]
+    },
+    {
+      "name": "four voices and one name in the window: no voice gets it",
+      "speakers": [ { "id": "me" }, { "id": "S1" }, { "id": "S2" }, { "id": "S3" }, { "id": "S4" } ],
+      "windowParticipants": ["Ada Lovelace"], "attendees": [], "voicePrintSimilarity": {},
+      "expected": [ { "id": "me" }, { "id": "S1" }, { "id": "S2" }, { "id": "S3" }, { "id": "S4" } ]
+    },
+    {
+      "name": "two voices and the two names of a complete list, nothing else: who is who stays open",
+      "speakers": [ { "id": "me" }, { "id": "S1" }, { "id": "S2" } ],
+      "windowParticipants": ["Ada Lovelace", "Alan Turing"], "windowComplete": true, "attendees": [], "voicePrintSimilarity": {},
+      "expected": [ { "id": "me" }, { "id": "S1" }, { "id": "S2" } ]
     },
     {
       "name": "voice prints use a global assignment, not greedy best-first",
