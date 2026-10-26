@@ -220,4 +220,37 @@ struct DoNoHarmTests {
         #expect(TranscriptHealth.isDegenerate(
             Array(repeating: "Node.js", count: 30).joined(separator: ", ") + ". Et la suite."))
     }
+
+    // MARK: - FLU-84
+
+    /// Parakeet hears « à jour » as « à genre » after a form of *mettre* (Clement's history,
+    /// 2026-10-26). « mettre à genre » is never French, so the repair is safe.
+    @Test(arguments: [
+        ("j'ai mis à genre mon app et j'ai merge", "J'ai mis à jour mon app et j'ai merge."),
+        ("il faut mettre à genre le dictionnaire", "Il faut mettre à jour le dictionnaire."),
+        ("la mise à genre est publiée", "La mise à jour est publiée."),
+        ("les mises à genre automatiques", "Les mises à jour automatiques."),
+        ("je mets à genre la doc", "Je mets à jour la doc."),
+        ("on met à genre les modèles", "On met à jour les modèles."),
+        ("vous mettez à genre vos apps", "Vous mettez à jour vos apps."),
+        ("il mettra à genre demain", "Il mettra à jour demain."),
+        ("tu as remis à genre la liste", "Tu as remis à jour la liste."),
+        ("Mise à genre de Fluence", "Mise à jour de Fluence."),
+        ("c'est mis a genre", "C'est mis à jour."),
+    ])
+    func misAGenreBecomesMisAJour(_ said: String, _ typed: String) {
+        #expect(LightCleanup.apply(said, language: .french) == typed)
+    }
+
+    /// « genre » keeps every meaning it has outside « mettre à genre ».
+    @Test(arguments: [
+        ("c'est un genre de mise à jour", "C'est un genre de mise à jour."),
+        ("ce n'est pas mon genre", "Ce n'est pas mon genre."),
+        ("un roman mis à l'honneur, quel genre de livre", "Un roman mis à l'honneur, quel genre de livre."),
+        ("le genre musical de la mise en scène", "Le genre musical de la mise en scène."),
+        ("elle a mis, genre, trois heures", "Elle a mis, trois heures."),
+    ])
+    func genreOutsideMettreStays(_ said: String, _ typed: String) {
+        #expect(LightCleanup.apply(said, language: .french) == typed)
+    }
 }
