@@ -16,6 +16,10 @@ import Foundation
 ///   read says whether it saw the whole list (FLU-33), and only a list that looks complete
 ///   caps the voices (`ParticipantRoster`).
 ///
+/// Each AX read is a round trip served by the other app's main thread. The participant
+/// walk runs on its own serial queue, never on Fluence's main thread, within a budget of
+/// 4,000 elements and 150 ms (`WalkBudget`), each call bounded by what is left of it.
+///
 /// Nothing read here is logged.
 @MainActor
 enum MeetingWindowReader {
@@ -42,13 +46,27 @@ enum MeetingWindowReader {
 
     // MARK: - Participants
 
-    /// One read of a visible participant panel (FLU-33): the cleaned names, whether the list
-    /// was found and read to its end within `budget` (elements and time, `WalkBudget`), and
-    /// the count the app prints beside it. The walk stops at the first list it reads.
-    static func participants(pid: pid_t, excluding user: [String], budget: WalkBudget = WalkBudget()) -> ParticipantRead {
+    /// One read of a visible participant panel (FLU-33), on `walkQueue`: the main thread
+    /// only awaits it. The caller skips a walk while one is still running.
+    nonisolated static func participants(pid: pid_t, excluding user: [String]) async -> ParticipantRead {
+        await withCheckedContinuation { continuation in
+            walkQueue.async {
+                continuation.resume(returning: walkParticipants(pid: pid, excluding: user, budget: WalkBudget()))
+            }
+        }
+    }
+
+    /// One walk at a time, at utility priority, beside everything Fluence's main thread does.
+    private nonisolated static let walkQueue = DispatchQueue(label: "io.github.clementvnrd.fluence.participant-walk", qos: .utility)
+
+    /// The walk itself, on the calling thread: the cleaned names, whether the list was found
+    /// and read to its end within `budget` (elements and time), and the count the app prints
+    /// beside it. It stops at the first list it reads.
+    private nonisolated static func walkParticipants(pid: pid_t, excluding user: [String], budget: WalkBudget) -> ParticipantRead {
         guard AXIsProcessTrusted() else { return ParticipantRead(names: [], complete: false) }
         var budget = budget
         let app = AXUIElementCreateApplication(pid)
+        bound(app, by: budget)
         let windows = elements(app, kAXWindowsAttribute)
 
         func read(_ list: AXUIElement, label: String) -> ParticipantRead {
@@ -62,6 +80,7 @@ enum MeetingWindowReader {
 
         // Zoom shows participants in their own window, « Participants (4) ».
         for window in windows {
+            bound(window, by: budget)
             if let title = string(window, kAXTitleAttribute), ParticipantNames.isListLabel(title) {
                 return read(window, label: title)
             }
@@ -71,6 +90,7 @@ enum MeetingWindowReader {
         while next < queue.count, budget.spend() {
             let (element, depth) = queue[next]
             next += 1
+            bound(element, by: budget)
             let label = string(element, kAXDescriptionAttribute) ?? string(element, kAXTitleAttribute) ?? ""
             let role = string(element, kAXRoleAttribute) ?? ""
             if ParticipantNames.isListLabel(label), ["AXList", "AXOutline", "AXTable", "AXGroup"].contains(role) {
@@ -83,11 +103,12 @@ enum MeetingWindowReader {
     }
 
     /// Static texts and row descriptions under `root`.
-    private static func texts(under root: AXUIElement, budget: inout WalkBudget) -> [String] {
+    private nonisolated static func texts(under root: AXUIElement, budget: inout WalkBudget) -> [String] {
         var result: [String] = []
         var stack: [(AXUIElement, Int)] = [(root, 0)]
         while let (element, depth) = stack.popLast() {
             guard budget.spend() else { break }
+            bound(element, by: budget)
             let role = string(element, kAXRoleAttribute) ?? ""
             if role == kAXStaticTextRole as String, let value = string(element, kAXValueAttribute) {
                 result.append(value)
@@ -104,19 +125,25 @@ enum MeetingWindowReader {
 
     // MARK: - AX helpers
 
-    private static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+    /// A busy app answers each AX call late, by default after up to 6 s: never wait longer
+    /// than what is left of the walk's budget (at least 20 ms). Local to this element ref.
+    private nonisolated static func bound(_ element: AXUIElement, by budget: WalkBudget) {
+        AXUIElementSetMessagingTimeout(element, Float(max(0.02, budget.remaining)))
+    }
+
+    private nonisolated static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
         return value
     }
 
-    private static func string(_ element: AXUIElement, _ name: String) -> String? {
+    private nonisolated static func string(_ element: AXUIElement, _ name: String) -> String? {
         guard let value = attribute(element, name) as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func elements(_ element: AXUIElement, _ name: String) -> [AXUIElement] {
+    private nonisolated static func elements(_ element: AXUIElement, _ name: String) -> [AXUIElement] {
         guard let value = attribute(element, name), CFGetTypeID(value) == CFArrayGetTypeID() else { return [] }
         // swiftlint:disable:next force_cast
         return (value as! [AnyObject]).compactMap { item in

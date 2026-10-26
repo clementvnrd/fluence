@@ -21,6 +21,8 @@ final class MeetingSession {
     /// list looks complete (FLU-33).
     private(set) var roster = ParticipantRoster()
     var participants: [String] { roster.names }
+    /// A participant walk is running: the next one is skipped rather than queued.
+    private var walkingParticipants = false
 
     private let appPID: pid_t?
     private let userNames: [String]
@@ -254,16 +256,24 @@ final class MeetingSession {
 
     // MARK: - Participants
 
+    /// Reads the call window's participant list off the main thread (FLU-33); skipped while
+    /// the previous walk is still running.
     func readParticipants() {
-        guard let pid = appPID ?? app.flatMap(MeetingWindowReader.mainPID) else { return }
-        let started = Date()
-        let read = MeetingWindowReader.participants(pid: pid, excluding: userNames)
-        roster.record(read)
-        Log.app.info("""
-            participant walk: \(read.names.count, privacy: .public) names, \
-            \(read.complete ? "complete" : "partial", privacy: .public), \
-            \(Int(Date().timeIntervalSince(started) * 1000), privacy: .public) ms
-            """)
+        guard !walkingParticipants, let pid = appPID ?? app.flatMap(MeetingWindowReader.mainPID) else { return }
+        walkingParticipants = true
+        let userNames = userNames
+        Task { [weak self] in
+            let started = Date()
+            let read = await MeetingWindowReader.participants(pid: pid, excluding: userNames)
+            guard let self else { return }
+            self.walkingParticipants = false
+            self.roster.record(read)
+            Log.app.info("""
+                participant walk: \(read.names.count, privacy: .public) names, \
+                \(read.complete ? "complete" : "partial", privacy: .public), \
+                \(Int(Date().timeIntervalSince(started) * 1000), privacy: .public) ms
+                """)
+        }
     }
 
     // MARK: - End
