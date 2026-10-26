@@ -3,7 +3,7 @@ import Testing
 
 @testable import FluenceDictionary
 
-/// One case of shared/dictionary-test-vectors.json, with the format's defaults filled in.
+/// One case of dictionary-test-vectors.json, with the format's defaults filled in.
 struct SharedVector: Decodable, Sendable, CustomTestStringConvertible {
     struct Rule: Decodable, Sendable {
         let kind: String
@@ -48,7 +48,7 @@ struct SharedVector: Decodable, Sendable, CustomTestStringConvertible {
     }
 }
 
-/// The contract shared with the Windows app, case by case, then the few promises the app makes
+/// The correction contract, case by case, then the few promises the app makes
 /// on top of corrections: a bounded bias list led by the user's words, and trigger warnings.
 struct VectorTests {
     @Test("the shared file loads, holds cases, and names each one differently")

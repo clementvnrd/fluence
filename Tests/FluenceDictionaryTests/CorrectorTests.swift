@@ -3,9 +3,8 @@ import Testing
 
 @testable import FluenceDictionary
 
-/// Corrections the shared vectors leave out on purpose: Unicode folding and spacing, letter and
-/// number boundaries beyond ASCII, NFC scalars, tie order, chaining and the report's details.
-/// The Windows engine is not known to agree on these, so they are the Swift side's alone.
+/// Corrections the dictionary vectors leave out on purpose: Unicode folding and spacing, letter
+/// and number boundaries beyond ASCII, NFC scalars, tie order, chaining and the report's details.
 struct CorrectorTests {
     private func correct(_ input: String, _ rules: [(hear: String, write: String)]) -> (text: String, applied: [AppliedCorrection]) {
         DictionaryCorrector(entries: rules.map { .correction(hear: $0.hear, write: $0.write) }).apply(to: input)

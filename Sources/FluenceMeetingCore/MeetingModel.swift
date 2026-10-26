@@ -5,8 +5,8 @@ import Foundation
 // Design: docs/NOTETAKER.md.
 //
 // Lives in FluenceMeetingCore (no AppKit, no AVFoundation) so the merge, dedupe and
-// speaker-assignment logic that operates on it can be unit-tested, and so the Windows port
-// has one reference for the shapes behind shared/meeting-test-vectors.json. The app target
+// speaker-assignment logic that operates on it can be unit-tested against
+// Tests/FluenceMeetingCoreTests/meeting-test-vectors.json. The app target
 // re-exports this module, so app code uses these types without importing anything.
 //
 // The explicit `public init`s mirror what Swift would synthesise inside one module; keep

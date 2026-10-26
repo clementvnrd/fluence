@@ -3,8 +3,7 @@ import Testing
 
 @testable import FluenceMeetingCore
 
-/// Runs the shared contract in `shared/meeting-test-vectors.json`. The Windows port runs the
-/// identical file; this copy must stay byte-identical to the shared one (CI checks).
+/// Runs the contract in `meeting-test-vectors.json`, beside this file.
 struct MeetingVectorTests {
     struct Vectors: Decodable {
         let version: Int

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Behavioural contract for reading an imported meeting transcript (FLU-16): WebVTT (Zoom, Teams), SubRip, and text or Markdown. Each case gives the raw file and the turns it must produce: speaker (null when the file names nobody), start and end in seconds from the meeting start (null when the file does not say), and the text. Rules are documented in Sources/FluenceMeetingCore/TranscriptImport.swift. macOS runs every case; the Windows port runs them once it gains the import. The Swift copy in Tests/FluenceMeetingCoreTests must stay identical to this file.",
+  "about": "Behavioural contract for reading an imported meeting transcript (FLU-16): WebVTT (Zoom, Teams), SubRip, and text or Markdown. Each case gives the raw file and the turns it must produce: speaker (null when the file names nobody), start and end in seconds from the meeting start (null when the file does not say), and the text. Rules are documented in Sources/FluenceMeetingCore/TranscriptImport.swift. FluenceMeetingCore runs every case.",
   "parse": [
     {
       "name": "zoom vtt: name prefixes, short pauses joined, a long pause splits",

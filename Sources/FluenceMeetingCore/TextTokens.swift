@@ -2,8 +2,8 @@ import Foundation
 
 /// Word-level text comparison for the echo backstop.
 ///
-/// This is a cross-platform contract (shared/meeting-test-vectors.json, `normalization`):
-/// the Windows port must produce the same tokens. The rules, in order:
+/// This is a contract (Tests/FluenceMeetingCoreTests/meeting-test-vectors.json,
+/// `normalization`). The rules, in order:
 ///
 /// 1. Unicode NFKD (compatibility decomposition).
 /// 2. Drop every non-spacing combining mark (general category Mn) — `é` → `e`.

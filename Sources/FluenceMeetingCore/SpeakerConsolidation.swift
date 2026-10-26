@@ -15,8 +15,8 @@ import Foundation
 ///    merges until the count fits.
 ///
 /// The larger voice always absorbs the smaller, and its embedding becomes the
-/// speech-weighted mean of both. Pure arithmetic, shared with the Windows port through
-/// `shared/speaker-consolidation-vectors.json`.
+/// speech-weighted mean of both. Pure arithmetic, pinned by
+/// `Tests/FluenceMeetingCoreTests/speaker-consolidation-vectors.json`.
 public enum SpeakerConsolidation {
     public struct Settings: Sendable, Equatable {
         /// Cosine similarity at or above which two voices are the same person. The diarizer

@@ -1,11 +1,11 @@
 {
   "$comment": [
-    "Dictionary corrections, written once for both apps: the macOS side (FluenceDictionary, VectorTests) and the Windows side run every case below in CI, and both must agree.",
+    "Dictionary corrections, the specification of the macOS app's correction behaviour: FluenceDictionary runs every case below in CI (VectorTests, FileVectorTests).",
     "A case lists a dictionary, gives it an input, and states the text that must come back plus, for each correction that fired, its 'to' (the entry's write, unchanged) and its count. The order of those reports is free.",
     "An entry is a 'correction' (hear -> write) or a 'term' (write only). A missing 'hear' is an empty string; a missing 'isEnabled' is true.",
-    "The inputs are the kind of thing Clement dictates: French sentences carrying English tech words. Next to every match sits plain ASCII, except in the one decomposed-accent case, so the two regex engines cannot read a neighbour differently.",
-    "Deeper Unicode behaviour (full case folding, exotic spaces, letters and digits of other scripts, tie order, chained corrections) is pinned by the Swift tests alone.",
-    "Edit this file before either implementation, and keep the Swift copy identical: cp shared/dictionary-test-vectors.json Tests/FluenceDictionaryTests/",
+    "The inputs are the kind of thing Clement dictates: French sentences carrying English tech words. Next to every match sits plain ASCII, except in the one decomposed-accent case.",
+    "Deeper Unicode behaviour (full case folding, exotic spaces, letters and digits of other scripts, tie order, chained corrections) is pinned by CorrectorTests.",
+    "Change this file before the code: watch the tests go red, then make them green.",
     "'fileCases' (since version 2) pin how dictionary.txt is read: 'text' is the raw file, line endings spelled out (\\n, \\r\\n, or a lone \\r: any of them ends a line), and 'expectedEntries' are the entries that come back, in file order. A bare line is a term, 'hear -> write' a correction, '# off:' a disabled entry, any other '#' line a comment; each side is trimmed of spaces and tabs."
   ],
   "version": 2,
