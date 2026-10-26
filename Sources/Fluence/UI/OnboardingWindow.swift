@@ -19,6 +19,8 @@ final class OnboardingWindow {
     }
 
     private var window: NSWindow?
+    /// The app's dictation, for the « Essayer » step (FLU-37); set by the app delegate.
+    var controller: DictationController?
 
     func show() {
         if window == nil {
@@ -40,7 +42,7 @@ final class OnboardingWindow {
         // Fresh each time it is opened, so it starts at whatever is still missing.
         if !window.isVisible {
             window.contentViewController = NSHostingController(
-                rootView: OnboardingView { [weak window] in window?.close() }
+                rootView: OnboardingView(controller: controller) { [weak window] in window?.close() }
             )
             window.setContentSize(DS.Onboarding.size)
             window.center()
@@ -62,7 +64,8 @@ final class OnboardingModel {
     enum Step: Int, CaseIterable, Identifiable {
         /// `systemAudio` is the meetings step: call detection and the call's sound (FLU-34).
         /// `transcription` downloads Parakeet with the user's consent (FLU-29).
-        case accessibility, microphone, transcription, systemAudio, calendar, ready
+        /// `tryIt` is « Essayer »: a first dictation typed into a field on the page (FLU-37).
+        case accessibility, microphone, transcription, systemAudio, calendar, tryIt, ready
 
         var id: Int { rawValue }
 
@@ -73,6 +76,7 @@ final class OnboardingModel {
             case .transcription: "Transcription"
             case .systemAudio: "Réunions"
             case .calendar: "Calendrier"
+            case .tryIt: "Essayer"
             case .ready: "Prêt"
             }
         }
@@ -89,10 +93,15 @@ final class OnboardingModel {
         case missing
         /// macOS offers no way to ask; it asks the user itself on first use.
         case askedOnFirstUse
+        /// FLU-37: Accessibility was granted once and macOS no longer applies it.
+        case wedged
     }
 
     var step: Step
     private(set) var statuses: [Step: Status] = [:]
+    /// FLU-37: « Réparer » was clicked; the page waits for the user to switch Fluence on again
+    /// (« Réactivez Fluence ») and moves on by itself once macOS applies it.
+    private(set) var isRepairing = false
 
     init() {
         // Locals first: under @Observable the closures would otherwise capture `self`
@@ -103,7 +112,7 @@ final class OnboardingModel {
         self.steps = steps
         // Start where the work is: the first grant still missing, or the end.
         step = DevPreview.onboardingStep.flatMap(Step.init(rawValue:))
-            ?? steps.first { initial[$0] == .missing } ?? .ready
+            ?? steps.first { initial[$0] == .missing || initial[$0] == .wedged } ?? .ready
     }
 
     /// Whether a step is part of this run of the window.
@@ -119,6 +128,9 @@ final class OnboardingModel {
             return settings.engine == .parakeet
                 && (EngineDefault.offersParakeetStep(language: settings.dictationLanguage, parakeetReady: download.isReady)
                     || download.isDownloading)
+        case .tryIt:
+            // FLU-37: the real dictation types into the page, so it needs the app's controller.
+            return OnboardingWindow.shared.controller != nil
         default:
             return true
         }
@@ -130,13 +142,28 @@ final class OnboardingModel {
     /// 1-based position in the list, for « Étape 2 sur 5 » and the step's circle.
     func number(of step: Step) -> Int { (listed.firstIndex(of: step) ?? 0) + 1 }
 
-    func status(of step: Step) -> Status? { statuses[step] }
+    func status(of step: Step) -> Status? {
+        // « Essayer » is done once a dictation landed in its field; never auto-advanced.
+        if step == .tryIt { return tryDone ? .granted : nil }
+        return statuses[step]
+    }
+
+    // MARK: FLU-37 « Essayer »
+
+    /// What the field holds: typed by the dictation, editable by the user. Never stored.
+    var tryText = ""
+    /// The controller's last ending when the step opened: only later ones count.
+    var tryBaseline: UInt64 = 0
+    private(set) var tryDone = false
+
+    func markTryDone() { tryDone = true }
 
     /// Re-reads every grant. When the step on screen has just been granted, moves on by
     /// itself — the user is in System Settings and shouldn't have to come back to click Next.
     func refresh() {
         let previous = statuses
         statuses = Self.readStatuses()
+        if statuses[.accessibility] == .granted { isRepairing = false }
         if previous[step] != .granted, statuses[step] == .granted {
             // On to the next step that still has something to say; steps already granted
             // (the microphone, often) are not worth a stop.
@@ -154,9 +181,23 @@ final class OnboardingModel {
         step = steps[index - 1]
     }
 
+    /// FLU-37 « Réparer »: Fluence's own Accessibility row is removed and macOS asks again.
+    func repairAccessibility() {
+        isRepairing = true
+        Task {
+            await Permissions.repairAccessibility()
+            refresh()
+        }
+    }
+
     private static func readStatuses() -> [Step: Status] {
-        [
-            .accessibility: Permissions.hasAccessibility ? .granted : .missing,
+        let accessibility: Status = switch Permissions.accessibilityState {
+        case .granted: .granted
+        case .missing: .missing
+        case .wedged: .wedged
+        }
+        return [
+            .accessibility: accessibility,
             .microphone: Permissions.hasMicrophone ? .granted : .missing,
             // FLU-29: done once Parakeet is whole on disk.
             .transcription: ParakeetDownload.shared.refresh() ? .granted : .missing,
@@ -171,10 +212,13 @@ final class OnboardingModel {
 /// FLU-12 (mock-up 10): the steps down a sidebar with a progress bar, the current step on
 /// the right — a symbol, a title, what it is for in plain words, and one button.
 private struct OnboardingView: View {
+    let controller: DictationController?
     let onDone: () -> Void
 
     @State private var model = OnboardingModel()
     @State private var download = ParakeetDownload.shared
+    /// FLU-37: the « Essayer » field has the focus, so the dictation types into it.
+    @FocusState private var tryFieldFocused: Bool
 
     var body: some View {
         HStack(spacing: 0) {
@@ -189,6 +233,36 @@ private struct OnboardingView: View {
                 try? await Task.sleep(for: DS.Onboarding.poll)
             }
         }
+        .task(id: model.step) {
+            // FLU-37: on « Essayer », only dictations from now on count, and the field takes
+            // the focus (after the page has appeared, or the focus does not stick).
+            guard model.step == .tryIt else { return }
+            model.tryBaseline = controller?.lastEnding?.id ?? 0
+            try? await Task.sleep(for: .milliseconds(150))
+            tryFieldFocused = true
+        }
+        .onChange(of: tryPhase) { _, phase in
+            guard phase == .success else { return }
+            model.markTryDone()
+            // Return is « Terminer » now, not a new line in the field.
+            tryFieldFocused = false
+        }
+    }
+
+    /// FLU-37: which look the « Essayer » step has, from the controller and the field.
+    private var tryPhase: TryDictation.Phase {
+        guard model.step == .tryIt, let controller else { return .waiting }
+        let ending = controller.lastEnding.flatMap { $0.id > model.tryBaseline ? $0.kind : nil }
+        return TryDictation.phase(
+            requiredGranted: Self.requiredGranted(model),
+            isDictating: controller.state.isActive,
+            lastEnding: ending,
+            fieldHasText: !model.tryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        )
+    }
+
+    private var isFinished: Bool {
+        model.step == .ready || (model.step == .tryIt && tryPhase == .success)
     }
 
     // MARK: Sidebar
@@ -216,7 +290,7 @@ private struct OnboardingView: View {
             }
             Spacer()
             VStack(alignment: .leading, spacing: 6) {
-                Text(model.step == .ready ? "Terminé" : "Étape \(model.number(of: model.step)) sur \(model.listed.count)")
+                Text(isFinished ? "Terminé" : "Étape \(model.number(of: model.step)) sur \(model.listed.count)")
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Color.inkSecondary)
                 GeometryReader { geometry in
@@ -238,7 +312,7 @@ private struct OnboardingView: View {
     }
 
     private var progress: CGFloat {
-        model.step == .ready ? 1 : CGFloat(model.number(of: model.step)) / CGFloat(max(1, model.listed.count))
+        isFinished ? 1 : CGFloat(model.number(of: model.step)) / CGFloat(max(1, model.listed.count))
     }
 
     private func stepRow(_ step: OnboardingModel.Step) -> some View {
@@ -246,7 +320,11 @@ private struct OnboardingView: View {
         let isDone = model.status(of: step) == .granted
         return HStack(spacing: 10) {
             ZStack {
-                if isDone {
+                if model.status(of: step) == .wedged {
+                    // FLU-37: the switch shows on, macOS ignores it.
+                    Circle().fill(DS.Color.meterAmber)
+                    Image(systemName: "exclamationmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                } else if isDone {
                     Circle().fill(DS.Color.accent)
                     Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
                 } else {
@@ -285,27 +363,54 @@ private struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 0) {
             Image(systemName: page.symbol)
                 .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(DS.Color.accent)
+                .foregroundStyle(page.tone.color)
                 .frame(width: 60, height: 60)
-                .background(Circle().fill(DS.Color.selection))
+                .background(Circle().fill(page.tone.halo))
                 .padding(.bottom, DS.Space.wide)
-            Text(page.title)
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(DS.Color.ink)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, DS.Space.snug)
-            Text(page.body)
-                .font(DS.Font.body)
-                .foregroundStyle(DS.Color.inkSecondary)
-                .lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, DS.Space.wide)
+            HStack(spacing: 6) {
+                Text(page.title)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(DS.Color.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let info = page.info { InfoButton(text: info).padding(.top, 3) }
+            }
+            .padding(.bottom, DS.Space.snug)
+            if !page.body.isEmpty {
+                Text(page.body)
+                    .font(DS.Font.body)
+                    .foregroundStyle(DS.Color.inkSecondary)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, DS.Space.wide)
+            }
 
             if model.step == .systemAudio {
                 DetectionSwitch().padding(.bottom, DS.Space.wide)
             }
 
-            if model.step == .transcription {
+            if let repair = repairPhase {
+                // FLU-37 (mock-up 01, variant A): Fluence's row in System Settings, drawn.
+                AccessibilityRowSketch(isOn: repair == .wedged)
+                if repair == .waitingForUser {
+                    HStack(spacing: 8) {
+                        SpinningArc(size: 13, lineWidth: 2)
+                        Text("En attente de macOS…").font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary)
+                    }
+                    .padding(.top, DS.Space.base)
+                }
+            } else if model.step == .tryIt {
+                // FLU-37 (mock-up 02): the field the real dictation types into.
+                TryField(
+                    phase: tryPhase,
+                    key: key,
+                    text: $model.tryText,
+                    liveText: controller?.transcript ?? "",
+                    level: controller?.level ?? 0,
+                    focus: $tryFieldFocused
+                )
+                .padding(.top, page.body.isEmpty ? DS.Space.base : 0)
+                if tryPhase == .success { ShortcutsLink().padding(.top, DS.Space.base) }
+            } else if model.step == .transcription {
                 ParakeetModelCard(download: download)
                 if download.isDownloading {
                     HStack(spacing: 6) {
@@ -353,7 +458,7 @@ private struct OnboardingView: View {
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.Color.inkSecondary)
                 .padding(.top, DS.Space.snug)
-        case .missing, nil:
+        case .missing, .wedged, nil:
             EmptyView()
         }
     }
@@ -367,21 +472,41 @@ private struct OnboardingView: View {
                     .foregroundStyle(DS.Color.inkSecondary)
             }
             Spacer()
-            if model.step == .ready {
-                RecordPill(kind: .start, title: "Terminer", systemImage: "checkmark", action: onDone)
+            if let repair = repairPhase {
+                CapButton(title: "Plus tard", height: 32) {
+                    withAnimation(DS.Motion.panel) { model.advance() }
+                }
+                .keyboardShortcut(.cancelAction)
+                if repair == .wedged {
+                    DefaultActionPill(title: "Réparer", systemImage: "wrench.and.screwdriver.fill") {
+                        model.repairAccessibility()
+                    }
+                } else {
+                    CapButton(title: "Rouvrir Réglages Système", height: 32) {
+                        Permissions.openAccessibilitySettings()
+                    }
+                }
+            } else if model.step == .tryIt, tryPhase != .success {
+                // Skippable: dictation works the same without the test.
+                CapButton(title: "Passer", height: 32) {
+                    withAnimation(DS.Motion.panel) { model.advance() }
+                }
+                .keyboardShortcut(.cancelAction)
+            } else if isFinished {
+                DefaultActionPill(title: "Terminer", systemImage: "checkmark", action: onDone)
             } else if model.step == .transcription, model.status(of: .transcription) != .granted, !download.isDownloading {
                 // FLU-29: nothing is downloaded without this click. « Plus tard » leaves Apple
                 // in place; Réglages › Transcription offers the download again.
                 CapButton(title: "Plus tard", height: 32) {
                     withAnimation(DS.Motion.panel) { model.advance() }
                 }
-                RecordPill(
-                    kind: .start,
+                .keyboardShortcut(.cancelAction)
+                DefaultActionPill(
                     title: download.phase == .failed ? "Réessayer" : "Télécharger",
                     systemImage: download.phase == .failed ? "arrow.clockwise" : "arrow.down"
                 ) { download.start() }
             } else if model.status(of: model.step) == .granted || model.step == .transcription {
-                RecordPill(kind: .start, title: "Suivant", systemImage: "chevron.right") {
+                DefaultActionPill(title: "Suivant", systemImage: "chevron.right") {
                     withAnimation(DS.Motion.panel) { model.advance() }
                 }
             } else {
@@ -389,8 +514,13 @@ private struct OnboardingView: View {
                 CapButton(title: "Plus tard", height: 32) {
                     withAnimation(DS.Motion.panel) { model.advance() }
                 }
+                .keyboardShortcut(.cancelAction)
                 if let action = page.action {
-                    RecordPill(kind: .start, title: action.title, systemImage: page.symbol) { action.run() }
+                    DefaultActionPill(title: action.title, systemImage: page.symbol) {
+                        action.run()
+                        // The title may have changed (« Ouvrir Réglages Système » next): read it again.
+                        model.refresh()
+                    }
                 }
             }
         }
@@ -409,6 +539,48 @@ private struct OnboardingView: View {
         var body: String
         var facts: [Fact]
         var action: Action?
+        /// An ⓘ beside the title.
+        var info: String?
+        var tone: Tone = .accent
+    }
+
+    /// The symbol's colour: the accent for a step, amber for something to repair (FLU-37),
+    /// green once dictation is proven to work.
+    private enum Tone {
+        case accent, attention, success
+
+        var color: Color {
+            switch self {
+            case .accent: DS.Color.accent
+            case .attention: DS.Color.meterAmber
+            case .success: DS.Color.meterGreen
+            }
+        }
+
+        var halo: Color {
+            switch self {
+            case .accent: DS.Color.selection
+            case .attention: DS.Color.meterAmber.opacity(0.14)
+            case .success: DS.Color.meterGreen.opacity(0.14)
+            }
+        }
+    }
+
+    /// FLU-37: the two repair pages of the Accessibility step.
+    private enum RepairPhase {
+        /// « Réparer l'Accessibilité »: the switch shows on, macOS ignores it.
+        case wedged
+        /// « Réactivez Fluence »: the row was reset, waiting for the user to switch it on.
+        case waitingForUser
+    }
+
+    private var repairPhase: RepairPhase? {
+        guard model.step == .accessibility else { return nil }
+        switch model.status(of: .accessibility) {
+        case .wedged: return .wedged
+        case .missing where model.isRepairing: return .waitingForUser
+        default: return nil
+        }
     }
 
     private struct Action {
@@ -428,8 +600,31 @@ private struct OnboardingView: View {
 
     private var key: String { ShortcutLabel.display(Settings.shared.pushToTalkKey.shortName) }
 
+    /// A shortcut with a key, as an example: the configured one when it has a key (FLU-37).
+    private static var keyedExample: String { PushToTalkKey.keyedExample }
+
     private var page: Page {
         switch model.step {
+        case .accessibility where repairPhase == .wedged:
+            Page(
+                symbol: "accessibility",
+                title: "Réparer l'Accessibilité",
+                body: "macOS affiche l'interrupteur de Fluence, mais ne l'applique plus.",
+                facts: [],
+                action: nil,
+                info: "Cela arrive souvent après une mise à jour de Fluence : macOS garde l'ancienne autorisation. "
+                    + "Réparer ne retire que la ligne de Fluence, puis macOS vous la redemande.",
+                tone: .attention
+            )
+        case .accessibility where repairPhase == .waitingForUser:
+            Page(
+                symbol: "accessibility",
+                title: "Réactivez Fluence",
+                body: "Dans la liste qui s'ouvre, activez Fluence. Cette fenêtre passe à la suite toute seule.",
+                facts: [],
+                action: nil,
+                tone: .attention
+            )
         case .accessibility:
             Page(
                 symbol: "accessibility",
@@ -438,13 +633,13 @@ private struct OnboardingView: View {
                     + "et de taper vos mots là où se trouve le curseur.",
                 facts: [
                     Fact(symbol: "keyboard", text: "Fluence ne guette que ses propres raccourcis et ignore toutes les autres touches."),
-                    Fact(symbol: "doc.on.clipboard", text: "Sans elle, seuls les raccourcis avec une touche (⌥ Espace) marchent, et le texte reste dans le presse-papiers : collez-le avec ⌘V."),
+                    Fact(symbol: "doc.on.clipboard", text: "Sans elle, seuls les raccourcis avec une touche (\(Self.keyedExample)) marchent, et le texte reste dans le presse-papiers : collez-le avec \(PasteShortcut.label)."),
                     Fact(symbol: "arrow.right.circle", text: "Activez Fluence dans la liste qui s'ouvre ; cette fenêtre passe à la suite toute seule."),
                 ],
-                action: Action(title: "Autoriser l'Accessibilité") {
-                    // Puts Fluence in the list, so there is something to switch on.
-                    Permissions.promptForAccessibility()
-                    Permissions.openAccessibilitySettings()
+                // FLU-37: one thing at a time — macOS's prompt first (it puts Fluence in the list
+                // and offers its own way to System Settings), System Settings on the next press.
+                action: Action(title: Permissions.accessibilityRequestTitle) {
+                    Permissions.requestAccessibility()
                 }
             )
         case .microphone:
@@ -487,6 +682,15 @@ private struct OnboardingView: View {
                 facts: [],
                 action: nil
             )
+        case .tryIt:
+            Page(
+                symbol: tryPhase == .success ? "checkmark" : "waveform",
+                title: tryPhase == .success ? "Fluence est prêt" : "Essayez la dictée",
+                body: tryLede,
+                facts: [],
+                action: nil,
+                tone: tryPhase == .success ? .success : .accent
+            )
         case .calendar:
             Page(
                 symbol: "calendar",
@@ -512,6 +716,15 @@ private struct OnboardingView: View {
                 facts: [],
                 action: nil
             )
+        }
+    }
+
+    /// « Essayer »: a line only once it worked, or when it cannot work yet.
+    private var tryLede: String {
+        switch tryPhase {
+        case .success: "Maintenez \(key) dans n'importe quelle app."
+        case .blocked: "La dictée a besoin de l'Accessibilité et du micro."
+        case .waiting, .dictating, .nothingHeard: ""
         }
     }
 
@@ -587,5 +800,185 @@ private struct DetectionSwitch: View {
         .padding(.horizontal, DS.Space.roomy)
         .padding(.vertical, DS.Space.base)
         .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// FLU-37: Fluence's row in Réglages Système › Accessibilité, drawn — the paradox in one
+/// picture: the switch on and « Ignoré par macOS », or, after « Réparer », off and ringed in
+/// blue where the user is to switch it on. A drawing, not a control.
+private struct AccessibilityRowSketch: View {
+    let isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AquaOrbView(size: 20)
+            Text("Fluence").font(DS.Font.bodyEmphasis).foregroundStyle(DS.Color.ink)
+            if isOn { GrantBadge(text: "Ignoré par macOS", isOK: false) }
+            Spacer()
+            ZStack(alignment: isOn ? .trailing : .leading) {
+                Capsule().fill(isOn ? DS.Color.accent : DS.Color.seam)
+                Circle().fill(.white).shadow(color: .black.opacity(0.2), radius: 1, y: 0.5).padding(2)
+            }
+            .frame(width: 32, height: 18)
+            .overlay {
+                if !isOn { Capsule().strokeBorder(DS.Color.accent, lineWidth: 2).padding(-4) }
+            }
+        }
+        .padding(.horizontal, DS.Space.roomy)
+        .frame(height: 46)
+        .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(alignment: .topLeading) {
+            Text("Réglages Système › Accessibilité")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(DS.Color.silkscreen)
+                .offset(x: 2, y: -16)
+        }
+        .padding(.top, 16)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The page's main action (FLU-37): the primary pill with the Return glyph, and Return does it.
+private struct DefaultActionPill: View {
+    let title: String
+    var systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: systemImage).font(.system(size: 10, weight: .semibold))
+                Text(title).font(.system(size: 12, weight: .semibold))
+                Image(systemName: "return").font(.system(size: 10, weight: .semibold)).opacity(0.7)
+                    .accessibilityHidden(true)
+            }
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 16)
+            .frame(height: 32)
+            .background {
+                Capsule()
+                    .fill(LinearGradient(colors: DS.Gradient.aqua, startPoint: .top, endPoint: .bottom))
+                    .shadow(color: DS.Color.focusRing.opacity(0.35), radius: 6, x: 0, y: 2)
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(.defaultAction)
+        .fixedSize()
+    }
+}
+
+/// FLU-37 « Essayer » (mock-up 02): a focused, editable field the real dictation types into —
+/// proof that the shortcut, the microphone, the engine and the typing all work. Waiting:
+/// « Maintenez <raccourci> et parlez »; dictating: blue border, live text, the orb and the
+/// level; done: the typed text and « Ça marche »; nothing heard: « Aucun son reçu » and a
+/// microphone menu.
+private struct TryField: View {
+    let phase: TryDictation.Phase
+    let key: String
+    @Binding var text: String
+    let liveText: String
+    let level: Float
+    var focus: FocusState<Bool>.Binding
+
+    private var isDictating: Bool { phase == .dictating }
+
+    private var border: Color {
+        switch phase {
+        case .dictating: DS.Color.accent
+        case .success: DS.Color.meterGreen.opacity(0.6)
+        case .nothingHeard: DS.Color.meterAmber.opacity(0.6)
+        case .waiting, .blocked: DS.Color.selectionEdge
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                TextField("", text: $text, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 15))
+                    .foregroundStyle(DS.Color.ink)
+                    .lineLimit(1...4)
+                    .focused(focus)
+                    .accessibilityLabel("Champ d'essai de la dictée")
+                if text.isEmpty {
+                    placeholder
+                        .padding(.leading, 6)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 8) {
+                switch phase {
+                case .dictating:
+                    AquaOrbView(size: 18, isActive: true, isListening: true)
+                    MiniWave(isActive: true, level: level, count: 9, maxHeight: 14)
+                    Text("Relâchez pour écrire").font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary)
+                case .success:
+                    GrantBadge(text: "Ça marche", isOK: true)
+                case .nothingHeard:
+                    GrantBadge(text: "Aucun son reçu", isOK: false)
+                    Spacer()
+                    MicrophoneMenu()
+                case .waiting, .blocked:
+                    EmptyView()
+                }
+            }
+            .frame(height: 26)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 140)
+        .background(DS.Color.panel, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(border, lineWidth: isDictating ? 1.5 : 1)
+        )
+        .shadow(
+            color: isDictating ? DS.Shadow.glow.color : DS.Shadow.raised.color,
+            radius: isDictating ? DS.Shadow.glow.radius : DS.Shadow.raised.radius,
+            y: 2
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { focus.wrappedValue = true }
+    }
+
+    @ViewBuilder
+    private var placeholder: some View {
+        if isDictating {
+            // The engine's text so far (Apple streams it; Parakeet gives it at release).
+            Text(liveText).font(.system(size: 15)).foregroundStyle(DS.Color.inkSecondary).lineLimit(4)
+        } else {
+            HStack(spacing: 6) {
+                Text("Maintenez").foregroundStyle(DS.Color.silkscreen)
+                KeyCap(text: key)
+                Text("et parlez").foregroundStyle(DS.Color.silkscreen)
+            }
+            .font(.system(size: 15))
+        }
+    }
+}
+
+/// « Tous les raccourcis » under the proof: the gestures legend, in a popover.
+private struct ShortcutsLink: View {
+    @State private var isShowing = false
+
+    var body: some View {
+        Button { isShowing.toggle() } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "keyboard").font(.system(size: 11))
+                Text("Tous les raccourcis").font(DS.Font.label)
+            }
+            .foregroundStyle(DS.Color.accent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isShowing, arrowEdge: .bottom) {
+            ShortcutLegend()
+                .frame(width: 380)
+                .padding(16)
+        }
     }
 }

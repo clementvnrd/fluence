@@ -88,8 +88,7 @@ struct PrivacySettingsSection: View {
                     GrantBadge(text: "Autorisé", isOK: true)
                 } else {
                     CapButton(title: "Autoriser…", height: 24) {
-                        Permissions.promptForAccessibility()
-                        Permissions.openAccessibilitySettings()
+                        Permissions.requestAccessibility()  // FLU-37: the prompt, then System Settings
                     }
                 }
             }
@@ -104,8 +103,11 @@ struct PrivacySettingsSection: View {
                 info: "Si macOS affiche l'interrupteur activé sans l'appliquer."
             ) {
                 CapButton(title: "Réinitialiser", height: 24) {
-                    Permissions.resetAccessibilityTCC()
-                    hasAccessibility = Permissions.hasAccessibility
+                    // FLU-37: the same repair as « Réparer » — this app's row, then the prompt.
+                    Task {
+                        await Permissions.repairAccessibility()
+                        hasAccessibility = Permissions.hasAccessibility
+                    }
                 }
             }
         }

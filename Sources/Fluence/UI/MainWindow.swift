@@ -41,7 +41,10 @@ final class MainNavigation {
 struct MainWindow: View {
     @Bindable var controller: DictationController
     @State private var navigation = MainNavigation.shared
-    @State private var hasAccessibility = Permissions.hasAccessibility
+    /// FLU-37: granted, missing, or wedged (switch on, not applied).
+    @State private var accessibilityState = Permissions.accessibilityState
+    /// FLU-37: whether the microphone chosen in Réglages is plugged in.
+    @State private var microphone = MicrophoneState.read()
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -51,7 +54,12 @@ struct MainWindow: View {
             VStack(spacing: 0) {
                 VStack(spacing: DS.Space.snug) {
                     LiveMeetingBanner(controller: .shared, navigation: navigation)
-                    if !hasAccessibility { AccessibilityBanner() }
+                    switch accessibilityState {
+                    case .wedged: WedgedAccessibilityBanner()
+                    case .missing: AccessibilityBanner()
+                    case .granted: EmptyView()
+                    }
+                    if microphone == .unplugged { MicrophoneUnpluggedBanner() }
                     LearnedWordsStrip()
                 }
                 .padding(.horizontal, DS.Space.panel)
@@ -71,7 +79,8 @@ struct MainWindow: View {
             // Dev only: the settings window on a given section, for screenshots.
             if DevPreview.settingsSection != nil { openSettings() }
             while !Task.isCancelled {
-                hasAccessibility = Permissions.hasAccessibility
+                accessibilityState = Permissions.accessibilityState
+                microphone = MicrophoneState.read()
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -79,7 +88,7 @@ struct MainWindow: View {
 
     /// Banners sit under the title bar; without one the content title does.
     private var bannerTopPadding: CGFloat {
-        MeetingController.shared.isBusy || !hasAccessibility || !LearnedWords.shared.proposals.isEmpty
+        MeetingController.shared.isBusy || accessibilityState != .granted || microphone == .unplugged || !LearnedWords.shared.proposals.isEmpty
             ? DS.Space.wide : 0
     }
 
@@ -141,12 +150,10 @@ private struct AppSidebar: View {
 
             StatusChip(
                 text: statusText,
-                dot: controller.isHotkeyActive ? DS.Color.meterGreen : DS.Color.meterAmber
+                dot: controller.hotkeyStatus == .active ? DS.Color.meterGreen : DS.Color.meterAmber
             )
             .padding(.leading, DS.Space.tight)
-            .help(controller.isHotkeyActive
-                ? "Maintenez \(ShortcutLabel.display(settings.pushToTalkKey.shortName)) pour dicter"
-                : "Le raccourci n'est pas actif : vérifiez l'autorisation Accessibilité dans les Réglages.")
+            .help(ShortcutLabel.statusHelp(shortName: settings.pushToTalkKey.shortName, hotkey: controller.hotkeyStatus))
         }
         .padding(.horizontal, DS.Space.base)
         .padding(.bottom, DS.Space.roomy)
@@ -161,11 +168,13 @@ private struct AppSidebar: View {
         "\(settings.dictationLanguage.displayName) • \(MicrophoneName.current(settings.selectedMicrophoneUID))"
     }
 
-    /// "Raccourci ⌥ · Whisper · Français".
+    /// « ⌥ Espace · Parakeet » (Clement, FLU-37): the configured shortcut and the engine.
     private var statusText: String {
-        guard controller.isHotkeyActive else { return "Raccourci inactif" }
-        return "Raccourci \(ShortcutLabel.modifiers(settings.pushToTalkKey.shortName)) · "
-            + "\(settings.activeEngine.shortName) · \(settings.dictationLanguage.displayName)"
+        ShortcutLabel.status(
+            shortName: settings.pushToTalkKey.shortName,
+            engine: settings.activeEngine.shortName,
+            hotkey: controller.hotkeyStatus
+        )
     }
 
     private func group(_ title: String) -> some View {
@@ -205,44 +214,67 @@ extension SpeechEngineChoice {
     }
 }
 
-/// The selected microphone's name for the brand line: "Micro système" or the device.
+/// The selected microphone's name for the brand line: the device in use — « Micro système »
+/// when the chosen one is unplugged, since the system input stands in (FLU-37).
 enum MicrophoneName {
     @MainActor
     static func current(_ uid: String) -> String {
-        if uid == "default" || uid.isEmpty { return "Micro système" }
-        if let device = AudioDevices.availableInputDevices().first(where: { $0.id == uid }) {
-            return device.name
-        }
-        return "Micro externe"
+        guard uid != MicrophoneAvailability.systemUID, !uid.isEmpty else { return "Micro système" }
+        let devices = AudioDevices.availableInputDevices()
+        let state = MicrophoneAvailability.state(selectedUID: uid, availableUIDs: devices.map(\.id))
+        return MicrophoneAvailability.inUseName(state: state, presentName: devices.first { $0.id == uid }?.name)
     }
 }
 
-// MARK: - Accessibility banner
+/// FLU-37: whether the chosen microphone is plugged in, read without listing devices when
+/// dictation follows the system input.
+enum MicrophoneState {
+    @MainActor
+    static func read() -> MicrophoneAvailability.State {
+        let settings = Settings.shared
+        let uid = settings.selectedMicrophoneUID
+        guard MicrophoneAvailability.state(selectedUID: uid, availableUIDs: []) != .system else { return .system }
+        let devices = AudioDevices.availableInputDevices()
+        let state = MicrophoneAvailability.state(selectedUID: uid, availableUIDs: devices.map(\.id))
+        // A device chosen before Fluence kept names gets its name now, while it is plugged in.
+        if state == .present, let name = devices.first(where: { $0.id == uid })?.name, settings.selectedMicrophoneName != name {
+            settings.selectedMicrophoneName = name
+        }
+        return state
+    }
+}
 
-/// Amber: something needs attention (never red, which means a meeting recording).
-private struct AccessibilityBanner: View {
+// MARK: - Attention banners
+
+/// Amber: something needs attention (never red, which means a meeting recording). One shape
+/// for every such state — Accessibility missing or wedged, the chosen microphone unplugged
+/// (FLU-37, mock-up 03) — with its action(s) on the right.
+private struct AttentionBanner<Actions: View>: View {
+    let systemImage: String
+    let title: String
+    let detail: String
+    var info: String?
+    @ViewBuilder let actions: Actions
+
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: systemImage)
                 .foregroundStyle(DS.Color.meterAmber)
                 .font(.system(size: 14))
+                .frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Autorisez l'Accessibilité pour que Fluence écrive à votre place")
-                    .font(DS.Font.bodyEmphasis)
-                    .foregroundStyle(DS.Color.ink)
-                Text("Sans elle, le texte reste dans le presse-papiers : collez-le avec ⌘V.")
+                HStack(spacing: 5) {
+                    Text(title)
+                        .font(DS.Font.bodyEmphasis)
+                        .foregroundStyle(DS.Color.ink)
+                    if let info { InfoButton(text: info) }
+                }
+                Text(detail)
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Color.inkSecondary)
             }
             Spacer()
-            CapButton(title: "Autoriser dans Réglages…", height: 26) {
-                Permissions.promptForAccessibility()
-                Permissions.openAccessibilitySettings()
-            }
-            CapButton(title: "Réinitialiser", tint: DS.Color.inkSecondary, height: 26) {
-                Permissions.resetAccessibilityTCC()
-            }
-            .help("Réinitialise l'autorisation si macOS affiche l'interrupteur activé sans l'appliquer.")
+            actions
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -254,6 +286,60 @@ private struct AccessibilityBanner: View {
                         .strokeBorder(DS.Color.meterAmber.opacity(0.3), lineWidth: 1)
                 )
         )
+    }
+}
+
+/// Accessibility never given (or removed by « Réparer »): typing falls back to the clipboard.
+private struct AccessibilityBanner: View {
+    var body: some View {
+        AttentionBanner(
+            systemImage: "exclamationmark.triangle.fill",
+            title: "Autorisez l'Accessibilité pour que Fluence écrive à votre place",
+            detail: "Sans elle, le texte reste dans le presse-papiers : collez-le avec \(PasteShortcut.label)."
+        ) {
+            CapButton(title: "Autoriser dans Réglages…", height: 26) {
+                Permissions.requestAccessibility()  // FLU-37: the prompt, then System Settings
+            }
+            // A wedge Fluence could not recognise (it was never seen trusted on this Mac):
+            // the same repair as the wedged banner's.
+            CapButton(title: "Réinitialiser", tint: DS.Color.inkSecondary, height: 26) {
+                Task { await Permissions.repairAccessibility() }
+            }
+            .help("Réinitialise l'autorisation si macOS affiche l'interrupteur activé sans l'appliquer.")
+        }
+    }
+}
+
+/// FLU-37 (Clement): « Logitech BRIO débranché » — the chosen microphone is gone, dictation
+/// records from the system input meanwhile (`AudioCapture.selectDevice` falls back to it).
+private struct MicrophoneUnpluggedBanner: View {
+    @State private var settings = Settings.shared
+
+    var body: some View {
+        AttentionBanner(
+            systemImage: "mic.slash.fill",
+            title: MicrophoneAvailability.bannerTitle(rememberedName: settings.selectedMicrophoneName),
+            detail: MicrophoneAvailability.bannerDetail
+        ) {
+            MicrophoneMenu()
+        }
+    }
+}
+
+/// FLU-37: the switch shows on in System Settings, macOS no longer applies it. One button.
+private struct WedgedAccessibilityBanner: View {
+    var body: some View {
+        AttentionBanner(
+            systemImage: "exclamationmark.triangle.fill",
+            title: "L'Accessibilité est bloquée",
+            detail: "macOS affiche l'interrupteur mais ne l'applique plus.",
+            info: "Fluence est activé dans Réglages Système, mais macOS ne l'applique plus (souvent après une mise à jour). "
+                + "Réparer ne retire que la ligne de Fluence, puis macOS vous la redemande."
+        ) {
+            CapButton(title: "Réparer", systemImage: "wrench.and.screwdriver", height: 26) {
+                Task { await Permissions.repairAccessibility() }
+            }
+        }
     }
 }
 

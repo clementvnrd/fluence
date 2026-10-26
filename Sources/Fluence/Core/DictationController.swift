@@ -89,6 +89,17 @@ final class DictationController {
     var isCommandMode: Bool { isCommand }
     /// Whether a shortcut is armed (Carbon or the event tap) — the main window's status pill.
     private(set) var isHotkeyActive = false
+    /// FLU-37: the dictation shortcut's own state, for the status chip and Réglages: armed,
+    /// held by another app, or waiting for Accessibility.
+    private(set) var hotkeyStatus: HotkeyStatus = .needsAccessibility
+
+    /// FLU-37: how the last dictation ended, numbered, for the onboarding's « Essayer » step —
+    /// typed, nothing heard, or anything else. The kind only, never the text.
+    struct Ending: Equatable {
+        let id: UInt64
+        let kind: TryDictation.Ending
+    }
+    private(set) var lastEnding: Ending?
     /// The engine is still loading a second after key-down — a Parakeet reload after it was
     /// unloaded for idleness, or Core ML's recompile after a macOS update (FLU-31). The HUD
     /// says so; the audio is recorded meanwhile, so nothing waits on it.
@@ -187,6 +198,7 @@ final class DictationController {
         observeSystemEvents()
         let armed = hotkey.start()
         isHotkeyActive = armed
+        hotkeyStatus = hotkey.status
         return armed
     }
 
@@ -751,9 +763,12 @@ final class DictationController {
         switch decision {
         case .insert:
             // MARK: FLU-5 text — snapshot the field first, so a later correction can be found.
-            if Settings.shared.learnFromEdits { EditWatcher.shared.willInsert(output) }
+            // Not in Fluence's own field (FLU-37, « Essayer »): there is nothing to learn
+            // there, and the watch reads the field through Accessibility, i.e. from itself.
+            let watchesEdits = Settings.shared.learnFromEdits && !TextInjector.typesIntoOwnField
+            if watchesEdits { EditWatcher.shared.willInsert(output) }
             outcome = await TextInjector.insert(output)
-            if Settings.shared.learnFromEdits, outcome == .inserted { EditWatcher.shared.didInsert() }
+            if watchesEdits, outcome == .inserted { EditWatcher.shared.didInsert() }
         case .copy(let reason):
             let why = reason == .appChanged ? "the app in front changed" : "no Accessibility grant"
             Log.inject.info("not typed — \(why, privacy: .public); left on the clipboard")
@@ -768,6 +783,7 @@ final class DictationController {
         lastTranscript = output  // MARK: FLU-5 input
         // The success sound only once the text has landed (FLU-27, FLU-29: after the paste).
         if outcome == .inserted, Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
+        noteEnding(outcome == .inserted ? .typed : .other)  // FLU-37
         // The recording did its job: it leaves memory now.
         forgetKeptRecording()
 
@@ -1087,6 +1103,7 @@ final class DictationController {
     private func fail(_ failure: DictationFailure) {
         // Fixed words only: never the engine's text, never the transcript.
         Log.app.error("dictation failed: \(failure.kind, privacy: .public)")
+        noteEnding(.other)  // FLU-37
         Diagnostics.error("dictation.failed")
         // A held Wispr key outlives our failure: Wispr would keep recording, and uploading.
         releaseWispr()
@@ -1377,6 +1394,7 @@ extension DictationController {
         session.endSignpost("ended")
         session.limitTask?.cancel()
         guard self.session === session else { return }
+        if message.icon == .nothingHeard { noteEnding(.nothingHeard) }
         self.session = nil
         transcript = ""
         show(message)
@@ -1391,6 +1409,11 @@ extension DictationController {
         guard session == nil else { return }
         transcript = ""
         show(message)
+    }
+
+    /// FLU-37: see `lastEnding`.
+    fileprivate func noteEnding(_ kind: TryDictation.Ending) {
+        lastEnding = Ending(id: (lastEnding?.id ?? 0) + 1, kind: kind)
     }
 }
 

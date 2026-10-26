@@ -165,6 +165,27 @@ struct PushToTalkKey: RawRepresentable, CaseIterable, Hashable, Sendable, Identi
         .controlOptionSpace
     ]
 
+    /// FLU-37: the shortcut as `ShortcutRules` sees it — a preset and the same combination
+    /// recorded by hand are one shortcut.
+    var combo: ShortcutRules.Combo { ShortcutRules.Combo(shortName: shortName) }
+
+    func isSameCombination(as other: PushToTalkKey) -> Bool { combo == other.combo }
+
+    /// A shortcut with a key, for sentences that need an example: the configured one when it
+    /// has a key, ⌥ Espace otherwise — through `ShortcutLabel`, never hard-coded (FLU-37).
+    @MainActor
+    static var keyedExample: String {
+        let key = Settings.shared.pushToTalkKey
+        return ShortcutLabel.display((key.isModifierOnly ? optionSpace : key).shortName)
+    }
+
+    /// A modifier-only shortcut, the same way: the configured one, or ⌃ ⌥.
+    @MainActor
+    static var modifierOnlyExample: String {
+        let key = Settings.shared.pushToTalkKey
+        return ShortcutLabel.display((key.isModifierOnly ? key : controlOption).shortName)
+    }
+
     private static let presetsByRawValue: [String: PushToTalkKey] = Dictionary(
         uniqueKeysWithValues: allCases.map { ($0.rawValue, $0) }
     )
@@ -256,6 +277,36 @@ struct PushToTalkKey: RawRepresentable, CaseIterable, Hashable, Sendable, Identi
     }
 }
 
+/// FLU-37: what every shortcut picker asks before applying a choice — the recorder and the
+/// preset menu in Réglages, the menu bar's picker, and Command Mode being switched on.
+@MainActor
+enum ShortcutChoice {
+    /// Why `key` can't be the dictation (or Command Mode) shortcut; nil when it can.
+    static func refusal(_ key: PushToTalkKey, isCommand: Bool) -> ShortcutRules.Refusal? {
+        let settings = Settings.shared
+        // The Command Mode key only counts while Command Mode is on; switching it on checks.
+        let other: PushToTalkKey? = isCommand
+            ? settings.pushToTalkKey
+            : (settings.commandModeEnabled ? settings.commandModeKey : nil)
+        return ShortcutRules.refusal(for: key.combo, role: isCommand ? .commandMode : .dictation, other: other?.combo)
+    }
+
+    static func message(_ refusal: ShortcutRules.Refusal, for key: PushToTalkKey) -> String {
+        ShortcutRules.message(refusal, label: ShortcutLabel.display(key.shortName))
+    }
+
+    /// Switching Command Mode on with a stored key that clashes with dictation's: the first
+    /// preset that doesn't, so the two can never be armed on one combination.
+    static func enableCommandMode() {
+        let settings = Settings.shared
+        settings.commandModeEnabled = true
+        guard refusal(settings.commandModeKey, isCommand: true) != nil,
+              let free = PushToTalkKey.allCases.first(where: { refusal($0, isCommand: true) == nil })
+        else { return }
+        settings.commandModeKey = free
+    }
+}
+
 /// ⌃⌘V and ⌃⌘C: paste or copy the last transcript.
 enum LastTranscriptAction: Sendable {
     case paste
@@ -290,6 +341,11 @@ final class HotkeyMonitor {
     var isActive: Bool { isCarbonActive || tap != nil }
     /// Whether the event tap is armed — Esc, ⌃⌘V/⌃⌘C and modifier-only shortcuts need it.
     var hasEventTap: Bool { tap != nil }
+    /// FLU-37: whether the dictation shortcut is armed, and if not, why — a combination
+    /// another app registered first is not an Accessibility problem.
+    var status: HotkeyStatus {
+        HotkeyStatus.decide(isModifierOnly: key.isModifierOnly, carbonRegistered: isCarbonActive, hasEventTap: tap != nil)
+    }
 
     var key: PushToTalkKey = .optionSpace
     /// Nil when Command Mode is off.
@@ -337,7 +393,7 @@ final class HotkeyMonitor {
                 modifierFlags: key.modifierFlags
             )
         }
-        if let commandKey, !commandKey.isModifierOnly, commandKey.keyCode > 0, commandKey != key,
+        if let commandKey, !commandKey.isModifierOnly, commandKey.keyCode > 0, !commandKey.isSameCombination(as: key),
            let code = UInt32(exactly: commandKey.keyCode) {
             isCommandCarbonActive = carbon.register(
                 id: CarbonID.command,
@@ -354,6 +410,11 @@ final class HotkeyMonitor {
             listening for \(self.key.displayName, privacy: .public) \
             [Carbon: \(self.isCarbonActive, privacy: .public), tap: \(self.tap != nil, privacy: .public)]
             """)
+        if status == .taken {
+            // FLU-37: said on the status chip and in Réglages, not blamed on Accessibility.
+            Log.hotkey.error("dictation shortcut unavailable: another app holds it and no event tap can watch it")
+            Diagnostics.error("hotkey.shortcutTaken")
+        }
         return isActive
     }
 
@@ -526,7 +587,7 @@ final class HotkeyMonitor {
     private func watched() -> [(PushToTalkKey, Bool)] {
         var list: [(PushToTalkKey, Bool)] = []
         if tapWatches(key, carbon: isCarbonActive) { list.append((key, false)) }
-        if let commandKey, commandKey != key, tapWatches(commandKey, carbon: isCommandCarbonActive) {
+        if let commandKey, !commandKey.isSameCombination(as: key), tapWatches(commandKey, carbon: isCommandCarbonActive) {
             list.append((commandKey, true))
         }
         return list

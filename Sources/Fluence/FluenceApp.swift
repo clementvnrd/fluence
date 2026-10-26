@@ -105,6 +105,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         controller.activate()
+        // FLU-37: notes a working grant now, so a later update that wedges it is recognised.
+        _ = Permissions.accessibilityState
         if !Permissions.hasAccessibility {
             // Carbon shortcuts already work; the event tap (Esc, ⌃⌘V, modifier-only
             // shortcuts) can only be created once the user grants Accessibility, and there's
@@ -114,6 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             retryActivation()
         }
         // MARK: FLU-5 input
+        // FLU-37: the onboarding's « Essayer » step dictates through this controller.
+        OnboardingWindow.shared.controller = controller
         // Not at login: a window nobody asked for, when the menu bar already lists what is missing.
         if (OnboardingWindow.isNeeded && !inBackground) || DevPreview.onboardingStep != nil { OnboardingWindow.shared.show() }
 
@@ -312,6 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? await Task.sleep(for: .seconds(1))
             }
             controller.reloadHotkey()
+            _ = Permissions.accessibilityState  // FLU-37: remembered as granted once
             Log.app.info("Accessibility granted — event tap armed")
         }
     }
@@ -405,7 +410,7 @@ private struct MenuContent: View {
             }
         }
 
-        Text("Maintenir \(settings.pushToTalkKey.shortName) pour dicter")
+        Text("Maintenir \(ShortcutLabel.display(settings.pushToTalkKey.shortName)) pour dicter")
 
         Divider()
 
@@ -432,6 +437,11 @@ private struct MenuContent: View {
         Picker("Raccourci Push-to-talk", selection: Binding(
             get: { settings.pushToTalkKey },
             set: { key in
+                // FLU-37: never the Command Mode key (the list below leaves it out already).
+                guard key == settings.pushToTalkKey || ShortcutChoice.refusal(key, isCommand: false) == nil else {
+                    NSSound.beep()
+                    return
+                }
                 settings.pushToTalkKey = key
                 // The event tap listens for one key; move it to the new one.
                 controller.reloadHotkey()
@@ -440,7 +450,7 @@ private struct MenuContent: View {
             if !PushToTalkKey.allCases.contains(settings.pushToTalkKey) {
                 Text(settings.pushToTalkKey.displayName).tag(settings.pushToTalkKey)
             }
-            ForEach(PushToTalkKey.allCases, id: \.self) { key in
+            ForEach(PushToTalkKey.allCases.filter { $0 == settings.pushToTalkKey || ShortcutChoice.refusal($0, isCommand: false) == nil }, id: \.self) { key in
                 Text(key.displayName).tag(key)
             }
         }
@@ -468,10 +478,10 @@ private struct MenuContent: View {
 
         Toggle("Formatage code & terminaux", isOn: $settings.appAwareStylesEnabled)
         Toggle("Snippets vocaux", isOn: $settings.snippetsEnabled)
-        Toggle("Mode Commande (\(settings.commandModeKey.shortName))", isOn: Binding(
+        Toggle("Mode Commande (\(ShortcutLabel.display(settings.commandModeKey.shortName)))", isOn: Binding(
             get: { settings.commandModeEnabled },
             set: { on in
-                settings.commandModeEnabled = on
+                if on { ShortcutChoice.enableCommandMode() } else { settings.commandModeEnabled = false }
                 controller.reloadHotkey()
             }
         ))
@@ -527,8 +537,14 @@ private struct MenuContent: View {
         Button("Configurer Fluence…") { OnboardingWindow.shared.show() }
         UpdateMenuButton(inMenuBar: true)
 
-        if !Permissions.hasAccessibility {
+        switch Permissions.accessibilityState {
+        case .wedged:
+            // FLU-37: the onboarding's « Réparer l'Accessibilité » page.
+            Button("Réparer l'Accessibilité…") { OnboardingWindow.shared.show() }
+        case .missing:
             Button("Autoriser l'Accessibilité…") { Permissions.openAccessibilitySettings() }
+        case .granted:
+            EmptyView()
         }
         if !Permissions.hasMicrophone {
             Button("Autoriser le micro…") { Permissions.openMicrophoneSettings() }
