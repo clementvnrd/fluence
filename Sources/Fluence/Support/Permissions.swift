@@ -39,9 +39,26 @@ enum Permissions {
     /// Whether the app is trusted; when it isn't, macOS puts up its prompt as well.
     @discardableResult
     static func promptForAccessibility() -> Bool {
+        accessibilityPromptShown = true
         // A literal key: Swift 6 refuses `kAXTrustedCheckOptionPrompt`, a mutable C global.
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
+    }
+
+    /// FLU-37: macOS's prompt was raised in this run (by « Autoriser » or « Réparer »).
+    private(set) static var accessibilityPromptShown = false
+
+    /// « Autoriser l'Accessibilité » opens one thing at a time: macOS's prompt, then — once it
+    /// has been shown — System Settings. Both at once put a system alert over the pane.
+    static func requestAccessibility() {
+        switch AccessibilityGrant.nextRequest(promptShown: accessibilityPromptShown) {
+        case .systemPrompt: promptForAccessibility()
+        case .openSettings: openAccessibilitySettings()
+        }
+    }
+
+    static var accessibilityRequestTitle: String {
+        AccessibilityGrant.requestTitle(promptShown: accessibilityPromptShown)
     }
 
     /// Asks for the microphone only the first time; after a refusal only Settings can change it.

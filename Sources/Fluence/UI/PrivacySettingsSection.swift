@@ -88,8 +88,7 @@ struct PrivacySettingsSection: View {
                     GrantBadge(text: "Autorisé", isOK: true)
                 } else {
                     CapButton(title: "Autoriser…", height: 24) {
-                        Permissions.promptForAccessibility()
-                        Permissions.openAccessibilitySettings()
+                        Permissions.requestAccessibility()  // FLU-37: the prompt, then System Settings
                     }
                 }
             }

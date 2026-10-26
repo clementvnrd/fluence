@@ -276,8 +276,7 @@ private struct AccessibilityBanner: View {
             detail: "Sans elle, le texte reste dans le presse-papiers : collez-le avec \(PasteShortcut.label)."
         ) {
             CapButton(title: "Autoriser dans Réglages…", height: 26) {
-                Permissions.promptForAccessibility()
-                Permissions.openAccessibilitySettings()
+                Permissions.requestAccessibility()  // FLU-37: the prompt, then System Settings
             }
             // A wedge Fluence could not recognise (it was never seen trusted on this Mac):
             // the same repair as the wedged banner's.

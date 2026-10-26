@@ -408,6 +408,7 @@ private struct OnboardingView: View {
                 CapButton(title: "Plus tard", height: 32) {
                     withAnimation(DS.Motion.panel) { model.advance() }
                 }
+                .keyboardShortcut(.cancelAction)
                 if repair == .wedged {
                     DefaultActionPill(title: "Réparer", systemImage: "wrench.and.screwdriver.fill") {
                         model.repairAccessibility()
@@ -418,20 +419,20 @@ private struct OnboardingView: View {
                     }
                 }
             } else if model.step == .ready {
-                RecordPill(kind: .start, title: "Terminer", systemImage: "checkmark", action: onDone)
+                DefaultActionPill(title: "Terminer", systemImage: "checkmark", action: onDone)
             } else if model.step == .transcription, model.status(of: .transcription) != .granted, !download.isDownloading {
                 // FLU-29: nothing is downloaded without this click. « Plus tard » leaves Apple
                 // in place; Réglages › Transcription offers the download again.
                 CapButton(title: "Plus tard", height: 32) {
                     withAnimation(DS.Motion.panel) { model.advance() }
                 }
-                RecordPill(
-                    kind: .start,
+                .keyboardShortcut(.cancelAction)
+                DefaultActionPill(
                     title: download.phase == .failed ? "Réessayer" : "Télécharger",
                     systemImage: download.phase == .failed ? "arrow.clockwise" : "arrow.down"
                 ) { download.start() }
             } else if model.status(of: model.step) == .granted || model.step == .transcription {
-                RecordPill(kind: .start, title: "Suivant", systemImage: "chevron.right") {
+                DefaultActionPill(title: "Suivant", systemImage: "chevron.right") {
                     withAnimation(DS.Motion.panel) { model.advance() }
                 }
             } else {
@@ -439,8 +440,13 @@ private struct OnboardingView: View {
                 CapButton(title: "Plus tard", height: 32) {
                     withAnimation(DS.Motion.panel) { model.advance() }
                 }
+                .keyboardShortcut(.cancelAction)
                 if let action = page.action {
-                    RecordPill(kind: .start, title: action.title, systemImage: page.symbol) { action.run() }
+                    DefaultActionPill(title: action.title, systemImage: page.symbol) {
+                        action.run()
+                        // The title may have changed (« Ouvrir Réglages Système » next): read it again.
+                        model.refresh()
+                    }
                 }
             }
         }
@@ -535,10 +541,10 @@ private struct OnboardingView: View {
                     Fact(symbol: "doc.on.clipboard", text: "Sans elle, seuls les raccourcis avec une touche (\(Self.keyedExample)) marchent, et le texte reste dans le presse-papiers : collez-le avec \(PasteShortcut.label)."),
                     Fact(symbol: "arrow.right.circle", text: "Activez Fluence dans la liste qui s'ouvre ; cette fenêtre passe à la suite toute seule."),
                 ],
-                action: Action(title: "Autoriser l'Accessibilité") {
-                    // Puts Fluence in the list, so there is something to switch on.
-                    Permissions.promptForAccessibility()
-                    Permissions.openAccessibilitySettings()
+                // FLU-37: one thing at a time — macOS's prompt first (it puts Fluence in the list
+                // and offers its own way to System Settings), System Settings on the next press.
+                action: Action(title: Permissions.accessibilityRequestTitle) {
+                    Permissions.requestAccessibility()
                 }
             )
         case .microphone:
