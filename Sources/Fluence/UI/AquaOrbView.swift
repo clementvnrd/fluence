@@ -10,6 +10,8 @@ struct AquaOrbView: View {
     var isListening: Bool = false
 
     @State private var pulse: Bool = false
+    /// Reduce Motion (FLU-38): the halo stays lit, still, between its two pulse states.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -29,9 +31,9 @@ struct AquaOrbView: View {
                         )
                     )
                     .frame(width: size * 1.8, height: size * 1.8)
-                    .scaleEffect(pulse ? 1.15 : 0.95)
-                    .opacity(pulse ? 0.9 : 0.4)
-                    .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: pulse)
+                    .scaleEffect(reduceMotion ? 1.05 : (pulse ? 1.15 : 0.95))
+                    .opacity(reduceMotion ? 0.65 : (pulse ? 0.9 : 0.4))
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: pulse)
             }
 
             // FLU-12 decision 4: the drawn glass sphere everywhere the brand mark appears —
@@ -40,8 +42,10 @@ struct AquaOrbView: View {
         }
         .frame(width: size, height: size)
         .onAppear {
-            pulse = true
+            pulse = !reduceMotion
         }
+        // Turned on while the orb shows: end the running pulse rather than let it repeat.
+        .onChange(of: reduceMotion) { pulse = !reduceMotion }
     }
 
     private var proceduralOrb: some View {

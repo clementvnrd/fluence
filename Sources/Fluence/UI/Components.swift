@@ -820,7 +820,8 @@ struct SidebarItem: View {
 
 /// A small waveform. With a `level` (0…1, `AudioLevel`), the bars are as tall as the input is
 /// loud: flat in silence, up when someone speaks (FLU-23); a light ripple keeps them alive
-/// only while there is sound. Without a level they just pulse while `isActive`.
+/// only while there is sound. Without a level they just pulse while `isActive`. With Reduce
+/// Motion there is no ripple and no 30 fps timeline: the bars follow the voice only (FLU-38).
 struct MiniWave: View {
     var isActive: Bool
     var level: Float?
@@ -828,8 +829,10 @@ struct MiniWave: View {
     var maxHeight: CGFloat = 16
     var color: Color?
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isActive)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isActive || reduceMotion)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             HStack(alignment: .center, spacing: 3) {
                 ForEach(0..<count, id: \.self) { index in
@@ -850,19 +853,15 @@ struct MiniWave: View {
     }
 
     private func height(_ index: Int, _ time: TimeInterval) -> CGFloat {
-        let floor: CGFloat = 3.5
-        guard isActive else { return floor }
-        let phase = (Double(index) * 0.618).truncatingRemainder(dividingBy: 1)
-        let wave = CGFloat(sin(time * 6.5 + phase * .pi * 2))
-        guard let level else {
-            return floor + 0.6 * (0.6 + 0.4 * wave) * (maxHeight - floor)
-        }
-        // Taller in the middle, like a voice; the ripple scales with the level, so silence
-        // is perfectly still.
-        let position = count > 1 ? CGFloat(index) / CGFloat(count - 1) : 0.5
-        let shape = 1 - abs(position - 0.5) * 0.9
-        let amount = CGFloat(level) * shape * (0.85 + 0.15 * wave)
-        return min(maxHeight, floor + max(0, amount) * (maxHeight - floor))
+        CGFloat(WaveBars.height(
+            index: index,
+            count: count,
+            level: level.map(Double.init),
+            isActive: isActive,
+            time: time,
+            maxHeight: Double(maxHeight),
+            reduceMotion: reduceMotion
+        ))
     }
 }
 
