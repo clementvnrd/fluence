@@ -403,6 +403,7 @@ final class MeetingController {
             let finalized = await Self.finalPass(
                 meeting,
                 spool: session.systemSpoolURL,
+                micSpool: MeetingAudioSpool.url(in: session.directory, source: .microphone),
                 key: session.key,
                 windowRoster: session.roster
             )
@@ -475,15 +476,21 @@ final class MeetingController {
     private static func finalPass(
         _ meeting: Meeting,
         spool: URL?,
+        micSpool: URL?,
         key: SymmetricKey?,
         windowRoster: ParticipantRoster
     ) async -> (Meeting, [String: [Float]]) {
+        // FLU-33: the mic is diarized only behind the hidden setting, and only if its spool is there.
+        let roomSpool = micSpool.flatMap { url in
+            NotetakerSettings.shared.diarizeMicrophone && FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
         let input = MeetingFinalizer.Input(
             meeting: meeting,
             systemSpool: spool,
             key: key,
             corrector: DictionaryStore.shared.corrector,
-            windowRoster: windowRoster
+            windowRoster: windowRoster,
+            roomSpool: roomSpool
         )
         let output = await Task.detached(priority: .utility) { await MeetingFinalizer.attribute(input) }.value
         return (MeetingFinalizer.name(output, window: windowRoster), output.voices)
@@ -609,6 +616,7 @@ final class MeetingController {
             let finalized = await Self.finalPass(
                 meeting,
                 spool: FileManager.default.fileExists(atPath: spool.path) ? spool : nil,
+                micSpool: MeetingAudioSpool.url(in: directory, source: .microphone),
                 key: key,
                 windowRoster: ParticipantRoster()
             )

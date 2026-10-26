@@ -16,7 +16,9 @@ import Foundation
 ///    among the calendar attendees.
 ///
 /// A speaker whose name came from the user (`.user`) is never touched, and their name is
-/// never handed to another voice. Names are compared case- and diacritic-insensitively.
+/// never handed to another voice. Someone in the room (`Speaker.isInRoom`, FLU-33) is never
+/// named here: the window and the calendar list the call, not the room. Names are compared
+/// case- and diacritic-insensitively.
 public enum SpeakerNaming {
     public static let minimumSimilarity = 0.55
 
@@ -48,7 +50,9 @@ public enum SpeakerNaming {
     /// already-named speakers are returned unchanged.
     public static func name(_ speakers: [Speaker], candidates: Candidates) -> [Speaker] {
         var result = speakers
-        let remote = result.indices.filter { !result[$0].isMe && result[$0].id != Speaker.othersID }
+        let remote = result.indices.filter {
+            !result[$0].isMe && result[$0].id != Speaker.othersID && !result[$0].isInRoom
+        }
 
         var taken = Set(result.compactMap { speaker in speaker.name.map(key) })
         func isUnnamed(_ index: Int) -> Bool { (result[index].name ?? "").isEmpty }

@@ -14,7 +14,8 @@ import Foundation
 
 /// Which physical stream a piece of speech came from. The mic is the user; the system
 /// stream is everyone else. That split is the backbone of speaker attribution — only the
-/// system stream is ever diarized.
+/// system stream is diarized, unless the hidden in-room setting is on (`InRoomSpeakers`,
+/// FLU-33).
 public enum AudioSource: String, Codable, Sendable, CaseIterable {
     case microphone
     case system
@@ -34,7 +35,8 @@ public enum NameSource: String, Codable, Sendable {
 }
 
 public struct Speaker: Codable, Sendable, Identifiable, Hashable {
-    /// Stable within one meeting: `"me"` for the user, `"S1"`, `"S2"`… for remote voices.
+    /// Stable within one meeting: `"me"` for the user, `"S1"`, `"S2"`… for remote voices,
+    /// `"R1"`, `"R2"`… for people in the room with the user (FLU-33, `InRoomSpeakers`).
     public let id: String
     public var name: String?
     public var nameSource: NameSource?
@@ -57,11 +59,13 @@ public struct Speaker: Codable, Sendable, Identifiable, Hashable {
     /// The provisional "everyone else" speaker used by the live pass.
     public static let others = Speaker(id: othersID)
 
-    /// What the UI prints: the name if known, otherwise "You" / "Others" / "Speaker 2".
+    /// What the UI prints: the name if known, otherwise "You" / "Others" / "Speaker 2" /
+    /// "In the room 1".
     public var displayName: String {
         if let name, !name.isEmpty { return name }
         if isMe { return "You" }
         if id == Speaker.othersID { return "Others" }
+        if isInRoom { return "In the room " + id.dropFirst() }
         return "Speaker " + id.dropFirst()
     }
 }
@@ -308,8 +312,8 @@ public struct MeetingSummary: Codable, Sendable, Identifiable, Hashable {
 // MARK: - French labels (FLU-12)
 
 extension Speaker {
-    /// What the French UI prints: the name if known, otherwise "Vous", "Les autres" or
-    /// "Intervenant 2".
+    /// What the French UI prints: the name if known, otherwise "Vous", "Les autres",
+    /// "Intervenant 2" or "Sur place 1".
     public var frenchDisplayName: String {
         if let name, !name.isEmpty { return name }
         return SpeakerLabel.french(displayName: displayName)
@@ -332,6 +336,11 @@ public enum SpeakerLabel {
             if displayName.hasPrefix("Speaker "), displayName.dropFirst(8).allSatisfy(\.isNumber),
                displayName.count > 8 {
                 return "Intervenant " + displayName.dropFirst(8)
+            }
+            let room = "In the room "
+            if displayName.hasPrefix(room), displayName.count > room.count,
+               displayName.dropFirst(room.count).allSatisfy(\.isNumber) {
+                return "Sur place " + displayName.dropFirst(room.count)
             }
             return displayName
         }

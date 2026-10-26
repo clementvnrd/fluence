@@ -22,6 +22,12 @@ extension MeetingAudioSpoolReader: AudioSampleSource {}
 ///
 /// Without system audio (tap denied, or a mic-only call) step 1 is skipped and remote
 /// speech stays "Others".
+///
+/// With the hidden `diarizeMicrophone` setting (FLU-33, off by default), the mic channel
+/// goes through the same diarizer and consolidation: the voice that said most of the mic's
+/// words (echoes of the call dropped) stays the user and the others become the people in
+/// the room, `R1…Rn` (`InRoomSpeakers`). Off, or on any failure, the mic stays the user's
+/// alone, as before.
 enum MeetingFinalizer {
     struct Input: Sendable {
         var meeting: Meeting
@@ -31,6 +37,9 @@ enum MeetingFinalizer {
         /// What the call window showed during the meeting: a cap only when its list looks
         /// complete (FLU-22, FLU-33).
         var windowRoster = ParticipantRoster()
+        /// FLU-33, hidden setting: the mic spool to diarize for the people in the room; nil
+        /// keeps the mic the user's alone.
+        var roomSpool: URL?
     }
 
     struct Output: Sendable {
@@ -42,8 +51,15 @@ enum MeetingFinalizer {
     /// Steps 1–3. Naming needs the voice-print store (main actor), so it is separate.
     static func attribute(_ input: Input) async -> Output {
         var meeting = input.meeting
-        let mic = meeting.segments.filter { $0.source == .microphone }
+        var mic = meeting.segments.filter { $0.source == .microphone }
         let system = meeting.segments.filter { $0.source == .system }
+
+        var roomLabels: [String] = []
+        if !mic.isEmpty, let url = input.roomSpool, let key = input.key {
+            // Echoes of the call first: they must not decide which voice is the user.
+            let kept = TranscriptMerger.merge(microphone: mic, system: system).filter { $0.source == .microphone }
+            (mic, roomLabels) = await attributeRoom(kept, spool: url, key: key, corrector: input.corrector)
+        }
 
         var turns: [SpeakerTurn] = []
         var rawEmbeddings: [String: [Float]] = [:]
@@ -79,10 +95,11 @@ enum MeetingFinalizer {
         for index in segments.indices { segments[index].isFinal = true }
         meeting.segments = segments
 
-        // Speakers: me (as it was), then S1…Sn, then "Others" if anything stayed unattributed.
+        // Speakers: me (as it was), the room's R1…Rn, then S1…Sn, then "Others" if anything
+        // stayed unattributed.
         let me = meeting.speakers.first(where: \.isMe) ?? .me()
-        let labels = attribution.labels.values.sorted { Int($0.dropFirst()) ?? 0 < Int($1.dropFirst()) ?? 0 }
-        var speakers = [me] + labels.map { meeting.speaker($0) ?? Speaker(id: $0) }
+        let labels = numbered(Array(attribution.labels.values))
+        var speakers = [me] + (roomLabels + labels).map { meeting.speaker($0) ?? Speaker(id: $0) }
         if segments.contains(where: { $0.speakerID == Speaker.othersID }) {
             speakers.append(.others)
         }
@@ -93,6 +110,45 @@ enum MeetingFinalizer {
             if let embedding = rawEmbeddings[raw] { voices[label] = embedding }
         }
         return Output(meeting: meeting, voices: voices)
+    }
+
+    /// `S2` before `S10`.
+    private static func numbered(_ labels: [String]) -> [String] {
+        labels.sorted { Int($0.dropFirst()) ?? 0 < Int($1.dropFirst()) ?? 0 }
+    }
+
+    /// FLU-33, hidden setting: who in the room said what on the mic. The mic's segments
+    /// with the user's voice kept as `me` and the others labelled `R1…Rn`, and those labels;
+    /// the segments unchanged when the mic is too short or the diarizer fails.
+    private static func attributeRoom(
+        _ mic: [TranscriptSegment],
+        spool url: URL,
+        key: SymmetricKey,
+        corrector: DictionaryCorrector
+    ) async -> ([TranscriptSegment], [String]) {
+        do {
+            let reader = try MeetingAudioSpoolReader(url: url, key: key)
+            guard reader.sampleCount >= 2 * MeetingAudioFormat.sampleRate else { return (mic, []) }
+            let (turns, embeddings) = try await diarize(reader, ceiling: nil)
+            let consolidated = SpeakerConsolidation.consolidate(turns: turns, embeddings: embeddings, cap: nil)
+            let attribution = SpeakerAssignment.attribute(
+                mic,
+                turns: InRoomSpeakers.relabel(consolidated.turns, words: mic.flatMap(\.words)),
+                fallbackID: Speaker.meID,
+                labelPrefix: InRoomSpeakers.labelPrefix,
+                transform: { corrector.apply(to: $0).text }
+            )
+            Log.speech.info("""
+                mic voices: \(Set(turns.map(\.speaker)).count, privacy: .public) from the diarizer, \
+                \(Set(consolidated.turns.map(\.speaker)).count, privacy: .public) after consolidation, \
+                \(attribution.labels.count, privacy: .public) in the room beside the user
+                """)
+            return (attribution.segments, numbered(Array(attribution.labels.values)))
+        } catch {
+            Log.speech.error("mic diarization failed, the mic stays the user's: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("meeting.micDiarization", error)
+            return (mic, [])
+        }
     }
 
     /// Step 4. `window`: remote display names read from the meeting window, already cleaned

@@ -53,6 +53,14 @@ final class NotetakerSettings {
         didSet { defaults.set(maxDurationMinutes, forKey: Keys.maxDurationMinutes) }
     }
 
+    /// FLU-33, hidden until measured (no UI, Clement's decision): diarize the mic channel
+    /// too, so the people in the room with the user get their own voice (« Sur place 1 »)
+    /// instead of all being « Vous ». Off by default, read at each final pass:
+    /// `defaults write io.github.clementvnrd.fluence notetaker.diarizeMicrophone -bool YES`.
+    var diarizeMicrophone: Bool {
+        defaults.bool(forKey: Keys.diarizeMicrophone)
+    }
+
     /// `.standard`, or the self-test's scratch settings (FLU-35).
     private let defaults = AppPaths.defaults
 
@@ -68,6 +76,7 @@ final class NotetakerSettings {
         static let useCalendar = "notetaker.useCalendar"
         static let retentionDays = "notetaker.retentionDays"
         static let maxDurationMinutes = "notetaker.maxDurationMinutes"
+        static let diarizeMicrophone = "notetaker.diarizeMicrophone"
     }
 
     private init() {
