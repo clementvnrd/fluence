@@ -144,7 +144,7 @@ struct DictationSettingsSection: View {
             }
             if controller.hotkeyStatus == .taken {
                 // FLU-37: the system refused the combination; Accessibility has nothing to do with it.
-                RowNote(text: "Une autre app utilise déjà ce raccourci : choisissez-en un autre.", color: DS.Color.meterAmber)
+                RowNote(text: "Une autre app utilise déjà ce raccourci : choisissez-en un autre.", color: DS.Color.amberText)
             }
             RowDivider()
             SettingsRow(systemImage: microphoneIcon, title: "Microphone") {
