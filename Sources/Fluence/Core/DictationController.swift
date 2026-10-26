@@ -490,6 +490,11 @@ final class DictationController {
         session.signpost = Log.signposter.beginInterval("Dictation", id: signpostID)
         // MARK: FLU-5 text — where the text will go, read now while that app is in front.
         session.target = FrontmostApp.capture(readURL: Settings.shared.cleanupLevel.appliesStyle)
+        // FLU-29: the only app the text may be typed into. From Fluence's own Dicter button,
+        // that is the app the focus goes back to.
+        let front = NSWorkspace.shared.frontmostApplication
+        let isFluence = front?.bundleIdentifier == Bundle.main.bundleIdentifier
+        session.targetApp = Self.app(session.source == .button && isFluence ? lastExternalApp : front)
         session.limitTask?.cancel()
         state = .finishing
         level = 0
@@ -659,7 +664,8 @@ final class DictationController {
             failedEngine: lastEngine,
             started: session.started,
             releasedAt: session.releasedAt,
-            target: session.target
+            target: session.target,
+            targetApp: session.targetApp
         ))
         fail(Self.failure(after: lastTrigger, engine: lastEngine, canRetry: true))
     }
@@ -733,10 +739,26 @@ final class DictationController {
         if session.source == .button { await restoreFocusIfNeeded() }
         guard self.session === session else { return }
 
-        // MARK: FLU-5 text — snapshot the field first, so a later correction can be found.
-        if Settings.shared.learnFromEdits { EditWatcher.shared.willInsert(output) }
-        let outcome = await TextInjector.insert(output)
-        if Settings.shared.learnFromEdits, outcome == .inserted { EditWatcher.shared.didInsert() }
+        // FLU-29: only into the app that was in front at release. Read now, just before
+        // typing: the user may have switched while the engine worked.
+        let decision = InsertTargetPolicy.decide(
+            target: session.targetApp,
+            frontmost: Self.app(NSWorkspace.shared.frontmostApplication),
+            hasAccessibility: Permissions.hasAccessibility
+        )
+        let outcome: TextInjector.Outcome
+        switch decision {
+        case .insert:
+            // MARK: FLU-5 text — snapshot the field first, so a later correction can be found.
+            if Settings.shared.learnFromEdits { EditWatcher.shared.willInsert(output) }
+            outcome = await TextInjector.insert(output)
+            if Settings.shared.learnFromEdits, outcome == .inserted { EditWatcher.shared.didInsert() }
+        case .copy(let reason):
+            let why = reason == .appChanged ? "the app in front changed" : "no Accessibility grant"
+            Log.inject.info("not typed — \(why, privacy: .public); left on the clipboard")
+            TextInjector.copyForManualPaste(output)
+            outcome = .onClipboard(reason)
+        }
         // The paste is awaited above: no `self.session` check would make sense after it, the
         // text has gone where it went.
         recordLatency(session, engineSeconds: engineSeconds)
@@ -1170,6 +1192,7 @@ final class DictationController {
         let session = DictationSession(source: .retry, isComparing: false, engineName: kind.displayName, engineKind: kind, started: kept.started)
         session.releasedAt = kept.releasedAt
         session.target = kept.target
+        session.targetApp = kept.targetApp
         self.session = session
         sessionEngine = kind
         timeline.handle(.dictationStarted, at: Self.uptime)
@@ -1193,6 +1216,10 @@ final class DictationController {
     }
 
     // MARK: - FLU-29: helpers
+
+    fileprivate static func app(_ running: NSRunningApplication?) -> InsertTargetPolicy.App? {
+        running.map { InsertTargetPolicy.App(processID: $0.processIdentifier, bundleID: $0.bundleIdentifier) }
+    }
 
     /// The name of the microphone dictation listens to, for « Rien entendu ». A device name,
     /// shown on the capsule and never logged.
@@ -1433,6 +1460,8 @@ private final class DictationSession {
     // MARK: FLU-5 text
     /// The frontmost app at release, and its category — the style at level High.
     var target: FrontmostApp.Target?
+    /// FLU-29: the one app the text may be typed into (`InsertTargetPolicy`).
+    var targetApp: InsertTargetPolicy.App?
 
     init(source: Source, isComparing: Bool, engineName: String, engineKind: SpeechEngineChoice, started: Date = Date()) {
         self.source = source

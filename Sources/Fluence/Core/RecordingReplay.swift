@@ -15,6 +15,7 @@ struct KeptRecording {
     let started: Date
     let releasedAt: Date?
     let target: FrontmostApp.Target?
+    let targetApp: InsertTargetPolicy.App?
 }
 
 /// Runs a recording through an engine in one go, as a comparison does, and returns the text.
