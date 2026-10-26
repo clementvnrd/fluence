@@ -183,7 +183,7 @@ struct HUDView: View {
         // FLU-31: the engine is still loading; what is said is being recorded meanwhile.
         if controller.isPreparingEngine, preview == nil {
             switch content {
-            case .listen, .transcribing: return "Préparation de \(settings.engine.shortName)…"
+            case .listen, .transcribing: return "Préparation de \(settings.activeEngine.shortName)…"
             default: break
             }
         }
@@ -197,7 +197,7 @@ struct HUDView: View {
         case .command:
             "Dites la consigne, ex. \(FrenchFormat.quoted("plus court et poli"))"
         case .transcribing:
-            "Sur ce Mac · \(settings.engine.shortName)"
+            "Sur ce Mac · \(settings.activeEngine.shortName)"
         case .cancelled:
             "Rien n'a été collé"
         case .copied:
@@ -215,7 +215,7 @@ struct HUDView: View {
     private func trail(_ content: Content) -> some View {
         switch content {
         case .listen, .handsFree:
-            if case .listen = content, settings.engine != .parakeet {
+            if case .listen = content, settings.activeEngine != .parakeet {
                 Button { settings.toggleLanguage() } label: {
                     Text(settings.dictationLanguage.shortDisplay)
                         .font(.system(size: 10, weight: .bold, design: .rounded))

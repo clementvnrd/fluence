@@ -19,6 +19,23 @@ enum SpeechEngineChoice: String, CaseIterable, Sendable {
 
     /// Apple shows text while you talk; Whisper and Parakeet resolve on release.
     var showsLiveText: Bool { self == .apple }
+
+    /// The same engines under FluenceCore's name, where the engine policies live.
+    var compared: ComparedEngine {
+        switch self {
+        case .apple: .apple
+        case .whisper: .whisper
+        case .parakeet: .parakeet
+        }
+    }
+
+    init(_ engine: ComparedEngine) {
+        switch engine {
+        case .apple: self = .apple
+        case .whisper: self = .whisper
+        case .parakeet: self = .parakeet
+        }
+    }
 }
 
 // MARK: - Language (Clement's quick switch over FluenceCore's languages)
@@ -51,11 +68,39 @@ final class Settings {
         didSet { defaults.set(selectedMicrophoneUID, forKey: Keys.selectedMicrophoneUID) }
     }
 
-    var engine: SpeechEngineChoice {
+    /// The engine the user picked, or nil while they never did: the language's default then
+    /// applies (FLU-29, `EngineDefault`).
+    private(set) var engineChoice: SpeechEngineChoice? {
         didSet {
-            defaults.set(engine.rawValue, forKey: Keys.engine)
+            defaults.set(engineChoice?.rawValue, forKey: Keys.engine)
             prewarmCurrentEngine()
         }
+    }
+
+    /// The engine shown as selected: the user's pick, else Parakeet for French and Auto
+    /// (FLU-39) and Apple for the other languages. Setting it records an explicit choice.
+    var engine: SpeechEngineChoice {
+        get { SpeechEngineChoice(EngineDefault.selected(chosen: engineChoice?.compared, language: dictationLanguage)) }
+        set { engineChoice = newValue }
+    }
+
+    /// The engine a dictation runs on now: `engine`, except Parakeet while its model is not
+    /// complete on disk — Apple listens meanwhile, and nothing is downloaded at a key-down.
+    var activeEngine: SpeechEngineChoice {
+        SpeechEngineChoice(EngineDefault.active(
+            chosen: engineChoice?.compared,
+            language: dictationLanguage,
+            parakeetReady: ParakeetDownload.shared.isReady
+        ))
+    }
+
+    /// Apple stands in for a Parakeet still to download: Réglages shows the download card.
+    var isWaitingForParakeet: Bool {
+        EngineDefault.isWaitingForParakeet(
+            chosen: engineChoice?.compared,
+            language: dictationLanguage,
+            parakeetReady: ParakeetDownload.shared.isReady
+        )
     }
 
     /// Model variant used by WhisperKit (e.g. openai_whisper-small).
@@ -84,7 +129,13 @@ final class Settings {
     /// The language dictated in. Auto keeps the system locale for Apple's engine, lets
     /// Parakeet and Whisper detect, and has cleanup detect each transcript's language.
     var dictationLanguage: DictationLanguage {
-        didSet { defaults.set(dictationLanguage.rawValue, forKey: Keys.dictationLanguage) }
+        didSet {
+            defaults.set(dictationLanguage.rawValue, forKey: Keys.dictationLanguage)
+            // Without an explicit engine choice, the language picks the engine (FLU-29).
+            if engineChoice == nil, EngineDefault.preferred(for: oldValue) != EngineDefault.preferred(for: dictationLanguage) {
+                prewarmCurrentEngine()
+            }
+        }
     }
 
     /// The writing style per kind of app, applied at cleanup level High only.
@@ -225,8 +276,9 @@ final class Settings {
         let raw = defaults.string(forKey: Keys.pushToTalkKey) ?? PushToTalkKey.optionSpace.rawValue
         pushToTalkKey = PushToTalkKey(rawValue: raw) ?? .optionSpace
         selectedMicrophoneUID = defaults.string(forKey: Keys.selectedMicrophoneUID) ?? "default"
-        // Apple by default: it comes with macOS, downloads nothing and shows text live.
-        engine = SpeechEngineChoice(rawValue: defaults.string(forKey: Keys.engine) ?? "") ?? .apple
+        // Nothing stored: no explicit choice, the language decides (FLU-29). Parakeet for
+        // French and Auto, used once downloaded; Apple, which comes with macOS, until then.
+        engineChoice = SpeechEngineChoice(rawValue: defaults.string(forKey: Keys.engine) ?? "")
         whisperModel = defaults.string(forKey: Keys.whisperModel) ?? WhisperModels.defaultVariant
 
         // MARK: FLU-5 text
@@ -319,7 +371,7 @@ final class Settings {
     /// Quick language switch (⌥L, the HUD pill): Français ⇄ English, plus Auto with Whisper,
     /// which detects the language itself.
     func toggleLanguage() {
-        if engine == .whisper {
+        if activeEngine == .whisper {
             dictationLanguage = switch dictationLanguage {
             case .french: .english
             case .english: .auto
@@ -328,7 +380,7 @@ final class Settings {
         } else {
             dictationLanguage = dictationLanguage == .french ? .english : .french
         }
-        if engine == .apple {
+        if activeEngine == .apple {
             let locale = dictationLanguage.locale
             Task.detached(priority: .utility) {
                 await AppleSpeechEngine.prewarm(locale: locale)
@@ -336,9 +388,10 @@ final class Settings {
         }
     }
 
-    /// Prewarms the selected engine in the background so the first hold starts instantly.
+    /// Prewarms the engine the next dictation runs on, in the background, so the first hold
+    /// starts instantly. Never downloads Parakeet: until it is on disk Apple is the one warmed.
     func prewarmCurrentEngine() {
-        switch engine {
+        switch activeEngine {
         case .apple:
             let locale = dictationLanguage.locale
             Task.detached(priority: .utility) {

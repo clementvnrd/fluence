@@ -376,29 +376,12 @@ private struct MenuContent: View {
     @State private var settings = Settings.shared
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
-    @State private var isPreloadingParakeet = false
-    @State private var parakeetOnDisk = ParakeetModels.isDownloaded
+    @State private var download = ParakeetDownload.shared
 
+    /// FLU-29: the same download as Réglages › Transcription and the onboarding.
     private var parakeetItemTitle: String {
-        if isPreloadingParakeet { return "Chargement des modèles Parakeet…" }
-        // Ask the disk: the models may be there without this menu having fetched them.
-        return parakeetOnDisk ? "Modèles Parakeet installés ✓" : "Télécharger les modèles Parakeet…"
-    }
-
-    private func prepareParakeet() {
-        guard !isPreloadingParakeet else { return }
-        isPreloadingParakeet = true
-        Task {
-            do {
-                // Loads the models, fetching them first (some 600 MB) when they are missing.
-                _ = try await ParakeetModels.shared.manager()
-                parakeetOnDisk = ParakeetModels.isDownloaded
-            } catch {
-                Log.speech.error("Parakeet models could not be prepared: \(error.localizedDescription)")
-                Diagnostics.error("speech.parakeet.prepare", error)
-            }
-            isPreloadingParakeet = false
-        }
+        if let fraction = download.fraction { return "Téléchargement de Parakeet… " + FrenchFormat.percent(fraction) }
+        return download.isReady ? "Modèles Parakeet installés ✓" : "Télécharger les modèles Parakeet…"
     }
 
     var body: some View {
@@ -518,11 +501,11 @@ private struct MenuContent: View {
         // MARK: Notetaker (library)
         MeetingsMenuButton()
 
-        // Downloading ~600 MB on the first hold would look like a hang, so offer to do it
-        // beforehand, when the user asks for it.
+        // Downloading ~600 MB on the first hold would look like a hang: it is done only when
+        // the user asks for it, here, in Réglages or in the onboarding (FLU-29).
         if settings.engine == .parakeet {
-            Button(parakeetItemTitle) { prepareParakeet() }
-                .disabled(isPreloadingParakeet || parakeetOnDisk)
+            Button(parakeetItemTitle) { download.start() }
+                .disabled(download.isDownloading || download.isReady)
         }
 
         if settings.engine == .whisper {

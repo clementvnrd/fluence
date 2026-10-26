@@ -6,7 +6,7 @@ import Foundation
 import Observation
 import OSLog
 
-/// A new engine of the kind picked in Settings.
+/// A new engine of the kind that runs now (`Settings.activeEngine`).
 ///
 /// Reading the setting per-utterance is what lets the menu's engine picker take effect on
 /// the very next hold instead of needing a restart. Main-actor isolated like the setting it
@@ -14,7 +14,16 @@ import OSLog
 /// the moment anything calls it from elsewhere.
 @MainActor
 func engineForCurrentSetting() -> any TranscriptionEngine {
-    switch Settings.shared.engine {
+    // The disk is read again at each key-down: a download that just finished counts at once.
+    ParakeetDownload.shared.refresh()
+    return newEngine(Settings.shared.activeEngine)
+}
+
+/// A new engine of one kind. Parakeet only once its model is on disk (FLU-29): its `start()`
+/// would otherwise download 600 MB behind « Parlez maintenant… ».
+@MainActor
+func newEngine(_ kind: SpeechEngineChoice) -> any TranscriptionEngine {
+    switch kind {
     case .apple: AppleSpeechEngine()
     case .whisper: WhisperEngine(
         variant: Settings.shared.whisperModel,
@@ -288,10 +297,12 @@ final class DictationController {
 
         // A Command Mode instruction is never a comparison: it is applied, not compared.
         let isComparing = Settings.shared.compareMode && !command
+        // FLU-29: Parakeet only once its model is whole on disk; Apple until then.
+        ParakeetDownload.shared.refresh()
         let session = DictationSession(
             source: source,
             isComparing: isComparing,
-            engineName: isComparing ? "Comparaison…" : Settings.shared.engine.displayName
+            engineName: isComparing ? "Comparaison…" : Settings.shared.activeEngine.displayName
         )
         self.session = session
         isCommand = command

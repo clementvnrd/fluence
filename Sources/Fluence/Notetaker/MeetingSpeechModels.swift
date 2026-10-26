@@ -122,9 +122,10 @@ actor MeetingSpeechModels {
             let report: ProgressHandler = { progress(base + share * $0.fractionCompleted) }
             switch kind {
             case .speech:
-                // Parakeet Ultra, the version `ParakeetModels` loads (its folder is
-                // `ParakeetModels.folder`, which `isDownloaded` checks).
-                try await ModelHub.download(.parakeetUltra, to: root, progressHandler: report)
+                // Parakeet Ultra, the version `ParakeetModels` loads, through the same call as
+                // dictation's download (FLU-29): bundles and vocabulary, which `isDownloaded`
+                // requires both.
+                try await ParakeetModels.download { progress(base + share * $0) }
             case .speakers:
                 // The offline diarizer, as `MeetingFinalizer` uses it.
                 try await ModelHub.download(.diarizer, to: root, variant: "offline", progressHandler: report)

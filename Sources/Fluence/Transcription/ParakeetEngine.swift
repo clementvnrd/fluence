@@ -39,8 +39,9 @@ actor ParakeetEngine: TranscriptionEngine {
         let (stream, streamContinuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
         continuation = streamContinuation
 
-        // A first load is slow (about 600 MB downloaded on the very first run, seconds from
-        // disk afterwards). Paying it here, before speech, means release never loses an utterance to it.
+        // A first load is slow (seconds from disk; FLU-29: a dictation never runs on Parakeet
+        // before `ParakeetDownload` has fetched it, so no download happens here). Paying it
+        // here, before speech, means release never loses an utterance to it.
         // Since FLU-31 the models leave memory when idle, so this is also where they come back:
         // at key-down, while the user talks.
         if !holdsModels {
@@ -202,13 +203,52 @@ actor ParakeetModels {
     /// FluidAudio's cache folder for `version`.
     nonisolated static let folder = "parakeet-ultra"
 
-    /// Whether the transcription model is on disk, without loading it. The menu asks while it
-    /// draws, hence `nonisolated` and a file check: an in-memory flag would read false after
-    /// every launch and misreport the download.
+    /// Whether the transcription model is complete on disk, without loading it: a file check,
+    /// since an in-memory flag would read false after every launch and misreport the download.
+    ///
+    /// FLU-29: every bundle with its weights, the vocabulary, and no `.partial` staging file
+    /// (`ModelFolderCheck`). The old test — the encoder's folder exists — took a cancelled
+    /// download for a finished one, and the next dictation waited on the rest. Views read
+    /// `ParakeetDownload.isReady` instead of calling this while they draw.
     nonisolated static var isDownloaded: Bool {
-        let encoder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("FluidAudio/Models/\(folder)/Encoder.mlmodelc")
-        return FileManager.default.fileExists(atPath: encoder.path)
+        let directory = AsrModels.defaultCacheDirectory(for: version)
+        guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil) else {
+            return false
+        }
+        let prefix = directory.standardizedFileURL.path + "/"
+        var files = Set<String>()
+        for case let item as URL in enumerator {
+            let path = item.standardizedFileURL.path
+            if path.hasPrefix(prefix) { files.insert(String(path.dropFirst(prefix.count))) }
+        }
+        return ModelFolderCheck.isComplete(files: files, bundles: requiredBundles, otherFiles: [ModelNames.ASR.vocabularyFile])
+    }
+
+    /// The compiled bundles Parakeet Ultra loads (FluidAudio's v3 layout, one encoder build).
+    nonisolated static var requiredBundles: Set<String> {
+        [ModelNames.ASR.preprocessorFile, ModelNames.ASR.encoderFile, ModelNames.ASR.decoderFile, ModelNames.ASR.jointV3File]
+    }
+
+    /// FLU-29: fetches the model's files — only that, no loading — reporting 0…1 of the bytes.
+    /// Only ever called by `ParakeetDownload`, i.e. after the user asked for it. Cancelling the
+    /// calling task stops it; FluidAudio resumes the partial files on the next attempt.
+    nonisolated static func download(progress: @escaping @Sendable (Double) -> Void) async throws {
+        let root = MLModelConfigurationUtils.defaultModelsDirectory()
+        try await ModelHub.download(.parakeetUltra, to: root, progressHandler: { report in
+            if case .downloading = report.phase {
+                progress(DownloadProgressText.byteFraction(reported: report.fractionCompleted))
+            }
+        })
+        try Task.checkCancellation()
+        // The repo download covers the compiled bundles, not the vocabulary `load()` reads:
+        // fetched the way FluidAudio's own loader does when it is missing.
+        let vocabulary = AsrModels.defaultCacheDirectory(for: version).appendingPathComponent(ModelNames.ASR.vocabularyFile)
+        if !FileManager.default.fileExists(atPath: vocabulary.path) {
+            let remote = try ModelRegistry.resolveModel(Repo.parakeetUltra.remotePath, ModelNames.ASR.vocabularyFile)
+            let data = try await ModelHub.fetchFile(from: remote, description: ModelNames.ASR.vocabularyFile)
+            try data.write(to: vocabulary, options: [.atomic])
+        }
+        progress(1)
     }
 
     private var loaded: AsrManager?
