@@ -35,7 +35,9 @@ concurrency:
 jobs:
   build-test:
     name: Build app & test
-    runs-on: macos-15
+    # macOS 26, like the app's minimum (Package.swift, LSMinimumSystemVersion): on macos-15
+    # the tests only pass because they never load FoundationModels; the app itself can't start.
+    runs-on: macos-26
     timeout-minutes: 30
 
     steps:
@@ -68,7 +70,9 @@ jobs:
 
   release-launch:
     name: Release bundle launches
-    runs-on: macos-15
+    # Must be macOS 26: on macos-15 dyld can't load FoundationModels and the launch aborts
+    # before main (FLU-82).
+    runs-on: macos-26
     timeout-minutes: 45
 
     steps:
