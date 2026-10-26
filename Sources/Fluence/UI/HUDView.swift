@@ -156,7 +156,7 @@ struct HUDView: View {
                         lineWidth: 0.75
                     )
                 )
-                .shadow(color: DS.Color.focusRing.opacity(isActive ? 0.35 : 0.08), radius: isActive ? 20 : 10, x: 0, y: 5)
+                .shadow(color: DS.Color.aquaGlow.opacity(isActive ? 0.35 : 0.08), radius: isActive ? 20 : 10, x: 0, y: 5)
                 .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
         }
     }

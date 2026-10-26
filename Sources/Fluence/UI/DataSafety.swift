@@ -215,7 +215,7 @@ struct KeyLostCard: View {
                     }
                 }
             }
-            RowNote(text: "Vos données chiffrées ne peuvent plus être lues sur ce Mac.", color: DS.Color.fault)
+            RowNote(text: "Vos données chiffrées ne peuvent plus être lues sur ce Mac.", color: DS.Color.faultText)
         }
         .confirmationDialog("Repartir de zéro ?", isPresented: $isConfirmingFreshStart, titleVisibility: .visible) {
             Button("Repartir de zéro", role: .destructive) { model.startFresh() }
@@ -254,7 +254,7 @@ struct BackupCard: View {
             if model.isBusy {
                 RowNote(text: "En cours…")
             } else if let note = model.note {
-                RowNote(text: note.text, color: note.isFault ? DS.Color.fault : DS.Color.inkSecondary)
+                RowNote(text: note.text, color: note.isFault ? DS.Color.faultText : DS.Color.inkSecondary)
             }
         }
         .sheet(item: $model.pending) { action in
@@ -300,7 +300,7 @@ struct PassphraseSheet: View {
                     .foregroundStyle(DS.Color.inkSecondary)
             }
             if let problem {
-                Text(problem).font(DS.Font.caption).foregroundStyle(DS.Color.fault)
+                Text(problem).font(DS.Font.caption).foregroundStyle(DS.Color.faultText)
             }
             HStack {
                 Spacer()

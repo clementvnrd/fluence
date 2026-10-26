@@ -153,7 +153,6 @@ private struct TranscriptionCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .opacity(0.8)
             .help("Supprimer cette dictée")
         }
     }

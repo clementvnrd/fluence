@@ -20,7 +20,7 @@ struct TextSettingsSection: View {
                 .padding(.horizontal, 14)
                 .padding(.bottom, 10)
             if let cleanupCaveat {
-                RowNote(text: cleanupCaveat, color: DS.Color.meterAmber)
+                RowNote(text: cleanupCaveat, color: DS.Color.amberText)
             }
         }
 

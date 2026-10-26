@@ -134,7 +134,7 @@ struct RecordPill: View {
                 if kind == .start {
                     Capsule()
                         .fill(LinearGradient(colors: DS.Gradient.aqua, startPoint: .top, endPoint: .bottom))
-                        .shadow(color: DS.Color.focusRing.opacity(0.35), radius: 6, x: 0, y: 2)
+                        .shadow(color: DS.Color.aquaGlow.opacity(0.35), radius: 6, x: 0, y: 2)
                 } else {
                     Capsule().fill(tint.opacity(0.12))
                         .overlay(Capsule().strokeBorder(tint.opacity(0.4), lineWidth: 1))
@@ -711,7 +711,7 @@ struct GrantBadge: View {
             Image(systemName: isOK ? "checkmark" : "exclamationmark").font(.system(size: 9, weight: .bold))
             Text(text).font(.system(size: 11, weight: .medium))
         }
-        .foregroundStyle(isOK ? DS.Color.meterGreen : DS.Color.meterAmber)
+        .foregroundStyle(isOK ? DS.Color.greenText : DS.Color.amberText)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background((isOK ? DS.Color.meterGreen : DS.Color.meterAmber).opacity(0.12), in: Capsule())

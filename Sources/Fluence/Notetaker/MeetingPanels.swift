@@ -375,7 +375,7 @@ private struct RecordingPanelExpanded: View {
                 if let notice = controller.notice {
                     Text(notice)
                         .font(DS.Font.caption)
-                        .foregroundStyle(DS.Color.meterAmber)
+                        .foregroundStyle(DS.Color.amberText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Rectangle().fill(DS.Color.seam).frame(height: 1)

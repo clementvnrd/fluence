@@ -172,7 +172,7 @@ private struct DictionaryRow: View {
                     .foregroundStyle(DS.Color.inkOnDeck.opacity(0.6))
                 Image(systemName: "arrow.right")
                     .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(DS.Color.inkOnDeck.opacity(0.4))
+                    .foregroundStyle(DS.Color.inkSecondary)  // FLU-38: ≥ 3:1 (was ink at 40 %)
             }
             Text(entry.write)
                 .font(DS.Font.bodyEmphasis)

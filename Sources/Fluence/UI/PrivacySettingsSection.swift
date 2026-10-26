@@ -45,7 +45,7 @@ struct PrivacySettingsSection: View {
                 }
             }
             if let problem = runs.problem {
-                RowNote(text: problem, color: DS.Color.fault)
+                RowNote(text: problem, color: DS.Color.faultText)
             }
             RowDivider()
             SettingsRow(systemImage: "person.2", title: "Réunions et notes", subtitle: retentionSubtitle, info: "Notes, résumés et transcriptions : effacés automatiquement au-delà.") {

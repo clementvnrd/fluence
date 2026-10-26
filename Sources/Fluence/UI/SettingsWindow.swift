@@ -113,7 +113,7 @@ private struct LaunchAtLoginCard: View {
             if !login.isAvailable {
                 RowNote(text: "Disponible depuis Fluence installée dans Applications.")
             } else if login.needsApproval {
-                RowNote(text: "macOS attend votre accord dans Réglages Système › Général › Ouverture.", color: DS.Color.meterAmber)
+                RowNote(text: "macOS attend votre accord dans Réglages Système › Général › Ouverture.", color: DS.Color.amberText)
                 HStack {
                     CapButton(title: "Ouvrir Réglages Système", height: 24) { login.openSystemSettings() }
                     Spacer()
@@ -122,7 +122,7 @@ private struct LaunchAtLoginCard: View {
                 .padding(.bottom, 12)
             }
             if let problem = login.problem {
-                RowNote(text: problem, color: DS.Color.fault)
+                RowNote(text: problem, color: DS.Color.faultText)
             }
         }
         .onAppear { login.refresh() }
@@ -453,7 +453,7 @@ struct TranscriptionSettingsSection: View {
                 }
             }
             if let languageCaveat {
-                RowNote(text: languageCaveat, color: DS.Color.meterAmber)
+                RowNote(text: languageCaveat, color: DS.Color.amberText)
             }
             RowDivider()
             SettingsRow(systemImage: "waveform", title: "Moteur vocal", info: settings.engine.explanation) {
@@ -462,7 +462,7 @@ struct TranscriptionSettingsSection: View {
                 }
             }
             if let engineCaveat {
-                RowNote(text: engineCaveat, color: DS.Color.meterAmber)
+                RowNote(text: engineCaveat, color: DS.Color.amberText)
             }
             // FLU-29: Parakeet selected (or the French default) but not on disk yet — its
             // download, asked for here, with Apple standing in meanwhile.
@@ -557,7 +557,7 @@ struct TranscriptionSettingsSection: View {
                 }
             }
             if let failure = models.failure {
-                RowNote(text: failure, color: DS.Color.meterAmber)
+                RowNote(text: failure, color: DS.Color.amberText)
             }
         }
         .confirmationDialog(
@@ -813,7 +813,7 @@ struct AboutSettingsSection: View {
                 CapButton(title: "Exporter…", height: 24) { exportDiagnostic() }
             }
             if exportFailed {
-                RowNote(text: "Le diagnostic n'a pas pu être enregistré.", color: DS.Color.fault)
+                RowNote(text: "Le diagnostic n'a pas pu être enregistré.", color: DS.Color.faultText)
             }
         }
 
