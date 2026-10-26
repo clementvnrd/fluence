@@ -116,6 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             retryActivation()
         }
         // MARK: FLU-5 input
+        // FLU-37: the onboarding's « Essayer » step dictates through this controller.
+        OnboardingWindow.shared.controller = controller
         // Not at login: a window nobody asked for, when the menu bar already lists what is missing.
         if (OnboardingWindow.isNeeded && !inBackground) || DevPreview.onboardingStep != nil { OnboardingWindow.shared.show() }
 

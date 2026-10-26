@@ -44,6 +44,14 @@ enum TextInjector {
     @discardableResult
     static func insert(_ text: String) async -> Outcome {
         guard !text.isEmpty else { return .inserted }
+        // FLU-37: Fluence's own field (the onboarding's « Essayer »), typed in-process. An
+        // Accessibility call from Fluence to itself would wait on its own main thread, which is
+        // the thread making it.
+        if let field = ownFocusedField {
+            field.insertText(text, replacementRange: field.selectedRange())
+            Log.inject.info("typed into Fluence's own field (\(text.count) chars)")
+            return .inserted
+        }
         // On the system-wide element this sets the timeout for every AX call the app makes.
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), axTimeout)
 
@@ -63,6 +71,19 @@ enum TextInjector {
             Log.inject.info("AX insert not verified (\(reason, privacy: .public)) — pasting instead")
             return await insertViaPasteboard(text)
         }
+    }
+
+    /// Whether the next `insert` lands in a field of Fluence's own windows.
+    static var typesIntoOwnField: Bool { ownFocusedField != nil }
+
+    /// The editable text view that has the focus in Fluence's key window, while Fluence is the
+    /// active app. The HUD is a non-activating panel and never key, so this is never it.
+    private static var ownFocusedField: NSTextView? {
+        guard NSApp.isActive,
+              let view = NSApp.keyWindow?.firstResponder as? NSTextView,
+              view.isEditable
+        else { return nil }
+        return view
     }
 
     /// FLU-29: the text is not typed (the app in front changed) but left on the clipboard for
