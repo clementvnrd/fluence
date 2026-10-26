@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
+import FluenceCore
 import Foundation
 
 /// Types text into the focused field of another app.
@@ -25,17 +26,23 @@ enum TextInjector {
     /// second is ample for a responsive app; a frozen one falls through to the paste path.
     private static let axTimeout: Float = 0.5
 
-    /// Where the text went, so the HUD and the sound tell the truth (FLU-27).
+    /// Where the text went, so the HUD and the sound tell the truth (FLU-27, FLU-29).
     enum Outcome: Equatable {
-        /// Typed into the focused field, or pasted there.
+        /// Typed into the focused field, or pasted there — known only once the paste was
+        /// actually sent, never before (FLU-29: the success sound used to play ~40 ms early).
         case inserted
-        /// Only put on the clipboard: without the Accessibility grant no paste can land, and
-        /// the user has to press ⌘V.
-        case onClipboard
+        /// Only put on the clipboard, for the user's own ⌘V: without the Accessibility grant
+        /// no paste can land, or the app in front is not the one the text was meant for.
+        case onClipboard(CapsuleMessage.CopyReason)
+        /// Something else wrote to the clipboard just before the paste: nothing was pasted,
+        /// and the clipboard holds that other content, not the dictation.
+        case pasteSkipped
     }
 
+    /// Types `text` into the focused field and returns once that is done — after the paste
+    /// itself on the ⌘V route, so the caller's success sound never comes before the text.
     @discardableResult
-    static func insert(_ text: String) -> Outcome {
+    static func insert(_ text: String) async -> Outcome {
         guard !text.isEmpty else { return .inserted }
         // On the system-wide element this sets the timeout for every AX call the app makes.
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), axTimeout)
@@ -43,6 +50,7 @@ enum TextInjector {
         switch insertViaAccessibility(text) {
         case .verified:
             Log.inject.info("inserted through Accessibility (\(text.count) chars)")
+            return .inserted
         case .unverified(let reason):
             guard AXIsProcessTrusted() else {
                 // A posted ⌘V would be dropped: the dictation stays on the pasteboard (still
@@ -50,12 +58,18 @@ enum TextInjector {
                 Log.inject.error("no Accessibility grant — transcript left on the pasteboard")
                 Diagnostics.error("inject.noAccessibility")
                 putOnPasteboard(text)
-                return .onClipboard
+                return .onClipboard(.noAccessibility)
             }
             Log.inject.info("AX insert not verified (\(reason, privacy: .public)) — pasting instead")
-            insertViaPasteboard(text)
+            return await insertViaPasteboard(text)
         }
-        return .inserted
+    }
+
+    /// FLU-29: the text is not typed (the app in front changed) but left on the clipboard for
+    /// the user's own ⌘V — transient, concealed and this Mac only, like the paste route.
+    static func copyForManualPaste(_ text: String) {
+        guard !text.isEmpty else { return }
+        putOnPasteboard(text)
     }
 
     private enum AccessibilityResult {
@@ -170,36 +184,51 @@ enum TextInjector {
         return (saved, pasteboard.changeCount)
     }
 
-    private static func insertViaPasteboard(_ text: String) {
+    /// Pastes with ⌘V and returns once the paste was sent and, where the caret can be read,
+    /// seen to land; restoring the user's clipboard carries on afterwards.
+    private static func insertViaPasteboard(_ text: String) async -> Outcome {
         let pasteboard = NSPasteboard.general
         let (saved, ours) = putOnPasteboard(text)
         let caretBefore = focusedSelection()
 
         // A ⌘V sent at once can reach the app before it notices our write, and paste the old
         // contents instead.
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(40))
+        try? await Task.sleep(for: .milliseconds(40))
 
-            // Something else wrote to the pasteboard in those 40 ms. Pasting now would paste
-            // *its* contents — possibly a password — into the user's document.
-            guard pasteboard.changeCount == ours else {
-                Log.inject.error("pasteboard changed before ⌘V — paste skipped")
-                Diagnostics.error("inject.pasteboardChanged")
-                return
-            }
-            guard postCommandV() else {
-                // No paste is possible, so the dictation stays on the pasteboard (still
-                // concealed and transient) for the user's own ⌘V instead of being restored away.
-                Log.inject.error("no Accessibility grant — transcript left on the pasteboard")
-                Diagnostics.error("inject.noAccessibility")
-                return
-            }
-            Log.inject.info("pasted (\(text.count) chars)")
-
-            await waitForPaste(on: pasteboard, generation: ours, caretBefore: caretBefore)
-            restore(saved, to: pasteboard, ifStill: ours)
+        // Something else wrote to the pasteboard in those 40 ms. Pasting now would paste
+        // *its* contents — possibly a password — into the user's document.
+        guard pasteboard.changeCount == ours else {
+            Log.inject.error("pasteboard changed before ⌘V — paste skipped")
+            Diagnostics.error("inject.pasteboardChanged")
+            return .pasteSkipped
         }
+        guard postCommandV() else {
+            // No paste is possible, so the dictation stays on the pasteboard (still
+            // concealed and transient) for the user's own ⌘V instead of being restored away.
+            Log.inject.error("no Accessibility grant — transcript left on the pasteboard")
+            Diagnostics.error("inject.noAccessibility")
+            return .onClipboard(.noAccessibility)
+        }
+        Log.inject.info("pasted (\(text.count) chars)")
+
+        // The caller's « done » waits for the caret to move, or for `landedWindow` where it
+        // cannot be read (most Electron apps): the ⌘V has reached the app by then.
+        let landed = await waitForPaste(on: pasteboard, generation: ours, caretBefore: caretBefore, upTo: landedWindow)
+        if landed {
+            restore(saved, to: pasteboard, ifStill: ours)
+        } else {
+            Log.inject.info("paste sent; the caret could not confirm it yet")
+            Task { @MainActor in
+                // The rest of the window before the clipboard comes back: the app may read it late.
+                await waitForPaste(on: pasteboard, generation: ours, caretBefore: caretBefore, upTo: pasteWindow - landedWindow)
+                restore(saved, to: pasteboard, ifStill: ours)
+            }
+        }
+        return .inserted
     }
+
+    /// How long the caller waits for evidence of the paste before calling it done.
+    private static let landedWindow: Duration = .milliseconds(250)
 
     /// Waits until the paste has visibly landed, someone else takes the pasteboard, or
     /// `pasteWindow` runs out — whichever comes first.
@@ -208,22 +237,26 @@ enum TextInjector {
     /// pasteboard was read". The caret moving is the best evidence available; when it can't be
     /// read (the Electron apps that brought us to this fallback often can't), the full window
     /// is the margin instead of a guess tuned on one machine.
+    /// - Returns: whether the paste was seen: the caret moved, or someone took the pasteboard.
+    @discardableResult
     private static func waitForPaste(
         on pasteboard: NSPasteboard,
         generation: Int,
-        caretBefore: CFRange?
-    ) async {
-        let deadline = ContinuousClock.now + pasteWindow
+        caretBefore: CFRange?,
+        upTo window: Duration
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + window
         while ContinuousClock.now < deadline {
             try? await Task.sleep(for: pastePoll)
-            if pasteboard.changeCount != generation { return }
+            if pasteboard.changeCount != generation { return true }
             if let caretBefore, let caret = focusedSelection(),
                caret.location != caretBefore.location || caret.length != caretBefore.length {
                 // One more poll's grace: some apps read a second, richer type after the first.
                 try? await Task.sleep(for: pastePoll)
-                return
+                return true
             }
         }
+        return false
     }
 
     /// Puts back what the user had — or leaves the pasteboard empty if it was empty — but only

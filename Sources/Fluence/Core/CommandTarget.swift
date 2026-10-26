@@ -81,7 +81,7 @@ struct CommandTarget {
     ///
     /// - Returns: `false` when the focus or the text moved since `read()`; nothing was
     ///   written then.
-    func replace(with rewritten: String) -> Bool {
+    func replace(with rewritten: String) async -> Bool {
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), Self.axTimeout)
         guard let current = Self.focusedElement(), CFEqual(current, element) else { return false }
 
@@ -100,9 +100,9 @@ struct CommandTarget {
         }
 
         // The same verified insert dictation uses: AX first, the safe pasteboard otherwise.
-        // With the text selected, inserting replaces it.
-        TextInjector.insert(rewritten)
-        return true
+        // With the text selected, inserting replaces it. Awaited, so the caller's success
+        // sound follows the paste rather than preceding it (FLU-29).
+        return await TextInjector.insert(rewritten) == .inserted
     }
 
     // MARK: - AX

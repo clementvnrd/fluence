@@ -582,20 +582,24 @@ final class DictationController {
         if session.source == .button { await restoreFocusIfNeeded() }
         guard self.session === session else { return }
         if Settings.shared.learnFromEdits { EditWatcher.shared.willInsert(output) }
-        let outcome = TextInjector.insert(output)
+        // Awaited: on the ⌘V route it returns once the paste was sent (FLU-29).
+        let outcome = await TextInjector.insert(output)
         recordLatency(session, engineSeconds: engineSeconds)
         // Clement's Whisper context and (opt-in) term learning. In memory only.
         AutoLearningEngine.shared.recordInjectedText(output)
         lastTranscript = output  // MARK: FLU-5 input
         if Settings.shared.learnFromEdits { EditWatcher.shared.didInsert() }
-        // The success sound only when the text landed (FLU-27).
+        // The success sound only once the text has landed (FLU-27), after the paste (FLU-29).
         if outcome == .inserted, Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
 
         // Text arrived, but the engine also failed partway: type what there is, and say so.
         if let error = session.engineError {
             fail("La transcription s'est arrêtée trop tôt : \(error.localizedDescription)")
-        } else if outcome == .onClipboard {
+        } else if case .onClipboard = outcome {
             end(session, notice: Self.clipboardNotice)
+        } else if outcome == .pasteSkipped {
+            // Something else took the clipboard just before the ⌘V: nothing was pasted.
+            end(session, notice: "Rien n'a été collé")
         } else {
             end(session, as: .idle)
         }
@@ -974,7 +978,7 @@ extension DictationController {
                 // which must not reach the app as ⌃⌘V.
                 await Self.waitForChordRelease()
                 guard self.session == nil else { return }
-                TextInjector.insert(text)
+                await TextInjector.insert(text)
             }
         case .copy:
             // Asked for, so an ordinary copy — but this Mac only: Universal Clipboard would
@@ -1015,7 +1019,7 @@ extension DictationController {
 
         switch result {
         case .success(let rewritten):
-            guard target.replace(with: rewritten) else {
+            guard await target.replace(with: rewritten) else {
                 Log.app.info("command · focus or selection moved during the rewrite — nothing replaced")
                 end(session, notice: "Le texte a changé entre-temps. Rien n'a été remplacé.")
                 return
