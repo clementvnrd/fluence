@@ -9,6 +9,7 @@ first: the signing identity is what keeps macOS permissions (TCC) across updates
 |---|---|---|
 | Version | `Resources/Info.plist` (`CFBundleShortVersionString`) | The one place it is written. The build number is derived: major × 10000 + minor × 100 + patch (0.1.0 → 100). A test (`ReleaseVersionTests`) fails if `CFBundleVersion` does not match. |
 | Updater | Sparkle 2 (SwiftPM, `Package.swift`), `Support/AppUpdater.swift` | Checks at launch and once a day, downloads in the background, asks *Installer / Plus tard* only while Fluence is the active app and nothing records. *Plus tard*: installed when Fluence quits, no relaunch. |
+| Update ready, Fluence in the menu bar (FLU-80) | `Support/UpdateNotifier.swift`, `UI/MenuBarIcon.swift`, rules in `FluenceCore/UpdateNotice.swift` | While a downloaded version waits: **« Installer Fluence x.y.z »** heads the menu bar menu, alone above a separator (one click installs and relaunches; greyed out with « À la fin de la réunion » / « À la fin de la dictée » during a recording), « Rechercher des mises à jour… » leaves the bottom of that menu, and a **blue dot** sits on the menu bar icon. If the version arrives while Fluence is not the active app and nothing records, **one macOS notification per version**: « Fluence x.y.z est prête » / « Installer prend quelques secondes. », button *Installer* (installs and relaunches at once, or at the end of a recording); a click on the banner opens Fluence on the *Installer / Plus tard* question. Held back during a recording and posted when it ends if Fluence is still behind. Permission is asked only when the first notification is due, never at launch; refused, the menu item and the dot remain. The version notified is remembered in the settings (`updateNotifiedVersion`). No entitlement: the app is not sandboxed. A build without a feed never touches the notification center. |
 | Update signing key | EdDSA, private half in the **login Keychain** of the release Mac (account `ed25519`, created by Sparkle's `generate_keys`); public half in `Info.plist` (`SUPublicEDKey`) | Never in the repo, never printed. |
 | Code signature | `make` picks a Developer ID if there is one, else **Apple Development** | Signed with Apple Development and **not notarized**, for good: no Developer ID (decided 2026-10-08, FLU-39). |
 | Feed | `FEED_URL` / `DOWNLOAD_URL_PREFIX`, stamped into the bundle | Empty by default: a dev build (`make app`, `make install`) has no updater. `make release` refuses anything but `https://` (or `http://localhost` for a test). |
@@ -162,7 +163,11 @@ open -g $T/app/Fluence.app     # background: downloads, no question until it is 
 Sparkle checks at the first launch; for another check without waiting a day,
 `defaults delete $ID SULastCheckTime` before relaunching. The log tells each step:
 `/usr/bin/log stream --predicate 'subsystem == "io.github.clementvnrd.fluence.updatetest"'`
-(`downloaded and verified`, `asking about`, `installing … now`, `left for the next quit`).
+(`downloaded and verified`, `asking about`, `installing … now`, `left for the next quit`; FLU-80:
+`notification posted for`, `notifications not allowed`, `Installer chosen on the notification`,
+`notification opened`, `installs when the recording ends`). Started with `open -g`, the copy stays
+in the background, so the notification is due: the first time, macOS asks to allow notifications
+for that bundle ID. To see it again for the same version, `defaults delete $ID updateNotifiedVersion`.
 
 Afterwards: quit the copy, stop the server, delete the scratch folder and the temporary
 `docs/releases/0.1.1.*`, then the copy's traces:
