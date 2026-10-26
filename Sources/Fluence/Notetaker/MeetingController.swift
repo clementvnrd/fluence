@@ -224,7 +224,9 @@ final class MeetingController {
         }
 
         _ = await CalendarContext.shared.requestAccessIfNeeded()
-        let calendar = CalendarContext.shared.currentMeeting()
+        // FLU-33: the event on the app the call is in, not merely the latest one.
+        let service = detected.flatMap { MeetingApps.callService(app: $0.app, service: $0.service) }
+        let calendar = CalendarContext.shared.currentMeeting(service: service)
 
         var meeting = Meeting(
             title: calendar?.title ?? detected.map { "Appel \($0.service)" } ?? "Réunion",
