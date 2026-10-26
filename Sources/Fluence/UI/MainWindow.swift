@@ -41,7 +41,8 @@ final class MainNavigation {
 struct MainWindow: View {
     @Bindable var controller: DictationController
     @State private var navigation = MainNavigation.shared
-    @State private var hasAccessibility = Permissions.hasAccessibility
+    /// FLU-37: granted, missing, or wedged (switch on, not applied).
+    @State private var accessibilityState = Permissions.accessibilityState
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -51,7 +52,11 @@ struct MainWindow: View {
             VStack(spacing: 0) {
                 VStack(spacing: DS.Space.snug) {
                     LiveMeetingBanner(controller: .shared, navigation: navigation)
-                    if !hasAccessibility { AccessibilityBanner() }
+                    switch accessibilityState {
+                    case .wedged: WedgedAccessibilityBanner()
+                    case .missing: AccessibilityBanner()
+                    case .granted: EmptyView()
+                    }
                     LearnedWordsStrip()
                 }
                 .padding(.horizontal, DS.Space.panel)
@@ -71,7 +76,7 @@ struct MainWindow: View {
             // Dev only: the settings window on a given section, for screenshots.
             if DevPreview.settingsSection != nil { openSettings() }
             while !Task.isCancelled {
-                hasAccessibility = Permissions.hasAccessibility
+                accessibilityState = Permissions.accessibilityState
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -79,7 +84,7 @@ struct MainWindow: View {
 
     /// Banners sit under the title bar; without one the content title does.
     private var bannerTopPadding: CGFloat {
-        MeetingController.shared.isBusy || !hasAccessibility || !LearnedWords.shared.proposals.isEmpty
+        MeetingController.shared.isBusy || accessibilityState != .granted || !LearnedWords.shared.proposals.isEmpty
             ? DS.Space.wide : 0
     }
 
@@ -217,32 +222,37 @@ enum MicrophoneName {
     }
 }
 
-// MARK: - Accessibility banner
+// MARK: - Attention banners
 
-/// Amber: something needs attention (never red, which means a meeting recording).
-private struct AccessibilityBanner: View {
+/// Amber: something needs attention (never red, which means a meeting recording). One shape
+/// for every such state — Accessibility missing or wedged, the chosen microphone unplugged
+/// (FLU-37, mock-up 03) — with its action(s) on the right.
+private struct AttentionBanner<Actions: View>: View {
+    let systemImage: String
+    let title: String
+    let detail: String
+    var info: String?
+    @ViewBuilder let actions: Actions
+
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: systemImage)
                 .foregroundStyle(DS.Color.meterAmber)
                 .font(.system(size: 14))
+                .frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Autorisez l'Accessibilité pour que Fluence écrive à votre place")
-                    .font(DS.Font.bodyEmphasis)
-                    .foregroundStyle(DS.Color.ink)
-                Text("Sans elle, le texte reste dans le presse-papiers : collez-le avec ⌘V.")
+                HStack(spacing: 5) {
+                    Text(title)
+                        .font(DS.Font.bodyEmphasis)
+                        .foregroundStyle(DS.Color.ink)
+                    if let info { InfoButton(text: info) }
+                }
+                Text(detail)
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Color.inkSecondary)
             }
             Spacer()
-            CapButton(title: "Autoriser dans Réglages…", height: 26) {
-                Permissions.promptForAccessibility()
-                Permissions.openAccessibilitySettings()
-            }
-            CapButton(title: "Réinitialiser", tint: DS.Color.inkSecondary, height: 26) {
-                Permissions.resetAccessibilityTCC()
-            }
-            .help("Réinitialise l'autorisation si macOS affiche l'interrupteur activé sans l'appliquer.")
+            actions
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -254,6 +264,45 @@ private struct AccessibilityBanner: View {
                         .strokeBorder(DS.Color.meterAmber.opacity(0.3), lineWidth: 1)
                 )
         )
+    }
+}
+
+/// Accessibility never given (or removed by « Réparer »): typing falls back to the clipboard.
+private struct AccessibilityBanner: View {
+    var body: some View {
+        AttentionBanner(
+            systemImage: "exclamationmark.triangle.fill",
+            title: "Autorisez l'Accessibilité pour que Fluence écrive à votre place",
+            detail: "Sans elle, le texte reste dans le presse-papiers : collez-le avec \(PasteShortcut.label)."
+        ) {
+            CapButton(title: "Autoriser dans Réglages…", height: 26) {
+                Permissions.promptForAccessibility()
+                Permissions.openAccessibilitySettings()
+            }
+            // A wedge Fluence could not recognise (it was never seen trusted on this Mac):
+            // the same repair as the wedged banner's.
+            CapButton(title: "Réinitialiser", tint: DS.Color.inkSecondary, height: 26) {
+                Task { await Permissions.repairAccessibility() }
+            }
+            .help("Réinitialise l'autorisation si macOS affiche l'interrupteur activé sans l'appliquer.")
+        }
+    }
+}
+
+/// FLU-37: the switch shows on in System Settings, macOS no longer applies it. One button.
+private struct WedgedAccessibilityBanner: View {
+    var body: some View {
+        AttentionBanner(
+            systemImage: "exclamationmark.triangle.fill",
+            title: "L'Accessibilité est bloquée",
+            detail: "macOS affiche l'interrupteur mais ne l'applique plus.",
+            info: "Fluence est activé dans Réglages Système, mais macOS ne l'applique plus (souvent après une mise à jour). "
+                + "Réparer ne retire que la ligne de Fluence, puis macOS vous la redemande."
+        ) {
+            CapButton(title: "Réparer", systemImage: "wrench.and.screwdriver", height: 26) {
+                Task { await Permissions.repairAccessibility() }
+            }
+        }
     }
 }
 

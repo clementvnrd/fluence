@@ -89,10 +89,15 @@ final class OnboardingModel {
         case missing
         /// macOS offers no way to ask; it asks the user itself on first use.
         case askedOnFirstUse
+        /// FLU-37: Accessibility was granted once and macOS no longer applies it.
+        case wedged
     }
 
     var step: Step
     private(set) var statuses: [Step: Status] = [:]
+    /// FLU-37: « Réparer » was clicked; the page waits for the user to switch Fluence on again
+    /// (« Réactivez Fluence ») and moves on by itself once macOS applies it.
+    private(set) var isRepairing = false
 
     init() {
         // Locals first: under @Observable the closures would otherwise capture `self`
@@ -103,7 +108,7 @@ final class OnboardingModel {
         self.steps = steps
         // Start where the work is: the first grant still missing, or the end.
         step = DevPreview.onboardingStep.flatMap(Step.init(rawValue:))
-            ?? steps.first { initial[$0] == .missing } ?? .ready
+            ?? steps.first { initial[$0] == .missing || initial[$0] == .wedged } ?? .ready
     }
 
     /// Whether a step is part of this run of the window.
@@ -137,6 +142,7 @@ final class OnboardingModel {
     func refresh() {
         let previous = statuses
         statuses = Self.readStatuses()
+        if statuses[.accessibility] == .granted { isRepairing = false }
         if previous[step] != .granted, statuses[step] == .granted {
             // On to the next step that still has something to say; steps already granted
             // (the microphone, often) are not worth a stop.
@@ -154,9 +160,23 @@ final class OnboardingModel {
         step = steps[index - 1]
     }
 
+    /// FLU-37 « Réparer »: Fluence's own Accessibility row is removed and macOS asks again.
+    func repairAccessibility() {
+        isRepairing = true
+        Task {
+            await Permissions.repairAccessibility()
+            refresh()
+        }
+    }
+
     private static func readStatuses() -> [Step: Status] {
-        [
-            .accessibility: Permissions.hasAccessibility ? .granted : .missing,
+        let accessibility: Status = switch Permissions.accessibilityState {
+        case .granted: .granted
+        case .missing: .missing
+        case .wedged: .wedged
+        }
+        return [
+            .accessibility: accessibility,
             .microphone: Permissions.hasMicrophone ? .granted : .missing,
             // FLU-29: done once Parakeet is whole on disk.
             .transcription: ParakeetDownload.shared.refresh() ? .granted : .missing,
@@ -246,7 +266,11 @@ private struct OnboardingView: View {
         let isDone = model.status(of: step) == .granted
         return HStack(spacing: 10) {
             ZStack {
-                if isDone {
+                if model.status(of: step) == .wedged {
+                    // FLU-37: the switch shows on, macOS ignores it.
+                    Circle().fill(DS.Color.meterAmber)
+                    Image(systemName: "exclamationmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                } else if isDone {
                     Circle().fill(DS.Color.accent)
                     Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
                 } else {
@@ -285,15 +309,18 @@ private struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 0) {
             Image(systemName: page.symbol)
                 .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(DS.Color.accent)
+                .foregroundStyle(page.isAttention ? DS.Color.meterAmber : DS.Color.accent)
                 .frame(width: 60, height: 60)
-                .background(Circle().fill(DS.Color.selection))
+                .background(Circle().fill(page.isAttention ? DS.Color.meterAmber.opacity(0.14) : DS.Color.selection))
                 .padding(.bottom, DS.Space.wide)
-            Text(page.title)
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(DS.Color.ink)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, DS.Space.snug)
+            HStack(spacing: 6) {
+                Text(page.title)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(DS.Color.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let info = page.info { InfoButton(text: info).padding(.top, 3) }
+            }
+            .padding(.bottom, DS.Space.snug)
             Text(page.body)
                 .font(DS.Font.body)
                 .foregroundStyle(DS.Color.inkSecondary)
@@ -305,7 +332,17 @@ private struct OnboardingView: View {
                 DetectionSwitch().padding(.bottom, DS.Space.wide)
             }
 
-            if model.step == .transcription {
+            if let repair = repairPhase {
+                // FLU-37 (mock-up 01, variant A): Fluence's row in System Settings, drawn.
+                AccessibilityRowSketch(isOn: repair == .wedged)
+                if repair == .waitingForUser {
+                    HStack(spacing: 8) {
+                        SpinningArc(size: 13, lineWidth: 2)
+                        Text("En attente de macOS…").font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary)
+                    }
+                    .padding(.top, DS.Space.base)
+                }
+            } else if model.step == .transcription {
                 ParakeetModelCard(download: download)
                 if download.isDownloading {
                     HStack(spacing: 6) {
@@ -353,7 +390,7 @@ private struct OnboardingView: View {
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.Color.inkSecondary)
                 .padding(.top, DS.Space.snug)
-        case .missing, nil:
+        case .missing, .wedged, nil:
             EmptyView()
         }
     }
@@ -367,7 +404,20 @@ private struct OnboardingView: View {
                     .foregroundStyle(DS.Color.inkSecondary)
             }
             Spacer()
-            if model.step == .ready {
+            if let repair = repairPhase {
+                CapButton(title: "Plus tard", height: 32) {
+                    withAnimation(DS.Motion.panel) { model.advance() }
+                }
+                if repair == .wedged {
+                    DefaultActionPill(title: "Réparer", systemImage: "wrench.and.screwdriver.fill") {
+                        model.repairAccessibility()
+                    }
+                } else {
+                    CapButton(title: "Rouvrir Réglages Système", height: 32) {
+                        Permissions.openAccessibilitySettings()
+                    }
+                }
+            } else if model.step == .ready {
                 RecordPill(kind: .start, title: "Terminer", systemImage: "checkmark", action: onDone)
             } else if model.step == .transcription, model.status(of: .transcription) != .granted, !download.isDownloading {
                 // FLU-29: nothing is downloaded without this click. « Plus tard » leaves Apple
@@ -409,6 +459,27 @@ private struct OnboardingView: View {
         var body: String
         var facts: [Fact]
         var action: Action?
+        /// An ⓘ beside the title.
+        var info: String?
+        /// Amber symbol: something to repair (FLU-37), not a step to take.
+        var isAttention = false
+    }
+
+    /// FLU-37: the two repair pages of the Accessibility step.
+    private enum RepairPhase {
+        /// « Réparer l'Accessibilité »: the switch shows on, macOS ignores it.
+        case wedged
+        /// « Réactivez Fluence »: the row was reset, waiting for the user to switch it on.
+        case waitingForUser
+    }
+
+    private var repairPhase: RepairPhase? {
+        guard model.step == .accessibility else { return nil }
+        switch model.status(of: .accessibility) {
+        case .wedged: return .wedged
+        case .missing where model.isRepairing: return .waitingForUser
+        default: return nil
+        }
     }
 
     private struct Action {
@@ -433,6 +504,26 @@ private struct OnboardingView: View {
 
     private var page: Page {
         switch model.step {
+        case .accessibility where repairPhase == .wedged:
+            Page(
+                symbol: "accessibility",
+                title: "Réparer l'Accessibilité",
+                body: "macOS affiche l'interrupteur de Fluence, mais ne l'applique plus.",
+                facts: [],
+                action: nil,
+                info: "Cela arrive souvent après une mise à jour de Fluence : macOS garde l'ancienne autorisation. "
+                    + "Réparer ne retire que la ligne de Fluence, puis macOS vous la redemande.",
+                isAttention: true
+            )
+        case .accessibility where repairPhase == .waitingForUser:
+            Page(
+                symbol: "accessibility",
+                title: "Réactivez Fluence",
+                body: "Dans la liste qui s'ouvre, activez Fluence. Cette fenêtre passe à la suite toute seule.",
+                facts: [],
+                action: nil,
+                isAttention: true
+            )
         case .accessibility:
             Page(
                 symbol: "accessibility",
@@ -590,5 +681,70 @@ private struct DetectionSwitch: View {
         .padding(.horizontal, DS.Space.roomy)
         .padding(.vertical, DS.Space.base)
         .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// FLU-37: Fluence's row in Réglages Système › Accessibilité, drawn — the paradox in one
+/// picture: the switch on and « Ignoré par macOS », or, after « Réparer », off and ringed in
+/// blue where the user is to switch it on. A drawing, not a control.
+private struct AccessibilityRowSketch: View {
+    let isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AquaOrbView(size: 20)
+            Text("Fluence").font(DS.Font.bodyEmphasis).foregroundStyle(DS.Color.ink)
+            if isOn { GrantBadge(text: "Ignoré par macOS", isOK: false) }
+            Spacer()
+            ZStack(alignment: isOn ? .trailing : .leading) {
+                Capsule().fill(isOn ? DS.Color.accent : DS.Color.seam)
+                Circle().fill(.white).shadow(color: .black.opacity(0.2), radius: 1, y: 0.5).padding(2)
+            }
+            .frame(width: 32, height: 18)
+            .overlay {
+                if !isOn { Capsule().strokeBorder(DS.Color.accent, lineWidth: 2).padding(-4) }
+            }
+        }
+        .padding(.horizontal, DS.Space.roomy)
+        .frame(height: 46)
+        .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(alignment: .topLeading) {
+            Text("Réglages Système › Accessibilité")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(DS.Color.silkscreen)
+                .offset(x: 2, y: -16)
+        }
+        .padding(.top, 16)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The page's main action (FLU-37): the primary pill with the Return glyph, and Return does it.
+private struct DefaultActionPill: View {
+    let title: String
+    var systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: systemImage).font(.system(size: 10, weight: .semibold))
+                Text(title).font(.system(size: 12, weight: .semibold))
+                Image(systemName: "return").font(.system(size: 10, weight: .semibold)).opacity(0.7)
+                    .accessibilityHidden(true)
+            }
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 16)
+            .frame(height: 32)
+            .background {
+                Capsule()
+                    .fill(LinearGradient(colors: DS.Gradient.aqua, startPoint: .top, endPoint: .bottom))
+                    .shadow(color: DS.Color.focusRing.opacity(0.35), radius: 6, x: 0, y: 2)
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(.defaultAction)
+        .fixedSize()
     }
 }

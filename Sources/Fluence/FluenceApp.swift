@@ -105,6 +105,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         controller.activate()
+        // FLU-37: notes a working grant now, so a later update that wedges it is recognised.
+        _ = Permissions.accessibilityState
         if !Permissions.hasAccessibility {
             // Carbon shortcuts already work; the event tap (Esc, ⌃⌘V, modifier-only
             // shortcuts) can only be created once the user grants Accessibility, and there's
@@ -312,6 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? await Task.sleep(for: .seconds(1))
             }
             controller.reloadHotkey()
+            _ = Permissions.accessibilityState  // FLU-37: remembered as granted once
             Log.app.info("Accessibility granted — event tap armed")
         }
     }
@@ -532,8 +535,14 @@ private struct MenuContent: View {
         Button("Configurer Fluence…") { OnboardingWindow.shared.show() }
         UpdateMenuButton(inMenuBar: true)
 
-        if !Permissions.hasAccessibility {
+        switch Permissions.accessibilityState {
+        case .wedged:
+            // FLU-37: the onboarding's « Réparer l'Accessibilité » page.
+            Button("Réparer l'Accessibilité…") { OnboardingWindow.shared.show() }
+        case .missing:
             Button("Autoriser l'Accessibilité…") { Permissions.openAccessibilitySettings() }
+        case .granted:
+            EmptyView()
         }
         if !Permissions.hasMicrophone {
             Button("Autoriser le micro…") { Permissions.openMicrophoneSettings() }
