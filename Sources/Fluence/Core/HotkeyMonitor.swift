@@ -42,21 +42,17 @@ struct PushToTalkKey: RawRepresentable, CaseIterable, Hashable, Sendable, Identi
             self = preset
             return
         }
-        // Custom combo format: combo:<keyCode>:<modifierFlagsRaw>:<isModifierOnly>:<shortName>:<displayName>
-        let parts = rawValue.split(separator: ":", omittingEmptySubsequences: false)
-        if parts.count >= 6, parts[0] == "combo",
-           let kc = Int64(parts[1]),
-           let modRaw = UInt64(parts[2]),
-           let isModOnly = Bool(String(parts[3])) {
-            let sName = String(parts[4])
-            let dName = String(parts[5])
+        // Custom combo format: combo:<keyCode>:<modifierFlagsRaw>:<isModifierOnly>:<shortName>:<displayName>.
+        // Parsed with bounds (R13): a key code outside 16 bits used to reach `UInt32(keyCode)`
+        // and crash every launch.
+        if let combo = ShortcutCombo(rawValue: rawValue) {
             self.init(
                 rawValue: rawValue,
-                keyCode: kc,
-                modifierFlags: CGEventFlags(rawValue: modRaw),
-                isModifierOnly: isModOnly,
-                displayName: dName,
-                shortName: sName,
+                keyCode: Int64(combo.keyCode),
+                modifierFlags: CGEventFlags(rawValue: combo.modifierFlags),
+                isModifierOnly: combo.isModifierOnly,
+                displayName: combo.displayName,
+                shortName: combo.shortName,
                 shouldConsumeEvent: true
             )
             return
@@ -334,17 +330,18 @@ final class HotkeyMonitor {
         carbon.onHotKeyPress = { [weak self] id in self?.carbonEvent(id: id, isDown: true) }
         carbon.onHotKeyRelease = { [weak self] id in self?.carbonEvent(id: id, isDown: false) }
 
-        if !key.isModifierOnly, key.keyCode > 0 {
+        if !key.isModifierOnly, key.keyCode > 0, let code = UInt32(exactly: key.keyCode) {
             isCarbonActive = carbon.register(
                 id: CarbonID.pushToTalk,
-                keyCode: UInt32(key.keyCode),
+                keyCode: code,
                 modifierFlags: key.modifierFlags
             )
         }
-        if let commandKey, !commandKey.isModifierOnly, commandKey.keyCode > 0, commandKey != key {
+        if let commandKey, !commandKey.isModifierOnly, commandKey.keyCode > 0, commandKey != key,
+           let code = UInt32(exactly: commandKey.keyCode) {
             isCommandCarbonActive = carbon.register(
                 id: CarbonID.command,
-                keyCode: UInt32(commandKey.keyCode),
+                keyCode: code,
                 modifierFlags: commandKey.modifierFlags
             )
         }

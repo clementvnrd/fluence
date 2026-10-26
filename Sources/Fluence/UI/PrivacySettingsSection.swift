@@ -12,6 +12,7 @@ struct PrivacySettingsSection: View {
     @State private var hasAccessibility = Permissions.hasAccessibility
     @State private var hasMicrophone = Permissions.hasMicrophone
     @State private var isConfirmingEraseAll = false
+    @State private var safety = DataSafetyModel.shared
 
     private var notetaker: NotetakerSettings { model.settings }
 
@@ -26,6 +27,10 @@ struct PrivacySettingsSection: View {
     }
 
     var body: some View {
+        if safety.isKeyLost {
+            KeyLostCard(model: safety)
+        }
+
         summaryCard
 
         SectionCard {
@@ -105,6 +110,8 @@ struct PrivacySettingsSection: View {
             }
         }
 
+        BackupCard(model: safety)
+
         SectionCard {
             SettingsRow(
                 systemImage: "trash",
@@ -118,6 +125,7 @@ struct PrivacySettingsSection: View {
         .onAppear {
             hasAccessibility = Permissions.hasAccessibility
             hasMicrophone = Permissions.hasMicrophone
+            safety.refresh()
         }
         .confirmationDialog(
             "Tout effacer ?",

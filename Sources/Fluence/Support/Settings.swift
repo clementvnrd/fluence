@@ -274,8 +274,8 @@ final class Settings {
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         historyRetention = HistoryRetention(rawValue: defaults.string(forKey: Keys.historyRetention) ?? "")
             ?? .default
-        let limit = defaults.integer(forKey: Keys.maxRecordingMinutes)
-        maxRecordingMinutes = limit > 0 ? limit : 10
+        // Bounded (R13): `limit * 60` trapped on a huge stored value, at every launch.
+        maxRecordingMinutes = StoredSettings.recordingLimit(defaults.integer(forKey: Keys.maxRecordingMinutes))
         // MARK: FLU-5 input
         lastTranscriptShortcuts = defaults.object(forKey: Keys.lastTranscriptShortcuts) as? Bool ?? true
     }

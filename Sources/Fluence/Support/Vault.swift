@@ -1,4 +1,5 @@
 import CryptoKit
+import FluenceCore
 import Foundation
 import Security
 
@@ -12,6 +13,10 @@ import Security
 /// Meetings get their own data key, stored *wrapped* by the master key beside the meeting.
 /// Deleting a meeting deletes its wrapped key, which makes any copy of its files left on an
 /// SSD (where overwriting is not reliable) permanently unreadable.
+///
+/// If the key goes missing (a new Mac, a Keychain reset) while sealed data is on disk, the
+/// Vault stops with `VaultKeyError.keyLost` instead of making a new key over it (FLU-36):
+/// the data waits for a restore of the encrypted backup, or for the user to set it aside.
 ///
 /// A caveat for development: the legacy Keychain trusts the code signature that created
 /// the item. An ad-hoc signature changes on every build, so macOS asks once per rebuild
@@ -33,11 +38,20 @@ enum Vault {
     }
 
     private static let service = (Bundle.main.bundleIdentifier ?? "fluence") + ".vault"
-    private static let account = "master-key"
 
-    /// Cached after the first read: the Keychain round trip is slow, and it can prompt.
-    nonisolated(unsafe) private static var cachedKey: SymmetricKey?
-    private static let lock = NSLock()
+    /// The master key and its safeguards (FLU-36, `FluenceCore.VaultKeyring`): read once and
+    /// cached; made only when nothing sealed is on disk. Sealed data without its key is
+    /// `VaultKeyError.keyLost` — never a silent new key over it.
+    static let keyring = VaultKeyring(
+        store: KeychainMasterKeyStore(service: service, account: "master-key"),
+        layout: VaultLayout(root: AppPaths.support)
+    )
+
+    /// True once a read found sealed data and no key that opens it.
+    static var isKeyLost: Bool { keyring.isKeyLost }
+
+    /// What the user sees when the key is lost, wherever the data would have shown.
+    static let keyLostMessage = "Vos données chiffrées ne peuvent plus être lues sur ce Mac. Réglages › Confidentialité pour restaurer une sauvegarde."
 
     // MARK: - Sealing
 
@@ -51,6 +65,9 @@ enum Vault {
         do {
             return try AES.GCM.open(AES.GCM.SealedBox(combined: sealed), using: key ?? masterKey())
         } catch let failure as Failure {
+            throw failure
+        } catch let failure as VaultKeyError {
+            // Not a damaged box: no key to open it with.
             throw failure
         } catch {
             throw Failure.corrupt
@@ -75,6 +92,7 @@ enum Vault {
     static func write(_ plaintext: Data, to url: URL, with key: SymmetricKey? = nil) throws {
         try seal(plaintext, with: key).write(to: url, options: [.atomic])
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        AppPaths.keepOutOfBackup(url)
     }
 
     static func read(_ url: URL, with key: SymmetricKey? = nil) throws -> Data {
@@ -84,50 +102,56 @@ enum Vault {
     // MARK: - Master key
 
     static func masterKey() throws -> SymmetricKey {
-        lock.lock()
-        defer { lock.unlock() }
-        if let cachedKey { return cachedKey }
-
-        let key = try readMasterKey() ?? createMasterKey()
-        cachedKey = key
-        return key
+        try keyring.masterKey()
     }
+}
 
-    private static func readMasterKey() throws -> SymmetricKey? {
-        let query: [String: Any] = [
+/// The master key in the login Keychain, as every version has stored it: same service,
+/// account and attributes, so existing installs keep their key. (Moving it to the
+/// data-protection keychain is an open question, FLU-36: it depends on the signature.)
+struct KeychainMasterKeyStore: MasterKeyStore {
+    let service: String
+    let account: String
+
+    private var query: [String: Any] {
+        [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
         ]
+    }
+
+    func readKey() throws -> Data? {
+        var query = query
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         switch status {
         case errSecSuccess:
-            guard let data = result as? Data, data.count == 32 else { throw Failure.corrupt }
-            return SymmetricKey(data: data)
+            guard let data = result as? Data else { throw Vault.Failure.corrupt }
+            return data
         case errSecItemNotFound:
             return nil
         default:
-            throw Failure.keychain(status)
+            throw Vault.Failure.keychain(status)
         }
     }
 
-    private static func createMasterKey() throws -> SymmetricKey {
-        let key = SymmetricKey(size: .bits256)
-        let attributes: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecAttrLabel as String: "Fluence encryption key",
-            // Only while unlocked, and never migrated to another Mac or synced to iCloud.
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            kSecAttrSynchronizable as String: false,
-            kSecValueData as String: key.withUnsafeBytes { Data($0) },
-        ]
+    func addKey(_ key: Data) throws {
+        var attributes = query
+        attributes[kSecAttrLabel as String] = "Fluence encryption key"
+        // Only while unlocked, and never migrated to another Mac or synced to iCloud.
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        attributes[kSecAttrSynchronizable as String] = false
+        attributes[kSecValueData as String] = key
         let status = SecItemAdd(attributes as CFDictionary, nil)
-        guard status == errSecSuccess else { throw Failure.keychain(status) }
-        return key
+        guard status == errSecSuccess else { throw Vault.Failure.keychain(status) }
+    }
+
+    /// Only when the stored key opens nothing on disk and a backup's key does (a restore).
+    func replaceKey(_ key: Data) throws {
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: key] as CFDictionary)
+        guard status == errSecSuccess else { throw Vault.Failure.keychain(status) }
     }
 }

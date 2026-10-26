@@ -84,6 +84,15 @@ final class SnippetStore {
 
     // MARK: - Disk
 
+    /// Reads the file again after a restore or a fresh start (FLU-36). Snippets added while
+    /// the file could not be read are kept and saved with it; when everything was saved,
+    /// the file is the truth.
+    func reload() {
+        if canSave { snippets = [] }
+        canSave = false
+        load()
+    }
+
     private func load() {
         let url = Self.fileURL
         queue.async {
@@ -142,7 +151,8 @@ final class SnippetStore {
             if !snippets.isEmpty, snippets.count != stored.count { save() }
             importLegacySnippets()
         case .failure(let error):
-            problem = "Les snippets n'ont pas pu être ouverts : \(Self.describe(error)). Les changements sont gardés jusqu'à ce que vous quittiez, sans être enregistrés."
+            let cause = Vault.isKeyLost ? Vault.keyLostMessage : "Les snippets n'ont pas pu être ouverts : \(Self.describe(error))."
+            problem = "\(cause) Les changements sont gardés jusqu'à ce que vous quittiez, sans être enregistrés."
             Log.app.error("snippets: load failed — \(Self.describe(error), privacy: .public)")
         }
     }
@@ -159,7 +169,9 @@ final class SnippetStore {
                 failure = Self.describe(error)
             }
             Task { @MainActor in
-                SnippetStore.shared.problem = failure.map { "Les snippets ne sont pas enregistrés : \($0)" }
+                SnippetStore.shared.problem = failure.map {
+                    Vault.isKeyLost ? Vault.keyLostMessage : "Les snippets ne sont pas enregistrés : \($0)"
+                }
                 if let failure { Log.app.error("snippets: save failed — \(failure, privacy: .public)") }
             }
         }
