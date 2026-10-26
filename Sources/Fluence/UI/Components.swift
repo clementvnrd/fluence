@@ -141,8 +141,10 @@ struct RecordPill: View {
                 }
             }
             .contentShape(Capsule())
+            .keyboardFocusRing(Capsule())
         }
         .buttonStyle(.plain)
+        .focusEffectDisabled()  // the keyboard ring above replaces the system one (FLU-38)
         // Never squeezed by a crowded row: a clipped capsule reads as broken.
         .fixedSize()
     }
@@ -168,8 +170,10 @@ struct PrimaryButton: View {
             .frame(height: height)
             .background(DS.Color.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .keyboardFocusRing(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
+        .focusEffectDisabled()
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.45)
     }
@@ -207,9 +211,12 @@ struct CapButton: View {
                     )
             }
             .contentShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+            .keyboardFocusRing(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
         }
         .buttonStyle(.plain)
-        .focusEffectDisabled()  // no ring on the first button when a window opens (FLU-18)
+        // The system ring showed on the first button when a window opened (FLU-18); the
+        // keyboard ring above shows only once Tab is used (FLU-38).
+        .focusEffectDisabled()
         .onHover { isHovered = $0 }
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.45)
@@ -236,8 +243,10 @@ struct DestructiveButton: View {
             .background(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous).fill(DS.Color.destructive.opacity(0.08)))
             .overlay(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous).strokeBorder(DS.Color.destructive.opacity(0.35), lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+            .keyboardFocusRing(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
         }
         .buttonStyle(.plain)
+        .focusEffectDisabled()
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.45)
     }
@@ -263,8 +272,10 @@ struct ChipButton: View {
             .background((tint.map { $0.opacity(0.12) }) ?? (accent ? DS.Color.selection : DS.Color.cap), in: Capsule())
             .overlay(Capsule().strokeBorder(accent ? DS.Color.selectionEdge : DS.Color.seam, lineWidth: 0.5))
             .contentShape(Capsule())
+            .keyboardFocusRing(Capsule())
         }
         .buttonStyle(.plain)
+        .focusEffectDisabled()
     }
 }
 
@@ -379,8 +390,11 @@ struct PillTabs<Value: Hashable>: View {
                         }
                     }
                     .contentShape(Capsule())
+                    // Inside the well, so the ring hugs the pill rather than its 3 pt outset.
+                    .keyboardFocusRing(Capsule(), outset: 1)
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled()
             }
         }
         .padding(3)
@@ -451,8 +465,10 @@ struct SearchWell: View {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 11))
                         .foregroundStyle(DS.Color.inkSecondary)
+                        .keyboardFocusRing(Circle(), outset: 2)
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .help("Effacer la recherche")
             } else if showsShortcut {
                 Text("⌘F").font(.system(size: 10, weight: .medium, design: .rounded)).foregroundStyle(DS.Color.silkscreen)
@@ -644,6 +660,7 @@ struct InfoButton: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(DS.Color.silkscreen)
                 .contentShape(Rectangle())
+                .keyboardFocusRing(Circle(), outset: 2.5)
         }
         .buttonStyle(.plain)
         .focusEffectDisabled()
@@ -691,12 +708,18 @@ struct RowToggle: View {
     @Binding var isOn: Bool
     var isEnabled = true
 
+    /// The switch is an AppKit control: its focus is read here, not from inside a label.
+    @FocusState private var isFocused: Bool
+
     var body: some View {
         Toggle("", isOn: $isOn)
             .toggleStyle(.switch)
             .tint(DS.Color.accent)
             .labelsHidden()
             .controlSize(.small)
+            .focused($isFocused)
+            .focusEffectDisabled()
+            .keyboardFocusRing(Capsule(), isFocused: isFocused, outset: 3.5)
             .disabled(!isEnabled)
     }
 }
@@ -765,10 +788,13 @@ struct SidebarItem: View {
                 }
             }
             .contentShape(Rectangle())
+            // On the row's own edge: rows are stacked too tightly for a ring outside them.
+            .keyboardFocusRing(RoundedRectangle(cornerRadius: 8, style: .continuous), outset: 0)
         }
         .buttonStyle(.plain)
-        // The selection highlight is the indicator; the focus ring the first row got when a
-        // window opened read as a second selection (FLU-18).
+        // The selection highlight is the indicator; the system focus ring the first row got
+        // when a window opened read as a second selection (FLU-18). The keyboard ring above
+        // shows only once Tab is used (FLU-38).
         .focusEffectDisabled()
         .onHover { isHovered = $0 }
     }
@@ -905,5 +931,87 @@ struct DownloadBar: View {
         }
         .frame(height: height)
         .animation(DS.Motion.readout, value: fraction)
+    }
+}
+
+// MARK: - Keyboard focus (FLU-38)
+
+/// Whether the keyboard is moving the focus right now: Tab pressed in the key window and no
+/// click since (`FocusVisibility`). Watches this app's own events only, from the first view
+/// that draws a focus ring on.
+@MainActor
+@Observable
+final class KeyboardFocusIndicator {
+    static let shared = KeyboardFocusIndicator()
+
+    private var state = FocusVisibility()
+    @ObservationIgnored private var monitor: Any?
+
+    private init() {
+        monitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+            self?.handle(event)
+            return event
+        }
+    }
+
+    /// The focused control of the key window shows its ring. A window that just opened is not
+    /// the one Tab was pressed in, so its first control shows none (FLU-18).
+    var showsRing: Bool {
+        state.showsRing(keyWindow: NSApp.keyWindow?.windowNumber)
+    }
+
+    private func handle(_ event: NSEvent) {
+        var next = state
+        if event.type == .keyDown {
+            let flags = event.modifierFlags
+            guard FocusVisibility.movesFocus(
+                keyCode: event.keyCode,
+                command: flags.contains(.command),
+                control: flags.contains(.control)
+            ) else { return }
+            next.handle(.focusKey(window: event.windowNumber))
+        } else {
+            next.handle(.pointerDown)
+        }
+        // Assigned only on a change: every view with a ring reads it.
+        if next != state { state = next }
+    }
+}
+
+/// A 2 pt ring in the accent colour, outside the control, while it has the keyboard focus and
+/// the keyboard is in use. Clement's choice (FLU-38): no glow, never on window open.
+private struct KeyboardFocusRing<S: InsettableShape>: ViewModifier {
+    let shape: S
+    let outset: CGFloat
+    /// Given by a control whose focus is not visible from inside it (the switch).
+    let focusOverride: Bool?
+
+    @Environment(\.isFocused) private var isFocused
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if (focusOverride ?? isFocused) && KeyboardFocusIndicator.shared.showsRing {
+                shape
+                    .inset(by: -outset)
+                    .stroke(DS.Color.focusRing, lineWidth: DS.Focus.ringWidth)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
+extension View {
+    /// The keyboard focus ring, around `shape`. Apply it inside a button's label (where
+    /// `isFocused` is the button's own focus) and put `.focusEffectDisabled()` on the button,
+    /// so the system ring does not draw as well.
+    func keyboardFocusRing<S: InsettableShape>(_ shape: S, outset: CGFloat = DS.Focus.ringOffset) -> some View {
+        modifier(KeyboardFocusRing(shape: shape, outset: outset, focusOverride: nil))
+    }
+
+    /// The keyboard focus ring for a control that reads its own focus (`@FocusState`).
+    func keyboardFocusRing<S: InsettableShape>(_ shape: S, isFocused: Bool, outset: CGFloat = DS.Focus.ringOffset) -> some View {
+        modifier(KeyboardFocusRing(shape: shape, outset: outset, focusOverride: isFocused))
     }
 }

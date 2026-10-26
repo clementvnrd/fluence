@@ -151,8 +151,10 @@ private struct TranscriptionCard: View {
                     .foregroundStyle(DS.Color.inkSecondary)
                     .padding(4)
                     .contentShape(Rectangle())
+                    .keyboardFocusRing(RoundedRectangle(cornerRadius: 6, style: .continuous), outset: 1)
             }
             .buttonStyle(.plain)
+            .focusEffectDisabled()
             .help("Supprimer cette dictée")
         }
     }

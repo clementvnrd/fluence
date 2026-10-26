@@ -263,8 +263,10 @@ struct DictationSettingsSection: View {
                     .frame(width: 26, height: 26)
                     .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(DS.Color.seam, lineWidth: 1))
+                    .keyboardFocusRing(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
             .buttonStyle(.plain)
+            .focusEffectDisabled()
             .help("Actualiser la liste des microphones")
         }
     }

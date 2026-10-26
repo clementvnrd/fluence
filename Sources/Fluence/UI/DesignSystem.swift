@@ -214,6 +214,15 @@ enum DS {
         }
     }
 
+    // MARK: - Focus
+
+    /// The keyboard focus ring (FLU-38): 2 pt in the accent colour, 3 pt outside the control,
+    /// no glow, only while the keyboard moves the focus.
+    enum Focus {
+        static let ringWidth: CGFloat = 2
+        static let ringOffset: CGFloat = 3
+    }
+
     // MARK: - Motion
 
     enum Motion {
