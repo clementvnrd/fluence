@@ -141,12 +141,10 @@ private struct AppSidebar: View {
 
             StatusChip(
                 text: statusText,
-                dot: controller.isHotkeyActive ? DS.Color.meterGreen : DS.Color.meterAmber
+                dot: controller.hotkeyStatus == .active ? DS.Color.meterGreen : DS.Color.meterAmber
             )
             .padding(.leading, DS.Space.tight)
-            .help(controller.isHotkeyActive
-                ? "Maintenez \(ShortcutLabel.display(settings.pushToTalkKey.shortName)) pour dicter"
-                : "Le raccourci n'est pas actif : vérifiez l'autorisation Accessibilité dans les Réglages.")
+            .help(ShortcutLabel.statusHelp(shortName: settings.pushToTalkKey.shortName, hotkey: controller.hotkeyStatus))
         }
         .padding(.horizontal, DS.Space.base)
         .padding(.bottom, DS.Space.roomy)
@@ -161,11 +159,13 @@ private struct AppSidebar: View {
         "\(settings.dictationLanguage.displayName) • \(MicrophoneName.current(settings.selectedMicrophoneUID))"
     }
 
-    /// "Raccourci ⌥ · Whisper · Français".
+    /// « ⌥ Espace · Parakeet » (Clement, FLU-37): the configured shortcut and the engine.
     private var statusText: String {
-        guard controller.isHotkeyActive else { return "Raccourci inactif" }
-        return "Raccourci \(ShortcutLabel.modifiers(settings.pushToTalkKey.shortName)) · "
-            + "\(settings.activeEngine.shortName) · \(settings.dictationLanguage.displayName)"
+        ShortcutLabel.status(
+            shortName: settings.pushToTalkKey.shortName,
+            engine: settings.activeEngine.shortName,
+            hotkey: controller.hotkeyStatus
+        )
     }
 
     private func group(_ title: String) -> some View {

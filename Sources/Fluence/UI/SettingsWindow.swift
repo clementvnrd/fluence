@@ -142,6 +142,10 @@ struct DictationSettingsSection: View {
             SettingsRow(systemImage: "keyboard", title: "Raccourci de dictée", info: "Maintenez pour dicter ; touchez pour les mains libres.") {
                 ShortcutRecorder(controller: controller, isCommand: false)
             }
+            if controller.hotkeyStatus == .taken {
+                // FLU-37: the system refused the combination; Accessibility has nothing to do with it.
+                RowNote(text: "Une autre app utilise déjà ce raccourci : choisissez-en un autre.", color: DS.Color.meterAmber)
+            }
             RowDivider()
             SettingsRow(systemImage: microphoneIcon, title: "Microphone") {
                 microphoneMenu
@@ -214,7 +218,7 @@ struct DictationSettingsSection: View {
                 .padding(.trailing, 14)
                 .padding(.bottom, 12)
             if !controller.hasEventTap {
-                RowNote(text: "Échap, ⌃⌘V / ⌃⌘C et les raccourcis sans touche (⌃ ⌥) ont besoin de l'autorisation Accessibilité. Les raccourcis avec une touche (⌥ Espace) marchent sans elle.")
+                RowNote(text: "Échap, ⌃⌘V / ⌃⌘C et les raccourcis sans touche (\(PushToTalkKey.modifierOnlyExample)) ont besoin de l'autorisation Accessibilité. Les raccourcis avec une touche (\(PushToTalkKey.keyedExample)) marchent sans elle.")
             }
         }
         .onAppear { devices = AudioDevices.availableInputDevices() }

@@ -89,6 +89,9 @@ final class DictationController {
     var isCommandMode: Bool { isCommand }
     /// Whether a shortcut is armed (Carbon or the event tap) — the main window's status pill.
     private(set) var isHotkeyActive = false
+    /// FLU-37: the dictation shortcut's own state, for the status chip and Réglages: armed,
+    /// held by another app, or waiting for Accessibility.
+    private(set) var hotkeyStatus: HotkeyStatus = .needsAccessibility
     /// The engine is still loading a second after key-down — a Parakeet reload after it was
     /// unloaded for idleness, or Core ML's recompile after a macOS update (FLU-31). The HUD
     /// says so; the audio is recorded meanwhile, so nothing waits on it.
@@ -187,6 +190,7 @@ final class DictationController {
         observeSystemEvents()
         let armed = hotkey.start()
         isHotkeyActive = armed
+        hotkeyStatus = hotkey.status
         return armed
     }
 

@@ -405,7 +405,7 @@ private struct MenuContent: View {
             }
         }
 
-        Text("Maintenir \(settings.pushToTalkKey.shortName) pour dicter")
+        Text("Maintenir \(ShortcutLabel.display(settings.pushToTalkKey.shortName)) pour dicter")
 
         Divider()
 
@@ -468,7 +468,7 @@ private struct MenuContent: View {
 
         Toggle("Formatage code & terminaux", isOn: $settings.appAwareStylesEnabled)
         Toggle("Snippets vocaux", isOn: $settings.snippetsEnabled)
-        Toggle("Mode Commande (\(settings.commandModeKey.shortName))", isOn: Binding(
+        Toggle("Mode Commande (\(ShortcutLabel.display(settings.commandModeKey.shortName)))", isOn: Binding(
             get: { settings.commandModeEnabled },
             set: { on in
                 settings.commandModeEnabled = on

@@ -428,6 +428,9 @@ private struct OnboardingView: View {
 
     private var key: String { ShortcutLabel.display(Settings.shared.pushToTalkKey.shortName) }
 
+    /// A shortcut with a key, as an example: the configured one when it has a key (FLU-37).
+    private static var keyedExample: String { PushToTalkKey.keyedExample }
+
     private var page: Page {
         switch model.step {
         case .accessibility:
@@ -438,7 +441,7 @@ private struct OnboardingView: View {
                     + "et de taper vos mots là où se trouve le curseur.",
                 facts: [
                     Fact(symbol: "keyboard", text: "Fluence ne guette que ses propres raccourcis et ignore toutes les autres touches."),
-                    Fact(symbol: "doc.on.clipboard", text: "Sans elle, seuls les raccourcis avec une touche (⌥ Espace) marchent, et le texte reste dans le presse-papiers : collez-le avec ⌘V."),
+                    Fact(symbol: "doc.on.clipboard", text: "Sans elle, seuls les raccourcis avec une touche (\(Self.keyedExample)) marchent, et le texte reste dans le presse-papiers : collez-le avec \(PasteShortcut.label)."),
                     Fact(symbol: "arrow.right.circle", text: "Activez Fluence dans la liste qui s'ouvre ; cette fenêtre passe à la suite toute seule."),
                 ],
                 action: Action(title: "Autoriser l'Accessibilité") {
