@@ -341,3 +341,15 @@ it or build on it. Source-available, not open source.
 
 The lines still carried over from the project Fluence started from are not covered by this
 licence (see `LICENSE.md`).
+
+### Lines still identical to the starting project (macOS app)
+
+In October 2026 every block of the macOS app still attributed to the starting project's author
+(426 blocks, 1,275 lines, measured with `git blame -w -C -C` against upstream `b3b45ab`) was cut
+out, described in words only, and written again by people who had never seen it (FLU-76). Only
+101 lines came back different. The rest came back **identical**: declarations
+(`private let hotkey = HotkeyMonitor()`), single calls into Apple's frameworks
+(`try engine.start()`) and view settings dictated by the design system. Anyone writing that
+behaviour writes those lines that way, so Git still attributes them to the old author. Clement
+chose to keep them as they are rather than rename the app's types to lower the count (FLU-76,
+answer « A »). The git history keeps the original code.

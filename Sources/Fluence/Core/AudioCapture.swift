@@ -255,7 +255,8 @@ final class AudioCapture: @unchecked Sendable {
     }
 
     private static func level(of buffer: AVAudioPCMBuffer) -> Float {
-        guard let channel = buffer.floatChannelData?[0] else { return 0 }
+        guard let samples = buffer.floatChannelData else { return 0 }
+        let channel = samples[0]
         let count = Int(buffer.frameLength)
         guard count > 0 else { return 0 }
 

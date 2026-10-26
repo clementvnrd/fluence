@@ -43,7 +43,6 @@ enum WisprReader {
         let lower = stamp(window.lowerBound)
         let upper = stamp(window.upperBound)
         let deadline = Date().addingTimeInterval(timeout)
-
         while Date() < deadline, !Task.isCancelled {
             if let found = latestRow(between: lower, and: upper) { return found }
             try? await Task.sleep(for: pollInterval)
@@ -75,7 +74,7 @@ enum WisprReader {
 
         // Wispr's cleanup may still be running, so its raw text stands in until the cleaned
         // text is there.
-        let sql = """
+        let query = """
             SELECT COALESCE(NULLIF(formattedText, ''), asrText), e2eLatency
             FROM History
             WHERE substr(timestamp, 1, 23) > ?
@@ -84,9 +83,8 @@ enum WisprReader {
             ORDER BY timestamp DESC
             LIMIT 1
             """
-
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return nil }
         defer { sqlite3_finalize(statement) }
 
         // SQLITE_TRANSIENT, which Swift does not import: SQLite copies each string before the

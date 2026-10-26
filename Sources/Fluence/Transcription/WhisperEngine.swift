@@ -24,9 +24,8 @@ actor WhisperEngine: TranscriptionEngine {
 
     func start() async throws -> AsyncThrowingStream<TranscriptionChunk, Error> {
         samples.removeAll(keepingCapacity: true)
-
-        let (stream, continuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
-        self.continuation = continuation
+        let (stream, streamContinuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
+        continuation = streamContinuation
 
         // Ensure preparation is kicked off in background without blocking capture startup
         Task { [variant] in

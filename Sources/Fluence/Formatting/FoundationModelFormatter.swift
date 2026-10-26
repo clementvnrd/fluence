@@ -32,10 +32,12 @@ struct FoundationModelFormatter: TextFormatter {
     /// Past this, the rules' text is worth more than the wait.
     private static let timeout: Duration = .seconds(4)
 
+    /// Whether Apple's on-device model can be used right now.
     static var isAvailable: Bool {
         SystemLanguageModel.default.availability == .available
     }
 
+    /// Why the on-device model can't be used, in French for the UI. Nil when it can.
     static var unavailableReason: String? {
         switch SystemLanguageModel.default.availability {
         case .available:
@@ -115,10 +117,10 @@ struct FoundationModelFormatter: TextFormatter {
     /// is no bug, while missing assets mean the feature is effectively off and the user should
     /// be told.
     private static func describe(_ error: Error) -> String {
-        guard let error = error as? LanguageModelSession.GenerationError else {
+        guard let generationError = error as? LanguageModelSession.GenerationError else {
             return error.localizedDescription
         }
-        switch error {
+        switch generationError {
         case .exceededContextWindowSize: return "context window exceeded"
         case .assetsUnavailable: return "model assets unavailable"
         case .guardrailViolation: return "guardrail violation"
@@ -128,7 +130,7 @@ struct FoundationModelFormatter: TextFormatter {
         case .rateLimited: return "rate limited"
         case .concurrentRequests: return "concurrent requests"
         case .refusal: return "refused by the model"
-        @unknown default: return error.localizedDescription
+        @unknown default: return generationError.localizedDescription
         }
     }
 
@@ -141,7 +143,7 @@ struct FoundationModelFormatter: TextFormatter {
                 // Formatting, not writing: as close to deterministic as it usefully gets.
                 temperature: 0.1,
                 // A cleanup is never much longer than what was said; this stops a runaway reply.
-                maximumResponseTokens: 1_200
+                maximumResponseTokens: 1200
             )
         )
 

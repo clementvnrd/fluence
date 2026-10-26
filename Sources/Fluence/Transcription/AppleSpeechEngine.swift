@@ -57,15 +57,14 @@ actor AppleSpeechEngine: TranscriptionEngine {
         }
         let resolvedLocale = supported ?? Locale(identifier: "en-US")
 
-        let transcriber = Self.makeTranscriber(locale: resolvedLocale)
-        self.transcriber = transcriber
-
-        try await Self.ensureModelInstalled(for: transcriber)
+        let sessionTranscriber = Self.makeTranscriber(locale: resolvedLocale)
+        transcriber = sessionTranscriber
+        try await Self.ensureModelInstalled(for: sessionTranscriber)
 
         let (inputSequence, audioInput) = AsyncStream<AnalyzerInput>.makeStream()
         self.audioInput = audioInput
 
-        let analyzer = SpeechAnalyzer(modules: [transcriber])
+        let analyzer = SpeechAnalyzer(modules: [sessionTranscriber])
         self.analyzer = analyzer
         // Leaning the recognizer toward the user's dictionary catches mishearings that no text
         // correction can undo ("Supabase" heard as "super base"). The pull is soft: spelling
@@ -84,7 +83,8 @@ actor AppleSpeechEngine: TranscriptionEngine {
 
         resultsTask = Task { [weak self] in
             do {
-                for try await result in transcriber.results {
+                for try await result in sessionTranscriber.results {
+                    // The engine went away: nobody is left to hand results to.
                     guard let self else { break }
                     let snapshot = await self.fold(result)
                     outputContinuation.yield(TranscriptionChunk(text: snapshot, isFinal: false))
@@ -161,7 +161,6 @@ actor AppleSpeechEngine: TranscriptionEngine {
     private static func dictionaryContext() async -> AnalysisContext? {
         let phrases = await MainActor.run { DictionaryStore.shared.biasPhrases }
         guard !phrases.isEmpty else { return nil }
-
         let context = AnalysisContext()
         context.contextualStrings[.general] = phrases
         Log.speech.info("SpeechAnalyzer: biased toward \(phrases.count) dictionary phrase(s)")
@@ -178,6 +177,7 @@ actor AppleSpeechEngine: TranscriptionEngine {
         )
     }
 
+    /// Makes sure the transcriber's speech model is on the Mac, downloading it if needed.
     private static func ensureModelInstalled(for transcriber: SpeechTranscriber) async throws {
         // Locales are compared by their BCP 47 strings: two `Locale` values for the same
         // language can differ in ways that don't matter here.

@@ -12,6 +12,7 @@ import Foundation
 /// shows. FluidAudio's sliding-window manager would give live partials, at the price of a much
 /// harder integration, and is not used.
 actor ParakeetEngine: TranscriptionEngine {
+    /// Everything heard since `start()`, at 16 kHz mono.
     private var samples: [Float] = []
     private var continuation: AsyncThrowingStream<TranscriptionChunk, Error>.Continuation?
 
@@ -32,9 +33,8 @@ actor ParakeetEngine: TranscriptionEngine {
 
     func start() async throws -> AsyncThrowingStream<TranscriptionChunk, Error> {
         samples.removeAll(keepingCapacity: true)
-
-        let (stream, continuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
-        self.continuation = continuation
+        let (stream, streamContinuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
+        continuation = streamContinuation
 
         // A first load is slow (about 600 MB downloaded on the very first run, seconds from
         // disk afterwards). Paying it here, before speech, means release never loses an utterance to it.
@@ -92,12 +92,11 @@ actor ParakeetEngine: TranscriptionEngine {
         do {
             let manager = try await ParakeetModels.shared.manager()
             var decoderState = try TdtDecoderState()
-            let started = Date()
+            let transcribeStart = Date()
             let result = try await manager.transcribe(samples, decoderState: &decoderState, language: languageHint)
             let text = await boosted(result)
-            let elapsed = Date().timeIntervalSince(started)
+            let elapsed = Date().timeIntervalSince(transcribeStart)
             let audioSeconds = Double(samples.count) / 16_000
-
             Log.speech.info("""
                 Parakeet: \(audioSeconds, format: .fixed(precision: 1))s audio in \
                 \(elapsed, format: .fixed(precision: 2))s \
@@ -222,6 +221,7 @@ actor ParakeetModels {
         }
     }
 
+    /// Whether the transcription model is already in memory.
     var isLoaded: Bool { loaded != nil }
 
     /// The shared manager, loaded on first use; callers that arrive during the load wait on the

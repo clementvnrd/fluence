@@ -29,10 +29,12 @@ public struct DictionaryEntry: Identifiable, Codable, Hashable, Sendable {
         self.isEnabled = isEnabled
     }
 
+    /// An enabled term spelled `word`.
     public static func term(_ word: String) -> DictionaryEntry {
         DictionaryEntry(kind: .term, write: word)
     }
 
+    /// An enabled correction turning `hear` into `write`.
     public static func correction(hear: String, write: String) -> DictionaryEntry {
         DictionaryEntry(kind: .correction, write: write, hear: hear)
     }

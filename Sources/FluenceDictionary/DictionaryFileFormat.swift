@@ -29,8 +29,7 @@ public enum DictionaryFileFormat {
 
     private static func entry(from raw: Substring) -> DictionaryEntry? {
         var line = raw.trimmingCharacters(in: .whitespaces)
-        guard !line.isEmpty else { return nil }
-
+        if line.isEmpty { return nil }
         var isEnabled = true
         if line.hasPrefix("#") {
             // `# off:` keeps a disabled entry; any other `#` line is only a comment.
@@ -41,13 +40,13 @@ public enum DictionaryFileFormat {
             isEnabled = false
         }
 
-        if let arrow = line.range(of: "->") {
-            let hear = line[..<arrow.lowerBound].trimmingCharacters(in: .whitespaces)
-            let write = line[arrow.upperBound...].trimmingCharacters(in: .whitespaces)
-            guard !hear.isEmpty, !write.isEmpty else { return nil }
-            return DictionaryEntry(kind: .correction, write: write, hear: hear, isEnabled: isEnabled)
+        guard let arrow = line.range(of: "->") else {
+            return DictionaryEntry(kind: .term, write: line, isEnabled: isEnabled)
         }
-
-        return DictionaryEntry(kind: .term, write: line, isEnabled: isEnabled)
+        // Only the first arrow splits: `write` may hold more of them.
+        let hear = line[..<arrow.lowerBound].trimmingCharacters(in: .whitespaces)
+        let write = line[arrow.upperBound...].trimmingCharacters(in: .whitespaces)
+        if hear.isEmpty || write.isEmpty { return nil }
+        return DictionaryEntry(kind: .correction, write: write, hear: hear, isEnabled: isEnabled)
     }
 }

@@ -19,6 +19,7 @@ import Observation
 final class DictionaryStore {
     static let shared = DictionaryStore()
 
+    /// The entries in file order.
     private(set) var entries: [DictionaryEntry] = []
 
     /// Lets a consumer rebuild what it derives from the entries (a bias list, say) only after
@@ -68,6 +69,7 @@ final class DictionaryStore {
         save()
     }
 
+    /// Replaces the entry with the same id where it stands; an unknown id changes nothing.
     func update(_ entry: DictionaryEntry) {
         guard let index = entries.firstIndex(where: { $0.id == entry.id }) else { return }
         entries[index] = entry
@@ -75,8 +77,7 @@ final class DictionaryStore {
     }
 
     func delete(_ entry: DictionaryEntry) {
-        entries.removeAll { $0.id == entry.id }
-        save()
+        delete(ids: [entry.id])
     }
 
     func delete(ids: Set<UUID>) {

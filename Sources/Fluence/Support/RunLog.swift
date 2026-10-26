@@ -8,7 +8,7 @@ import Observation
 struct DictationRun: Codable, Sendable, Identifiable {
     /// What a delete targets, so nothing is ever matched by text. Lines saved before ids
     /// existed get one as they are read (stored at the next rewrite) rather than being dropped.
-    var id: UUID = UUID()
+    var id = UUID()
 
     /// Key-up. The day grouping and the retention setting both read it.
     let date: Date
@@ -38,7 +38,10 @@ struct DictationRun: Codable, Sendable, Identifiable {
     /// network included), not local compute time. Nil on rows saved before the flag.
     var endToEnd: Bool?
 
+    /// Seconds of audio handled per second of processing.
     var realtimeFactor: Double { audioSeconds / max(processSeconds, 0.0001) }
+
+    /// Length of the text as the user counts it.
     var characters: Int { text.count }
 
     init(
