@@ -277,6 +277,36 @@ struct PushToTalkKey: RawRepresentable, CaseIterable, Hashable, Sendable, Identi
     }
 }
 
+/// FLU-37: what every shortcut picker asks before applying a choice — the recorder and the
+/// preset menu in Réglages, the menu bar's picker, and Command Mode being switched on.
+@MainActor
+enum ShortcutChoice {
+    /// Why `key` can't be the dictation (or Command Mode) shortcut; nil when it can.
+    static func refusal(_ key: PushToTalkKey, isCommand: Bool) -> ShortcutRules.Refusal? {
+        let settings = Settings.shared
+        // The Command Mode key only counts while Command Mode is on; switching it on checks.
+        let other: PushToTalkKey? = isCommand
+            ? settings.pushToTalkKey
+            : (settings.commandModeEnabled ? settings.commandModeKey : nil)
+        return ShortcutRules.refusal(for: key.combo, role: isCommand ? .commandMode : .dictation, other: other?.combo)
+    }
+
+    static func message(_ refusal: ShortcutRules.Refusal, for key: PushToTalkKey) -> String {
+        ShortcutRules.message(refusal, label: ShortcutLabel.display(key.shortName))
+    }
+
+    /// Switching Command Mode on with a stored key that clashes with dictation's: the first
+    /// preset that doesn't, so the two can never be armed on one combination.
+    static func enableCommandMode() {
+        let settings = Settings.shared
+        settings.commandModeEnabled = true
+        guard refusal(settings.commandModeKey, isCommand: true) != nil,
+              let free = PushToTalkKey.allCases.first(where: { refusal($0, isCommand: true) == nil })
+        else { return }
+        settings.commandModeKey = free
+    }
+}
+
 /// ⌃⌘V and ⌃⌘C: paste or copy the last transcript.
 enum LastTranscriptAction: Sendable {
     case paste

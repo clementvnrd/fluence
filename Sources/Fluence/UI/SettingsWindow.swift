@@ -177,7 +177,7 @@ struct DictationSettingsSection: View {
                 RowToggle(isOn: Binding(
                     get: { settings.commandModeEnabled },
                     set: { on in
-                        settings.commandModeEnabled = on
+                        if on { ShortcutChoice.enableCommandMode() } else { settings.commandModeEnabled = false }
                         controller.reloadHotkey()
                     }
                 ))
@@ -286,6 +286,9 @@ struct ShortcutRecorder: View {
     @State private var isRecording = false
     @State private var heldModifiers = ""
     @State private var monitor: Any?
+    /// FLU-37: why the last combination was refused, shown in the field for a moment.
+    @State private var refusal: String?
+    @State private var refusalExpiry: Task<Void, Never>?
 
     private var key: PushToTalkKey { isCommand ? settings.commandModeKey : settings.pushToTalkKey }
 
@@ -300,6 +303,14 @@ struct ShortcutRecorder: View {
                         Text(heldModifiers.isEmpty ? "Tapez la combinaison…" : heldModifiers)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(DS.Color.accent)
+                    } else if let refusal {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(DS.Color.meterAmber)
+                        Text(refusal)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(DS.Color.ink)
+                            .lineLimit(1)
                     } else {
                         Text(ShortcutLabel.display(key.shortName))
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -321,6 +332,8 @@ struct ShortcutRecorder: View {
                     } label: {
                         if preset == key { Label(preset.displayName, systemImage: "checkmark") } else { Text(preset.displayName) }
                     }
+                    // FLU-37: the other shortcut's combination can't be picked here.
+                    .disabled(preset != key && ShortcutChoice.refusal(preset, isCommand: isCommand) != nil)
                 }
             } label: {
                 Image(systemName: "chevron.up.chevron.down")
@@ -336,11 +349,15 @@ struct ShortcutRecorder: View {
             .fixedSize()
             .accessibilityLabel("Raccourcis proposés")
         }
-        .onDisappear { stop() }
+        .onDisappear {
+            stop()
+            refusalExpiry?.cancel()
+        }
     }
 
     private func start() {
         stop()
+        refusal = nil
         isRecording = true
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
             if event.type == .keyDown && Int(event.keyCode) == kVK_Escape {
@@ -365,16 +382,30 @@ struct ShortcutRecorder: View {
     }
 
     private func apply(_ combo: PushToTalkKey) {
+        // FLU-37: ⌘C, ⌘Q, ⌥L or the other shortcut's combination are refused, and said so.
+        if combo != key, let why = ShortcutChoice.refusal(combo, isCommand: isCommand) {
+            Log.hotkey.info("shortcut refused: \(String(describing: why), privacy: .public)")
+            refuse(ShortcutChoice.message(why, for: combo))
+            return
+        }
+        refusal = nil
         if isCommand {
             settings.commandModeKey = combo
         } else {
             settings.pushToTalkKey = combo
-            // The two shortcuts must differ.
-            if settings.commandModeKey == combo, let other = PushToTalkKey.allCases.first(where: { $0 != combo }) {
-                settings.commandModeKey = other
-            }
         }
         controller.reloadHotkey()
+    }
+
+    private func refuse(_ message: String) {
+        refusal = message
+        NSSound.beep()
+        refusalExpiry?.cancel()
+        refusalExpiry = Task {
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            refusal = nil
+        }
     }
 
     private func stop() {

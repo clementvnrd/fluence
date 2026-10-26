@@ -432,6 +432,11 @@ private struct MenuContent: View {
         Picker("Raccourci Push-to-talk", selection: Binding(
             get: { settings.pushToTalkKey },
             set: { key in
+                // FLU-37: never the Command Mode key (the list below leaves it out already).
+                guard key == settings.pushToTalkKey || ShortcutChoice.refusal(key, isCommand: false) == nil else {
+                    NSSound.beep()
+                    return
+                }
                 settings.pushToTalkKey = key
                 // The event tap listens for one key; move it to the new one.
                 controller.reloadHotkey()
@@ -440,7 +445,7 @@ private struct MenuContent: View {
             if !PushToTalkKey.allCases.contains(settings.pushToTalkKey) {
                 Text(settings.pushToTalkKey.displayName).tag(settings.pushToTalkKey)
             }
-            ForEach(PushToTalkKey.allCases, id: \.self) { key in
+            ForEach(PushToTalkKey.allCases.filter { $0 == settings.pushToTalkKey || ShortcutChoice.refusal($0, isCommand: false) == nil }, id: \.self) { key in
                 Text(key.displayName).tag(key)
             }
         }
@@ -471,7 +476,7 @@ private struct MenuContent: View {
         Toggle("Mode Commande (\(ShortcutLabel.display(settings.commandModeKey.shortName)))", isOn: Binding(
             get: { settings.commandModeEnabled },
             set: { on in
-                settings.commandModeEnabled = on
+                if on { ShortcutChoice.enableCommandMode() } else { settings.commandModeEnabled = false }
                 controller.reloadHotkey()
             }
         ))
