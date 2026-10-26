@@ -914,10 +914,14 @@ struct SpinningArc: View {
     var lineWidth: CGFloat = 2
     /// Screenshots draw it still.
     var isAnimated = true
+    /// Reduce Motion (FLU-38): the arc stays still, the « Préparation… » text says the rest.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var turns: Bool { isAnimated && !reduceMotion }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isAnimated)) { timeline in
-            let turn = isAnimated ? timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) : 0.08
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !turns)) { timeline in
+            let turn = turns ? timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) : 0.08
             ZStack {
                 Circle().stroke(DS.Color.accent.opacity(0.2), lineWidth: lineWidth)
                 Circle()

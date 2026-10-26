@@ -664,9 +664,12 @@ private struct ParakeetDownloadRow: View {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 13))
                             .foregroundStyle(DS.Color.silkscreen)
+                            .keyboardFocusRing(Circle(), outset: 2)
                     }
                     .buttonStyle(.plain)
+                    .focusEffectDisabled()
                     .help("Annuler le téléchargement")
+                    .accessibilityLabel("Annuler le téléchargement")
                 }
             case .idle:
                 CapButton(title: "Télécharger", systemImage: "arrow.down", height: 26) { download.start() }
