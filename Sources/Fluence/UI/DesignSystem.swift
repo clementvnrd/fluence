@@ -1,3 +1,4 @@
+import FluenceCore
 import SwiftUI
 
 /// Refined macOS Design System — Clement's Fluence look.
@@ -14,50 +15,54 @@ enum DS {
 
     // MARK: - Colour
 
+    /// Every colour comes from `DesignPalette` (FluenceCore), the table `DesignContrastTests`
+    /// checks against WCAG AA (FLU-38): add or change a colour there, never as a hex here.
     enum Color {
+        typealias P = DesignPalette
+
         /// Base window canvas: Luminous paper mist in light, deep midnight slate in dark.
-        static let chassis = face(light: 0xF8FAFC, dark: 0x0B0F17)
+        static let chassis = face(P.chassis)
 
         /// Elevated card surface: Pure crisp white in light, deep slate in dark.
-        static let panel = face(light: 0xFFFFFF, dark: 0x131B2A)
+        static let panel = face(P.panel)
 
         /// Top border highlight on cards.
-        static let panelHighlight = face(light: 0xFFFFFF, dark: 0x1E293B)
+        static let panelHighlight = face(P.panelHighlight)
 
         /// Card shade.
-        static let panelShade = face(light: 0xF1F5F9, dark: 0x0E1624)
+        static let panelShade = face(P.panelShade)
 
         /// Recessed content wells and search bars.
-        static let well = face(light: 0xF1F5F9, dark: 0x0E1522)
+        static let well = face(P.well)
 
         /// Floating decks and popovers.
-        static let deck = face(light: 0xFFFFFF, dark: 0x162032)
+        static let deck = face(P.deck)
 
         /// Button and interactive control surface.
-        static let cap = face(light: 0xFFFFFF, dark: 0x1A2436)
+        static let cap = face(P.cap)
 
         /// Subtle dividers and hairline borders.
-        static let seam = face(light: 0xE2E8F0, dark: 0x1E293B)
+        static let seam = face(P.seam)
 
         // Text
         /// Primary high-contrast text: Deep ink in light, pure white in dark.
-        static let ink = face(light: 0x0F172A, dark: 0xF8FAFC)
+        static let ink = face(P.ink)
         /// Secondary supporting text.
-        static let inkSecondary = face(light: 0x64748B, dark: 0x94A3B8)
+        static let inkSecondary = face(P.inkSecondary)
         /// Section headers and label tags.
-        static let silkscreen = face(light: 0x94A3B8, dark: 0x64748B)
+        static let silkscreen = face(P.silkscreen)
         /// Text on dark surfaces.
-        static let inkOnDeck = face(light: 0x0F172A, dark: 0xF8FAFC)
+        static let inkOnDeck = face(P.inkOnDeck)
 
         // Aqua Voice Signature Accents
         /// Vibrant electric aqua blue.
-        static let accent = face(light: 0x0084FF, dark: 0x38BDF8)
+        static let accent = face(P.accent)
         /// Luminous cyan / light aqua.
-        static let accentCyan = face(light: 0x0EA5E9, dark: 0x38BDF8)
+        static let accentCyan = face(P.accentCyan)
         /// Recording indicator (glowing electric aqua / coral red).
-        static let record = face(light: 0x0084FF, dark: 0x38BDF8)
-        static let recordRed = swatch(0xEF4444)
-        static let recordIdle = face(light: 0x94A3B8, dark: 0x475569)
+        static let record = face(P.record)
+        static let recordRed = face(P.recordRed)
+        static let recordIdle = face(P.recordIdle)
         /// A meeting being recorded: the dot, the banner, the pill, *Arrêter*, the sidebar dot.
         /// The only recording that is red (FLU-12 decision 3); a dictation uses `record`.
         static let meetingRecord = recordRed
@@ -65,37 +70,46 @@ enum DS {
         static let destructive = recordRed
 
         // Selection & Hover
-        static let selection = face(light: 0xE0F2FE, dark: 0x162C46)
-        static let selectionEdge = face(light: 0x7DD3FC, dark: 0x0EA5E9)
-        static let focusRing = swatch(0x0084FF)
-        static let hover = face(light: 0xF8FAFC, dark: 0x1C283C)
+        static let selection = face(P.selection)
+        static let selectionEdge = face(P.selectionEdge)
+        /// The keyboard focus ring (FLU-38): the accent, 2 pt, outside the control.
+        static let focusRing = face(P.focusRing)
+        static let hover = face(P.hover)
+        /// The soft blue shadow under the *Dicter* pill and the active HUD.
+        static let aquaGlow = face(P.aquaGlow)
 
         // Status that is neither recording nor instrumentation.
         /// "This is on / available" — a lit status dot.
-        static let pilot = face(light: 0x0084FF, dark: 0x38BDF8)
-        /// Error text and fault markers.
-        static let fault = swatch(0xEF4444)
+        static let pilot = face(P.pilot)
+        /// Fault markers (icons, dots). Error *text* uses `faultText`.
+        static let fault = face(P.fault)
+
+        // Status text (FLU-38): darker in light mode so words reach 4.5:1. Dots, icons and
+        // tints keep the bright `meterAmber` / `meterGreen` / `fault`.
+        /// Amber words: `RowNote` caveats, notices, a warning `GrantBadge`.
+        static let amberText = face(P.amberText)
+        /// Green words: the « Autorisé » `GrantBadge`.
+        static let greenText = face(P.greenText)
+        /// Red error words.
+        static let faultText = face(P.faultText)
 
         // Instrumentation / Meter
-        static let meterFace = face(light: 0xF1F5F9, dark: 0x0E1522)
-        static let meterLamp = swatch(0x0084FF)
-        static let meterNeedle = face(light: 0x0F172A, dark: 0xF8FAFC)
-        static let meterGreen = swatch(0x10B981)
-        static let meterAmber = swatch(0xF59E0B)
-        static let meterRed = swatch(0xEF4444)
+        static let meterFace = face(P.meterFace)
+        static let meterLamp = face(P.meterLamp)
+        static let meterNeedle = face(P.meterNeedle)
+        static let meterGreen = face(P.meterGreen)
+        static let meterAmber = face(P.meterAmber)
+        static let meterRed = face(P.meterRed)
 
         // MARK: - Helpers
 
-        /// A fixed colour that does not change with the appearance.
-        private static func swatch(_ hex: UInt32) -> SwiftUI.Color {
-            SwiftUI.Color(hex: hex)
-        }
-
-        /// Resolved by AppKit on every draw, so a window follows an appearance change at once.
-        private static func face(light: UInt32, dark: UInt32) -> SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+        /// A token as a colour. A fixed one does not change with the appearance; the others are
+        /// resolved by AppKit on every draw, so a window follows an appearance change at once.
+        private static func face(_ token: ColorToken) -> SwiftUI.Color {
+            if token.isFixed { return SwiftUI.Color(hex: token.light) }
+            return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
                 let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                return NSColor(hex: isDark ? dark : light)
+                return NSColor(hex: token.value(isDark: isDark))
             })
         }
     }
@@ -189,7 +203,7 @@ enum DS {
         static let pressed = Spec(color: .black.opacity(0.02), radius: 2, x: 0, y: 1)
         static let panel = Spec(color: .black.opacity(0.05), radius: 14, x: 0, y: 4)
         static let window = Spec(color: .black.opacity(0.12), radius: 24, x: 0, y: 8)
-        static let glow = Spec(color: SwiftUI.Color(hex: 0x0084FF).opacity(0.22), radius: 12, x: 0, y: 3)
+        static let glow = Spec(color: Color.aquaGlow.opacity(0.22), radius: 12, x: 0, y: 3)
 
         /// One drop shadow, read field by field by `.shadow(color:radius:x:y:)`.
         struct Spec {
@@ -198,6 +212,15 @@ enum DS {
             let x: CGFloat
             let y: CGFloat
         }
+    }
+
+    // MARK: - Focus
+
+    /// The keyboard focus ring (FLU-38): 2 pt in the accent colour, 3 pt outside the control,
+    /// no glow, only while the keyboard moves the focus.
+    enum Focus {
+        static let ringWidth: CGFloat = 2
+        static let ringOffset: CGFloat = 3
     }
 
     // MARK: - Motion
@@ -260,7 +283,7 @@ extension DS {
 
     /// The Aqua blue gradient: the orb, the "AI" badge and the primary action only.
     enum Gradient {
-        static let aqua = [SwiftUI.Color(hex: 0x38BDF8), SwiftUI.Color(hex: 0x0084FF)]
+        static let aqua = DesignPalette.aquaGradient.map { SwiftUI.Color(hex: $0) }
     }
 
     // MARK: - HUD

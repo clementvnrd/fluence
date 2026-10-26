@@ -36,7 +36,7 @@ struct SnippetPanel: View {
                     Text(settings.snippetsEnabled ? "Activés" : "Désactivés")
                         .font(DS.Font.caption)
                         .foregroundStyle(DS.Color.inkSecondary)
-                    RowToggle(isOn: $settings.snippetsEnabled)
+                    RowToggle(isOn: $settings.snippetsEnabled, label: "Snippets")
                 }
                 .help("Remplacer les phrases prononcées par leur texte pendant la dictée")
                 CapButton(title: "Ajouter", systemImage: "plus") { isAdding = true }
@@ -80,7 +80,7 @@ struct SnippetPanel: View {
             ListFooter(text: FrenchFormat.count(store.entries.count, "snippet")) {
                 // The file is sealed, so there is nothing to reveal; a fault is said here instead.
                 if let problem = store.problem {
-                    Text(problem).font(DS.Font.caption).foregroundStyle(DS.Color.fault).lineLimit(2)
+                    Text(problem).font(DS.Font.caption).foregroundStyle(DS.Color.faultText).lineLimit(2)
                 } else {
                     Text("Chiffrés sur ce Mac").font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary)
                 }
@@ -111,6 +111,7 @@ private struct SnippetRow: View {
     let onDelete: () -> Void
 
     @State private var isHovering = false
+    private let reveal = HoverActionsReveal()
 
     var body: some View {
         HStack(spacing: DS.Space.base) {
@@ -127,7 +128,7 @@ private struct SnippetRow: View {
                 .foregroundStyle(DS.Color.inkOnDeck)
             Image(systemName: "arrow.right")
                 .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(DS.Color.inkOnDeck.opacity(0.4))
+                .foregroundStyle(DS.Color.inkSecondary)  // FLU-38: ≥ 3:1 (was ink at 40 %)
 
             Text(entry.expansion.replacingOccurrences(of: "\n", with: " ⏎ "))
                 .font(DS.Font.body)
@@ -137,7 +138,7 @@ private struct SnippetRow: View {
 
             Spacer()
 
-            if isHovering {
+            if isHovering || reveal.withoutPointer {
                 rowButton("Modifier", action: onEdit)
                 rowButton(entry.isEnabled ? "Désactiver" : "Activer", action: onToggle)
                 rowButton("Supprimer", action: onDelete)

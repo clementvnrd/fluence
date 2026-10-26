@@ -127,8 +127,10 @@ struct TransportKey: View {
                     )
             }
             .contentShape(Rectangle())
+            .keyboardFocusRing(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
         }
         .buttonStyle(.plain)
+        .focusEffectDisabled()
         .onHover { isHovered = $0 }
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.4)

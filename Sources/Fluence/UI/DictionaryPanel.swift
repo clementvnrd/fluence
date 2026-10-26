@@ -154,6 +154,7 @@ private struct DictionaryRow: View {
     let onDelete: () -> Void
 
     @State private var isHovering = false
+    private let reveal = HoverActionsReveal()
 
     var body: some View {
         HStack(spacing: DS.Space.base) {
@@ -172,7 +173,7 @@ private struct DictionaryRow: View {
                     .foregroundStyle(DS.Color.inkOnDeck.opacity(0.6))
                 Image(systemName: "arrow.right")
                     .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(DS.Color.inkOnDeck.opacity(0.4))
+                    .foregroundStyle(DS.Color.inkSecondary)  // FLU-38: ≥ 3:1 (was ink at 40 %)
             }
             Text(entry.write)
                 .font(DS.Font.bodyEmphasis)
@@ -180,7 +181,7 @@ private struct DictionaryRow: View {
 
             Spacer()
 
-            if isHovering {
+            if isHovering || reveal.withoutPointer {
                 rowButton("Modifier", action: onEdit)
                 rowButton(entry.isEnabled ? "Désactiver" : "Activer", action: onToggle)
                 rowButton("Supprimer", action: onDelete)

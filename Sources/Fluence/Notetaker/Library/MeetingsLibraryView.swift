@@ -428,9 +428,12 @@ private struct MeetingHeader: View {
                     .textSelection(.enabled)
                 Button { model.beginEditingTitle() } label: {
                     Image(systemName: "pencil").font(.system(size: 12, weight: .semibold)).foregroundStyle(DS.Color.accent)
+                        .keyboardFocusRing(Circle(), outset: 3)
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .help("Modifier le titre")
+                .accessibilityLabel("Modifier le titre")
             }
         }
     }

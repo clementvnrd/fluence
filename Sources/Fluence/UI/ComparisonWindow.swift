@@ -219,6 +219,7 @@ private struct ComparisonCard: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(DS.Color.inkSecondary)
                     .help("Supprimer cette comparaison")
+                    .accessibilityLabel("Supprimer cette comparaison")
                 }
             }
             if let margin = ranking.marginLabel {

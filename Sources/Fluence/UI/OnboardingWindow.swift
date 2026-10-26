@@ -582,7 +582,7 @@ private struct DetectionSwitch: View {
                 .foregroundStyle(DS.Color.ink)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: DS.Space.base)
-            RowToggle(isOn: $settings.detectMeetings)
+            RowToggle(isOn: $settings.detectMeetings, label: "Proposer de prendre des notes quand un appel commence")
         }
         .padding(.horizontal, DS.Space.roomy)
         .padding(.vertical, DS.Space.base)

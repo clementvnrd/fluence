@@ -23,9 +23,12 @@ struct ProblemBanner: View {
                     Image(systemName: "xmark")
                         .font(.system(size: DS.Library.glyph, weight: .bold))
                         .foregroundStyle(DS.Color.inkSecondary)
+                        .keyboardFocusRing(Circle(), outset: 3)
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .help("Masquer")
+                .accessibilityLabel("Masquer")
             }
         }
         .padding(.horizontal, DS.Space.base)

@@ -110,6 +110,7 @@ private struct TranscriptionCard: View {
     @State private var isShowingCorrection = false
     /// What the engine heard before cleanup, when cleanup changed it.
     @State private var showsRaw = false
+    private let reveal = HoverActionsReveal()
 
     private var shownText: String { showsRaw ? run.rawText ?? run.text : run.text }
 
@@ -151,10 +152,12 @@ private struct TranscriptionCard: View {
                     .foregroundStyle(DS.Color.inkSecondary)
                     .padding(4)
                     .contentShape(Rectangle())
+                    .keyboardFocusRing(RoundedRectangle(cornerRadius: 6, style: .continuous), outset: 1)
             }
             .buttonStyle(.plain)
-            .opacity(0.8)
+            .focusEffectDisabled()
             .help("Supprimer cette dictée")
+            .accessibilityLabel("Supprimer cette dictée")
         }
     }
 
@@ -168,7 +171,7 @@ private struct TranscriptionCard: View {
                     .help("\(run.engine) · texte prêt en \(FrenchFormat.seconds(run.processSeconds))")
                 Spacer()
                 actions
-                    .opacity(isHovering || isShowingCorrection ? 1 : 0)
+                    .opacity(isHovering || isShowingCorrection || reveal.withoutPointer ? 1 : 0)
             }
 
             Text(shownText)

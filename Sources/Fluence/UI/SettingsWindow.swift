@@ -113,7 +113,7 @@ private struct LaunchAtLoginCard: View {
             if !login.isAvailable {
                 RowNote(text: "Disponible depuis Fluence installée dans Applications.")
             } else if login.needsApproval {
-                RowNote(text: "macOS attend votre accord dans Réglages Système › Général › Ouverture.", color: DS.Color.meterAmber)
+                RowNote(text: "macOS attend votre accord dans Réglages Système › Général › Ouverture.", color: DS.Color.amberText)
                 HStack {
                     CapButton(title: "Ouvrir Réglages Système", height: 24) { login.openSystemSettings() }
                     Spacer()
@@ -122,7 +122,7 @@ private struct LaunchAtLoginCard: View {
                 .padding(.bottom, 12)
             }
             if let problem = login.problem {
-                RowNote(text: problem, color: DS.Color.fault)
+                RowNote(text: problem, color: DS.Color.faultText)
             }
         }
         .onAppear { login.refresh() }
@@ -263,9 +263,12 @@ struct DictationSettingsSection: View {
                     .frame(width: 26, height: 26)
                     .background(DS.Color.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(DS.Color.seam, lineWidth: 1))
+                    .keyboardFocusRing(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
             .buttonStyle(.plain)
+            .focusEffectDisabled()
             .help("Actualiser la liste des microphones")
+            .accessibilityLabel("Actualiser la liste des microphones")
         }
     }
 }
@@ -327,6 +330,7 @@ struct ShortcutRecorder: View {
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
+            .accessibilityLabel("Raccourcis proposés")
         }
         .onDisappear { stop() }
     }
@@ -453,7 +457,7 @@ struct TranscriptionSettingsSection: View {
                 }
             }
             if let languageCaveat {
-                RowNote(text: languageCaveat, color: DS.Color.meterAmber)
+                RowNote(text: languageCaveat, color: DS.Color.amberText)
             }
             RowDivider()
             SettingsRow(systemImage: "waveform", title: "Moteur vocal", info: settings.engine.explanation) {
@@ -462,7 +466,7 @@ struct TranscriptionSettingsSection: View {
                 }
             }
             if let engineCaveat {
-                RowNote(text: engineCaveat, color: DS.Color.meterAmber)
+                RowNote(text: engineCaveat, color: DS.Color.amberText)
             }
             // FLU-29: Parakeet selected (or the French default) but not on disk yet — its
             // download, asked for here, with Apple standing in meanwhile.
@@ -557,7 +561,7 @@ struct TranscriptionSettingsSection: View {
                 }
             }
             if let failure = models.failure {
-                RowNote(text: failure, color: DS.Color.meterAmber)
+                RowNote(text: failure, color: DS.Color.amberText)
             }
         }
         .confirmationDialog(
@@ -660,9 +664,12 @@ private struct ParakeetDownloadRow: View {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 13))
                             .foregroundStyle(DS.Color.silkscreen)
+                            .keyboardFocusRing(Circle(), outset: 2)
                     }
                     .buttonStyle(.plain)
+                    .focusEffectDisabled()
                     .help("Annuler le téléchargement")
+                    .accessibilityLabel("Annuler le téléchargement")
                 }
             case .idle:
                 CapButton(title: "Télécharger", systemImage: "arrow.down", height: 26) { download.start() }
@@ -813,7 +820,7 @@ struct AboutSettingsSection: View {
                 CapButton(title: "Exporter…", height: 24) { exportDiagnostic() }
             }
             if exportFailed {
-                RowNote(text: "Le diagnostic n'a pas pu être enregistré.", color: DS.Color.fault)
+                RowNote(text: "Le diagnostic n'a pas pu être enregistré.", color: DS.Color.faultText)
             }
         }
 
