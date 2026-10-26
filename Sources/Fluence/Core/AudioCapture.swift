@@ -50,7 +50,8 @@ final class AudioCapture: @unchecked Sendable {
     }
 
     /// - Parameters:
-    ///   - onBuffer: each captured chunk, on the audio thread, in capture order.
+    ///   - onBuffer: each captured chunk, on the audio thread, in capture order, stamped with
+    ///     the host time of its first sample when the engine provides one.
     ///   - onLevel: a 0…1 level per chunk (`AudioLevel`) and the chunk's duration, for the meters.
     ///   - onInterrupted: capture ended on its own — the device disappeared, or kept changing.
     ///     Called on the main thread with a reason fit for the user.
@@ -221,10 +222,13 @@ final class AudioCapture: @unchecked Sendable {
     /// Built in a static context so the block can't inherit any actor isolation: it runs on
     /// the audio thread, and an isolated closure there is a runtime trap.
     private static func tap(into sink: TapSink, as mono: AVAudioFormat) -> AVAudioNodeTapBlock {
-        return { buffer, _ in
+        return { buffer, when in
             guard let chunk = monoCopy(of: buffer, as: mono) else { return }
             sink.onLevel(level(of: chunk), Double(chunk.frameLength) / chunk.format.sampleRate)
-            sink.onBuffer(AudioChunk(buffer: chunk))
+            // When the first sample was heard, on the host clock: the post-roll (FLU-31) needs
+            // to know which audio came before the key went up.
+            let time = when.isHostTimeValid ? AVAudioTime.seconds(forHostTime: when.hostTime) : nil
+            sink.onBuffer(AudioChunk(buffer: chunk, captureTime: time))
         }
     }
 

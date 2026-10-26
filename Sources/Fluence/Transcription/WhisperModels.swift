@@ -19,21 +19,23 @@ actor WhisperModels {
     }
 
     static let availableVariants: [Variant] = [
+        // The sizes come from `SpeechModel` (FLU-31): Large Turbo was announced as ~1.5 Go and
+        // takes 3,2 Go on disk.
         Variant(
             id: "openai_whisper-base",
-            displayName: "Whisper Base (~140 Mo)",
+            displayName: SpeechModel.whisperBase.pickerTitle,
             sizeDescription: "Instantané (~0.2s) • Vitesse maximale",
             isRecommended: false
         ),
         Variant(
             id: "openai_whisper-small",
-            displayName: "Whisper Small (~480 Mo)",
+            displayName: SpeechModel.whisperSmall.pickerTitle,
             sizeDescription: "Rapide, imprécis en français (FLU-24)",
             isRecommended: false
         ),
         Variant(
             id: "openai_whisper-large-v3_turbo",
-            displayName: "Whisper Large Turbo (~1.5 Go)",
+            displayName: SpeechModel.whisperTurbo.pickerTitle,
             sizeDescription: "Plus précis, mais plus lent que le temps réel sur M1/M2 (FLU-24)",
             isRecommended: false
         )
@@ -209,6 +211,12 @@ actor WhisperModels {
 
     private func storePipeline(_ kit: WhisperKit, for variant: String) {
         loadedPipelines[variant] = kit
+    }
+
+    /// The variant's files went to the Trash from Réglages (FLU-31): let the pipeline go, so a
+    /// later choice of it downloads it again instead of using a model with no files.
+    func forget(variant: String) {
+        loadedPipelines[variant] = nil
     }
 
     private func updateProgress(_ progress: Double) {

@@ -390,7 +390,15 @@ actor ChannelPipeline {
         transcriptions.append(Task { await self.transcribe(samples, startSample: utterance.startSample) })
     }
 
+    /// Holds the shared Parakeet for the utterance, so the idle unload (FLU-31) never takes it
+    /// away mid-transcription.
     private func transcribe(_ samples: [Float], startSample: Int) async {
+        await ParakeetModels.shared.beginUse()
+        await transcribeHoldingModels(samples, startSample: startSample)
+        await ParakeetModels.shared.endUse()
+    }
+
+    private func transcribeHoldingModels(_ samples: [Float], startSample: Int) async {
         let start = Double(startSample) / Self.rate
         do {
             let manager = try await ParakeetModels.shared.manager()

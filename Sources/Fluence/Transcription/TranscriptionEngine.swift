@@ -9,6 +9,9 @@ import Foundation
 /// tap's own buffer must never be wrapped in an `AudioChunk`.
 struct AudioChunk: @unchecked Sendable {
     let buffer: AVAudioPCMBuffer
+    /// Host-clock seconds of the first sample, when the capture knows it (FLU-31: the
+    /// post-roll compares it with the moment the key came up). Nil after conversion.
+    var captureTime: TimeInterval? = nil
 }
 
 /// What an engine reports back.

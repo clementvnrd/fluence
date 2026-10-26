@@ -26,6 +26,9 @@ actor ParakeetEngine: TranscriptionEngine {
     /// Out of the box it produces 16 kHz mono Float32, the format Parakeet was trained on.
     private let converter = AudioConverter()
 
+    /// This dictation holds the shared models: they are not unloaded until it ends (FLU-31).
+    private var holdsModels = false
+
     func preferredInputFormat() async -> AVAudioFormat? {
         // The model's native rate; getting the microphone there is `AudioCapture`'s job.
         AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)
@@ -38,7 +41,18 @@ actor ParakeetEngine: TranscriptionEngine {
 
         // A first load is slow (about 600 MB downloaded on the very first run, seconds from
         // disk afterwards). Paying it here, before speech, means release never loses an utterance to it.
-        _ = try await ParakeetModels.shared.manager()
+        // Since FLU-31 the models leave memory when idle, so this is also where they come back:
+        // at key-down, while the user talks.
+        if !holdsModels {
+            holdsModels = true
+            await ParakeetModels.shared.beginUse()
+        }
+        do {
+            _ = try await ParakeetModels.shared.manager()
+        } catch {
+            await releaseModels()
+            throw error
+        }
 
         // MARK: FLU-5 text — read once per dictation, on the main actor where they live.
         let (language, boost, phrases) = await MainActor.run {
@@ -76,6 +90,11 @@ actor ParakeetEngine: TranscriptionEngine {
     }
 
     func finish() async {
+        await transcribeAndClose()
+        await releaseModels()
+    }
+
+    private func transcribeAndClose() async {
         defer {
             continuation?.finish()
             continuation = nil
@@ -120,6 +139,14 @@ actor ParakeetEngine: TranscriptionEngine {
         samples.removeAll(keepingCapacity: false)
         continuation?.finish()
         continuation = nil
+        await releaseModels()
+    }
+
+    /// Once per dictation, whichever way it ends: `cancel()` may follow `finish()`.
+    private func releaseModels() async {
+        guard holdsModels else { return }
+        holdsModels = false
+        await ParakeetModels.shared.endUse()
     }
 
     // MARK: FLU-5 text
@@ -152,9 +179,15 @@ actor ParakeetEngine: TranscriptionEngine {
 /// The loaded Parakeet models, one copy for the whole process.
 ///
 /// Loading is expensive — ~600 MB downloaded on first ever run, then a few seconds from
-/// disk, paid once per process. A loaded model is read-only, so every dictation and every
-/// meeting shares this one instance instead of reloading per utterance. It is an actor of its
-/// own because a mutable `static` on the engine would be unguarded global state in Swift 6.
+/// disk (about 20 s when Core ML recompiles after a macOS update, 0.1–0.4 s otherwise). A
+/// loaded model is read-only, so every dictation and every meeting shares this one instance
+/// instead of reloading per utterance. It is an actor of its own because a mutable `static`
+/// on the engine would be unguarded global state in Swift 6.
+///
+/// FLU-31: a loaded Parakeet holds about 0.6 GB of Neural Engine memory, so it no longer stays
+/// for the life of the process. `ModelResidency` decides: unloaded after ten idle minutes or on
+/// memory pressure, never while a dictation (`beginUse`…`endUse`) or a meeting utterance holds
+/// it. The next key-down loads it again while the user talks.
 actor ParakeetModels {
     static let shared = ParakeetModels()
 
@@ -177,6 +210,13 @@ actor ParakeetModels {
 
     private var loaded: AsrManager?
     private var loading: Task<AsrManager, Error>?
+
+    // MARK: FLU-31 — residency
+
+    private var usersInFlight = 0
+    private var lastUse: ContinuousClock.Instant?
+    private var idleCheck: Task<Void, Never>?
+    private var memoryPressure: DispatchSourceMemoryPressure?
 
     // MARK: FLU-5 text — vocabulary boosting
 
@@ -224,11 +264,97 @@ actor ParakeetModels {
     /// Whether the transcription model is already in memory.
     var isLoaded: Bool { loaded != nil }
 
+    /// A dictation or a meeting utterance starts using the models: they stay until `endUse`.
+    func beginUse() {
+        usersInFlight += 1
+        idleCheck?.cancel()
+        idleCheck = nil
+    }
+
+    /// The use started by `beginUse` is over; the idle clock starts again.
+    func endUse() {
+        usersInFlight = max(0, usersInFlight - 1)
+        lastUse = .now
+        scheduleIdleCheck()
+    }
+
+    private var residency: ModelResidency.State {
+        ModelResidency.State(
+            isLoaded: loaded != nil,
+            isLoading: loading != nil && loaded == nil,
+            usersInFlight: usersInFlight,
+            idleSeconds: lastUse.map { Self.seconds(ContinuousClock.now - $0) }
+        )
+    }
+
+    private static func seconds(_ duration: Duration) -> TimeInterval {
+        let parts = duration.components
+        return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
+    }
+
+    /// The continuous clock keeps counting while the Mac sleeps: an hour asleep is an hour idle.
+    private func scheduleIdleCheck() {
+        idleCheck?.cancel()
+        guard let delay = ModelResidency.nextCheck(residency) else {
+            idleCheck = nil
+            return
+        }
+        idleCheck = Task {
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await self.unloadIfAllowed(.idle)
+        }
+    }
+
+    /// Frees the models when `ModelResidency` allows it. The next `manager()` loads them again.
+    func unloadIfAllowed(_ trigger: ModelResidency.Trigger) async {
+        guard ModelResidency.shouldUnload(residency, trigger: trigger) else {
+            if trigger == .idle { scheduleIdleCheck() }
+            return
+        }
+        let manager = loaded
+        loaded = nil
+        loading = nil
+        // The vocabulary model goes too: it comes back with the next boosted dictation.
+        vocabulary = nil
+        ctcLoad = nil
+        idleCheck?.cancel()
+        idleCheck = nil
+        lastUse = nil
+        await manager?.cleanup()
+        let reason = trigger == .idle ? "idle for \(Int(ModelResidency.idleLimit / 60)) min" : "memory pressure"
+        Log.speech.info("Parakeet: models unloaded (\(reason, privacy: .public))")
+    }
+
+    /// The system says memory is short: let the models go if nothing is using them.
+    private func watchMemoryPressure() {
+        guard memoryPressure == nil else { return }
+        memoryPressure = Self.makeMemoryPressureSource()
+    }
+
+    /// Built in a static, nonisolated context so the handler can't inherit the actor's
+    /// isolation: it runs on a dispatch queue, where an isolated closure is a runtime trap.
+    private nonisolated static func makeMemoryPressureSource() -> DispatchSourceMemoryPressure {
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .global(qos: .utility))
+        source.setEventHandler {
+            Task { await ParakeetModels.shared.unloadIfAllowed(.memoryPressure) }
+        }
+        source.resume()
+        return source
+    }
+
     /// The shared manager, loaded on first use; callers that arrive during the load wait on the
-    /// same task, so nothing is downloaded twice.
+    /// same task, so nothing is downloaded twice. Each call counts as a use for the idle clock.
     func manager() async throws -> AsrManager {
-        if let loaded { return loaded }
-        if let loading { return try await loading.value }
+        if let loaded {
+            touch()
+            return loaded
+        }
+        if let loading {
+            let manager = try await loading.value
+            touch()
+            return manager
+        }
 
         let task = Task<AsrManager, Error> {
             // `os.Logger` only takes an interpolation literal, so the ternary goes in a local.
@@ -249,11 +375,22 @@ actor ParakeetModels {
         // simply tries again.
         do {
             let manager = try await task.value
+            // Unloaded while it loaded (memory pressure): keep it anyway, someone is waiting.
             loaded = manager
+            loading = nil
+            watchMemoryPressure()
+            touch()
             return manager
         } catch {
             loading = nil
             throw error
         }
+    }
+
+    /// A use outside `beginUse`/`endUse` (a prewarm, the menu's download): it restarts the
+    /// idle clock, and starts it when nothing holds the models.
+    private func touch() {
+        lastUse = .now
+        if usersInFlight == 0 { scheduleIdleCheck() }
     }
 }
