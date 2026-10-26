@@ -1,7 +1,7 @@
 name: macOS
 
-# Builds the whole app and runs every Swift test target, including the shared contracts
-# (dictionary vectors, meeting vectors) that the Windows app runs too.
+# Builds the whole app and runs every Swift test target, including the behaviour contracts
+# (dictionary vectors, meeting vectors).
 #
 # Pull requests and manual runs only: on a private repository a macOS minute costs ten
 # included minutes, and a merge to main has already passed this on its pull request.
