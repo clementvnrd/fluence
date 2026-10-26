@@ -239,11 +239,18 @@ public enum SpeechRepairs {
         return current
     }
 
-    /// A misrecognition common enough to fix by rule: "les énormes œils" → "les énormes yeux".
+    /// Misrecognitions common enough to fix by rule, each one never correct French as heard:
+    /// "les énormes œils" → "les énormes yeux"; "mis à genre" → "mis à jour" (FLU-84: Parakeet
+    /// hears « jour » as « genre » after *mettre*; « genre » elsewhere is left alone).
     static func grammaticalCorrections(_ text: String) -> String {
         text.replacingOccurrences(
             of: #"(?i)\b(les|des|mes|tes|ses|nos|vos|leurs|énormes|beaux|grands|petits)\s+œils\b"#,
             with: "$1 yeux",
+            options: .regularExpression
+        )
+        .replacingOccurrences(
+            of: #"(?i)(?<![\p{L}0-9_])((?:re)?(?:mett\p{L}*|mets|met|mis|mise|mises))\s+[àa]\s+genre(?![\p{L}0-9_])"#,
+            with: "$1 à jour",
             options: .regularExpression
         )
     }
