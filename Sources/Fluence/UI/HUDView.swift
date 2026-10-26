@@ -265,6 +265,8 @@ struct HUDView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Basculer la langue (⌥L)")
+                .accessibilityLabel("Langue de dictée")
+                .accessibilityValue(settings.dictationLanguage.displayName)
             }
             finishButton
         case .handsFree:
@@ -307,6 +309,7 @@ struct HUDView: View {
         }
         .buttonStyle(.plain)
         .help("Terminer la dictée")
+        .accessibilityLabel("Terminer la dictée")
     }
 
     private var elapsedText: String {

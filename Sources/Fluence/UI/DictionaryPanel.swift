@@ -154,6 +154,7 @@ private struct DictionaryRow: View {
     let onDelete: () -> Void
 
     @State private var isHovering = false
+    private let reveal = HoverActionsReveal()
 
     var body: some View {
         HStack(spacing: DS.Space.base) {
@@ -180,7 +181,7 @@ private struct DictionaryRow: View {
 
             Spacer()
 
-            if isHovering {
+            if isHovering || reveal.withoutPointer {
                 rowButton("Modifier", action: onEdit)
                 rowButton(entry.isEnabled ? "Désactiver" : "Activer", action: onToggle)
                 rowButton("Supprimer", action: onDelete)

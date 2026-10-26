@@ -28,6 +28,7 @@ struct ProblemBanner: View {
                 .buttonStyle(.plain)
                 .focusEffectDisabled()
                 .help("Masquer")
+                .accessibilityLabel("Masquer")
             }
         }
         .padding(.horizontal, DS.Space.base)

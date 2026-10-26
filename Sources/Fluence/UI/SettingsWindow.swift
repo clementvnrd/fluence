@@ -268,6 +268,7 @@ struct DictationSettingsSection: View {
             .buttonStyle(.plain)
             .focusEffectDisabled()
             .help("Actualiser la liste des microphones")
+            .accessibilityLabel("Actualiser la liste des microphones")
         }
     }
 }
@@ -329,6 +330,7 @@ struct ShortcutRecorder: View {
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
+            .accessibilityLabel("Raccourcis proposés")
         }
         .onDisappear { stop() }
     }

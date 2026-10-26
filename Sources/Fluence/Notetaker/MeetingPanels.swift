@@ -295,6 +295,7 @@ private struct RecordingPill: View {
             }
             .buttonStyle(.plain)
             .help("Déplier : contrôles et transcription en direct")
+            .accessibilityLabel("Déplier la prise de notes")
             Button { controller.stop(reason: .user) } label: {
                 Image(systemName: "stop.fill")
                     .font(.system(size: 10, weight: .bold))
@@ -305,6 +306,7 @@ private struct RecordingPill: View {
             }
             .buttonStyle(.plain)
             .help("Arrêter la prise de notes")
+            .accessibilityLabel("Arrêter la prise de notes")
         }
         .padding(.leading, 14)
         .padding(.trailing, 6)
@@ -347,6 +349,7 @@ private struct RecordingPanelExpanded: View {
                     }
                     .buttonStyle(.plain)
                     .help("Réduire")
+                    .accessibilityLabel("Réduire")
                 }
                 if let title = controller.meeting?.title, !title.isEmpty {
                     Text(title).font(DS.Font.title).foregroundStyle(DS.Color.ink).lineLimit(2)

@@ -36,7 +36,7 @@ struct SnippetPanel: View {
                     Text(settings.snippetsEnabled ? "Activés" : "Désactivés")
                         .font(DS.Font.caption)
                         .foregroundStyle(DS.Color.inkSecondary)
-                    RowToggle(isOn: $settings.snippetsEnabled)
+                    RowToggle(isOn: $settings.snippetsEnabled, label: "Snippets")
                 }
                 .help("Remplacer les phrases prononcées par leur texte pendant la dictée")
                 CapButton(title: "Ajouter", systemImage: "plus") { isAdding = true }
@@ -111,6 +111,7 @@ private struct SnippetRow: View {
     let onDelete: () -> Void
 
     @State private var isHovering = false
+    private let reveal = HoverActionsReveal()
 
     var body: some View {
         HStack(spacing: DS.Space.base) {
@@ -137,7 +138,7 @@ private struct SnippetRow: View {
 
             Spacer()
 
-            if isHovering {
+            if isHovering || reveal.withoutPointer {
                 rowButton("Modifier", action: onEdit)
                 rowButton(entry.isEnabled ? "Désactiver" : "Activer", action: onToggle)
                 rowButton("Supprimer", action: onDelete)

@@ -395,6 +395,7 @@ struct PillTabs<Value: Hashable>: View {
                 }
                 .buttonStyle(.plain)
                 .focusEffectDisabled()
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
         .padding(3)
@@ -470,6 +471,7 @@ struct SearchWell: View {
                 .buttonStyle(.plain)
                 .focusEffectDisabled()
                 .help("Effacer la recherche")
+                .accessibilityLabel("Effacer la recherche")
             } else if showsShortcut {
                 Text("⌘F").font(.system(size: 10, weight: .medium, design: .rounded)).foregroundStyle(DS.Color.silkscreen)
             }
@@ -577,6 +579,7 @@ struct EmptyState: View {
                 .font(.system(size: 24, weight: .light))
                 .foregroundStyle(DS.Color.inkSecondary.opacity(0.5))
                 .padding(.bottom, 2)
+                .accessibilityHidden(true)
             Text(title).font(DS.Font.bodyEmphasis).foregroundStyle(DS.Color.ink)
             Text(detail)
                 .font(DS.Font.caption)
@@ -628,10 +631,11 @@ struct SettingsRow<Control: View>: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(iconTint)
                 .frame(width: 20)
+                .accessibilityHidden(true)  // decoration: the title says it
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
                     Text(title).font(DS.Font.label).foregroundStyle(DS.Color.ink).lineLimit(1)
-                    if let info { InfoButton(text: info) }
+                    if let info { InfoButton(text: info, subject: title) }
                 }
                 if let subtitle {
                     Text(subtitle).font(.system(size: 11)).foregroundStyle(DS.Color.inkSecondary).lineLimit(2)
@@ -641,6 +645,8 @@ struct SettingsRow<Control: View>: View {
             .layoutPriority(1)
             Spacer(minLength: 12)
             control.fixedSize(horizontal: true, vertical: false)
+                // A switch in the row is named after it (FLU-38): VoiceOver read « switch » alone.
+                .environment(\.settingsRowTitle, title)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -652,6 +658,8 @@ struct SettingsRow<Control: View>: View {
 /// explanations stay available without being printed on every page).
 struct InfoButton: View {
     let text: String
+    /// What it explains, for VoiceOver: « Informations : Son ».
+    var subject: String?
     @State private var isShowing = false
 
     var body: some View {
@@ -665,6 +673,7 @@ struct InfoButton: View {
         .buttonStyle(.plain)
         .focusEffectDisabled()
         .help(text)
+        .accessibilityLabel(subject.map { "Informations : \($0)" } ?? "Informations")
         .popover(isPresented: $isShowing, arrowEdge: .bottom) {
             Text(text)
                 .font(DS.Font.caption)
@@ -707,12 +716,17 @@ struct RowDivider: View {
 struct RowToggle: View {
     @Binding var isOn: Bool
     var isEnabled = true
+    /// What VoiceOver calls the switch. In a `SettingsRow` it is the row's title already.
+    var label: String?
+
+    @Environment(\.settingsRowTitle) private var rowTitle
 
     /// The switch is an AppKit control: its focus is read here, not from inside a label.
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        Toggle("", isOn: $isOn)
+        // The label is hidden on screen (the row shows it) but kept for VoiceOver.
+        Toggle(label ?? rowTitle ?? "", isOn: $isOn)
             .toggleStyle(.switch)
             .tint(DS.Color.accent)
             .labelsHidden()
@@ -770,6 +784,7 @@ struct SidebarItem: View {
                     if isLive {
                         Lamp(color: DS.Color.meetingRecord, isLit: true, size: 6)
                             .help("Une réunion est en cours d'enregistrement")
+                            .accessibilityLabel("Enregistrement en cours")
                     }
                     if let count {
                         Text("\(count)")
@@ -797,6 +812,7 @@ struct SidebarItem: View {
         // shows only once Tab is used (FLU-38).
         .focusEffectDisabled()
         .onHover { isHovered = $0 }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -931,6 +947,30 @@ struct DownloadBar: View {
         }
         .frame(height: height)
         .animation(DS.Motion.readout, value: fraction)
+    }
+}
+
+// MARK: - Accessibility (FLU-38)
+
+private struct SettingsRowTitleKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    /// The title of the `SettingsRow` a control sits in, so its switch is named after it.
+    var settingsRowTitle: String? {
+        get { self[SettingsRowTitleKey.self] }
+        set { self[SettingsRowTitleKey.self] = newValue }
+    }
+}
+
+/// Whether an item's hover-only actions (FLU-19) show without the pointer: while VoiceOver
+/// runs or the keyboard moves the focus, so they can be reached at all (FLU-38).
+struct HoverActionsReveal: DynamicProperty {
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+
+    @MainActor var withoutPointer: Bool {
+        voiceOver || KeyboardFocusIndicator.shared.showsRing
     }
 }
 

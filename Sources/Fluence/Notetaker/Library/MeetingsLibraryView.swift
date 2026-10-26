@@ -433,6 +433,7 @@ private struct MeetingHeader: View {
                 .buttonStyle(.plain)
                 .focusEffectDisabled()
                 .help("Modifier le titre")
+                .accessibilityLabel("Modifier le titre")
             }
         }
     }
