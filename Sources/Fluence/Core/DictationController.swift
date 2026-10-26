@@ -99,10 +99,14 @@ final class DictationController {
     /// Parakeet… », the language pill only for engines that use it).
     private(set) var sessionEngine: SpeechEngineChoice?
 
-    // MARK: FLU-29 — the capsule's messages
+    // MARK: FLU-29 — the capsule's messages and the kept recording
 
     /// When the message on the capsule goes (`CapsuleTimeline`).
     @ObservationIgnored private var timeline = CapsuleTimeline()
+    /// A failed dictation's audio, in memory only, for *Réessayer* (`DictationRetry`).
+    @ObservationIgnored private var keptRecording: KeptRecording?
+    /// Forgets `keptRecording` once its minute is up.
+    @ObservationIgnored private var keptRecordingExpiry: Task<Void, Never>?
 
     /// The comparison whose local engines are running, by group: its card shows a spinner.
     private(set) var runningComparisonGroup: String?
@@ -450,7 +454,23 @@ final class DictationController {
             Diagnostics.error("dictation.engineStart", error)
             await engine.cancel()
             guard self.session === session else { return }
-            fail(.engineDidNotStart(session.isComparing ? .apple : session.engineKind.compared, canRetry: false))
+            // A comparison needs Apple's format to replay into every engine: nothing to fall
+            // back on.
+            guard !session.isComparing else {
+                fail(.engineDidNotStart(.apple, canRetry: false))
+                return
+            }
+            // FLU-29: the microphone keeps recording, into memory only. At release the
+            // recording goes to another engine (`DictationRetry`) rather than being lost.
+            session.engine = nil
+            session.startError = error
+            session.feedTask = Self.feed(session.audio, to: nil, as: RecordingReplay.format, keepingRecording: false)
+            session.isReady = true
+            if session.isReleased {
+                await complete(session)
+            } else {
+                state = .listening
+            }
         }
     }
 
@@ -535,10 +555,12 @@ final class DictationController {
         }
 
         let engineStarted = HostClock.now
-        await session.engine?.finish()
-        guard self.session === session else { return }
-        await session.consumeTask?.value
-        guard self.session === session else { return }
+        if session.startError == nil {
+            await session.engine?.finish()
+            guard self.session === session else { return }
+            await session.consumeTask?.value
+            guard self.session === session else { return }
+        }
         let engineSeconds = HostClock.now - engineStarted
         if session.signpost != nil, let id = session.signpostID {
             Log.signposter.emitEvent("Engine done", id: id)
@@ -552,7 +574,11 @@ final class DictationController {
         let raw = transcript
         let heardNothing = raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let trigger: DictationRetry.Trigger?
-        if session.engineError != nil, heardNothing {
+        if session.startError != nil {
+            trigger = .didNotStart
+        } else if session.engineError != nil, heardNothing || fed.kept != nil {
+            // With the recording kept, a failure partway is transcribed again whole rather
+            // than typed in part.
             trigger = .failed
         } else if heardNothing {
             // The engine ran and heard no words: as good as silence, said the same way.
@@ -569,7 +595,8 @@ final class DictationController {
         }
 
         guard let trigger else {
-            // Text arrived, but the engine also failed partway: type what there is, and say so.
+            // Text arrived, but the engine also failed partway and nothing was kept to run
+            // again (a very long recording): type what there is, and say so.
             let stoppedEarly = session.engineError != nil
             await deliver(raw, session: session, engineSeconds: engineSeconds)
             // Only over a clean finish: a « Copié » message says more than this one.
@@ -578,7 +605,63 @@ final class DictationController {
             }
             return
         }
-        fail(Self.failure(after: trigger, engine: session.engineKind.compared, canRetry: false))
+        await recover(session, after: trigger, kept: fed.kept, engineSeconds: engineSeconds)
+    }
+
+    /// FLU-29: the engine failed on this recording. One automatic retry (`DictationRetry`),
+    /// then the capsule's *Réessayer* for a minute, on another engine.
+    private func recover(
+        _ session: DictationSession,
+        after trigger: DictationRetry.Trigger,
+        kept chunks: [AudioChunk]?,
+        engineSeconds: Double
+    ) async {
+        let failedEngine = session.engineKind.compared
+        // Command Mode instructions are not kept: a retry would apply the rewrite later, to
+        // whatever is selected by then.
+        guard let chunks, !isCommand else {
+            fail(Self.failure(after: trigger, engine: failedEngine, canRetry: false))
+            return
+        }
+        ParakeetDownload.shared.refresh()
+        let parakeetReady = ParakeetDownload.shared.isReady
+        let whisperReady = WhisperModels.isDownloaded(variant: Settings.shared.whisperModel)
+        var lastEngine = failedEngine
+        var lastTrigger = trigger
+        if let retry = DictationRetry.automatic(
+            after: trigger,
+            engine: failedEngine,
+            attempts: 0,
+            parakeetReady: parakeetReady,
+            whisperReady: whisperReady
+        ) {
+            Log.speech.info("dictation · retrying once on \(retry.rawValue, privacy: .public) after \(String(describing: trigger), privacy: .public)")
+            Diagnostics.recovery("dictation.retry.automatic")
+            transcript = ""
+            let result = await replay(chunks, on: SpeechEngineChoice(retry))
+            guard self.session === session else { return }
+            switch result {
+            case .success(let text):
+                if TranscriptHealth.isDegenerate(text) {
+                    lastTrigger = .repeated
+                } else {
+                    await deliver(text, session: session, engineSeconds: engineSeconds, engineName: SpeechEngineChoice(retry).displayName)
+                    return
+                }
+            case .failure:
+                lastTrigger = .failed
+            }
+            lastEngine = retry
+        }
+        keep(KeptRecording(
+            chunks: chunks,
+            keptAt: Self.uptime,
+            failedEngine: lastEngine,
+            started: session.started,
+            releasedAt: session.releasedAt,
+            target: session.target
+        ))
+        fail(Self.failure(after: lastTrigger, engine: lastEngine, canRetry: true))
     }
 
     private static func failure(after trigger: DictationRetry.Trigger, engine: ComparedEngine, canRetry: Bool) -> DictationFailure {
@@ -586,6 +669,26 @@ final class DictationController {
         case .didNotStart: .engineDidNotStart(engine, canRetry: canRetry)
         case .failed: .engineFailed(engine, canRetry: canRetry)
         case .repeated: .repeated(engine, canRetry: canRetry)
+        }
+    }
+
+    /// Runs a kept recording through one engine. Empty text counts as a failure here: the
+    /// silence gate already heard speech in it.
+    private func replay(_ chunks: [AudioChunk], on kind: SpeechEngineChoice) async -> Result<String, Error> {
+        let engine = newEngine(kind)
+        let variant = Settings.shared.whisperModel
+        do {
+            let text = try await RecordingReplay.transcribe(chunks, on: engine) {
+                // Whisper loads its pipeline lazily; it is on disk (`DictationRetry` never
+                // picks an engine that would download).
+                if kind == .whisper { try await WhisperModels.shared.prepare(variant: variant) }
+            }
+            guard !text.isEmpty else { return .failure(TranscriptionError.notRunning) }
+            return .success(text)
+        } catch {
+            Log.speech.error("dictation retry on \(kind.rawValue, privacy: .public) failed: \(error.localizedDescription)")
+            Diagnostics.error("dictation.retry.failed", error)
+            return .failure(error)
         }
     }
 
@@ -642,6 +745,8 @@ final class DictationController {
         lastTranscript = output  // MARK: FLU-5 input
         // The success sound only once the text has landed (FLU-27, FLU-29: after the paste).
         if outcome == .inserted, Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
+        // The recording did its job: it leaves memory now.
+        forgetKeptRecording()
 
         switch outcome {
         case .inserted: end(session, as: .idle)
@@ -656,19 +761,42 @@ final class DictationController {
     /// Audio is held back until the silence gate hears something, then released all at
     /// once: a recording that never rises above room tone never reaches the engine at all.
     /// Static and detached so none of it runs on the main actor.
+    ///
+    /// FLU-29: a copy of the recording is kept in memory as 16 kHz mono (`RecordingReplay`),
+    /// so a failed transcription can be run again; nil past `DictationRetry.maxKeptAudioSeconds`.
+    /// `engine` is nil when none could start: the recording is then only kept.
     private nonisolated static func feed(
         _ audio: AsyncStream<AudioChunk>,
-        to engine: any TranscriptionEngine,
+        to engine: (any TranscriptionEngine)?,
         as format: AVAudioFormat,
         keepingRecording: Bool
     ) -> Task<FeedResult, Never> {
         return Task.detached(priority: .userInitiated) {
             let converter = StreamConverter(output: format)
+            let keptFormat = RecordingReplay.format
+            // Parakeet's and Whisper's format is the kept one: their buffers are reused.
+            let keepConverter = format == keptFormat ? nil : StreamConverter(output: keptFormat)
             var gate = SpeechGate()
             var held: [AudioChunk] = []
             var recording: [AudioChunk] = []
+            var kept: [AudioChunk]? = []
+            var keptFrames: Double = 0
+
+            func keep(_ buffers: [AVAudioPCMBuffer]) {
+                guard kept != nil else { return }
+                for buffer in buffers {
+                    keptFrames += Double(buffer.frameLength)
+                    guard DictationRetry.shouldKeep(audioSeconds: max(1, keptFrames) / keptFormat.sampleRate) else {
+                        kept = nil
+                        return
+                    }
+                    kept?.append(AudioChunk(buffer: buffer))
+                }
+            }
 
             func deliver(_ buffers: [AVAudioPCMBuffer]) async {
+                if keepConverter == nil { keep(buffers) }
+                guard let engine else { return }
                 for buffer in buffers {
                     let chunk = AudioChunk(buffer: buffer)
                     if keepingRecording { recording.append(chunk) }
@@ -690,14 +818,16 @@ final class DictationController {
                         sampleRate: buffer.format.sampleRate
                     )
                 }
+                if let keepConverter { keep(keepConverter.convert(buffer)) }
                 await deliver(converter.convert(buffer))
             }
             // The stream ended: flush what the sample-rate converter is still holding, or
             // the end of the last word never reaches the engine.
             if !Task.isCancelled {
+                if let keepConverter { keep(keepConverter.drain()) }
                 await deliver(converter.drain())
             }
-            return FeedResult(recording: recording, gate: gate.verdict)
+            return FeedResult(recording: recording, gate: gate.verdict, kept: kept?.isEmpty == false ? kept : nil)
         }
     }
 
@@ -707,11 +837,8 @@ final class DictationController {
         // English and technical: the log's, not the capsule's.
         Log.speech.error("engine failed during the dictation: \(error.localizedDescription)")
         session.engineError = error
-        // Still holding the key: the engine is dead, so there's no point recording on.
-        // Already released: `complete` reports it once the tail has run.
-        if !session.isReleased {
-            fail(.engineFailed(session.engineKind.compared, canRetry: false))
-        }
+        // FLU-29: still holding the key, the recording goes on — into memory, for the retry
+        // at release (`recover`). Nothing to tell the user before then.
     }
 
     /// Capture ended on its own — the device went away. Finish with what was captured.
@@ -992,14 +1119,76 @@ final class DictationController {
         state = .idle
         switch action {
         case .retry:
-            // Offered only once a recording is kept to run again (`DictationRetry`).
-            break
+            Task { await retryKeptRecording() }
         case .microphoneSettings:
             Permissions.openMicrophoneSettings()
         case .soundSettings:
             Permissions.openSoundInputSettings()
         case .accessibilitySettings:
             Permissions.openAccessibilitySettings()
+        }
+    }
+
+    // MARK: - FLU-29: the kept recording
+
+    private func keep(_ recording: KeptRecording) {
+        keptRecording = recording
+        keptRecordingExpiry?.cancel()
+        let keptAt = recording.keptAt
+        keptRecordingExpiry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(DictationRetry.keepSeconds))
+            guard !Task.isCancelled, let self, self.keptRecording?.keptAt == keptAt else { return }
+            self.forgetKeptRecording()
+        }
+    }
+
+    /// Drops the recording from memory: success, expiry, or a newer one.
+    private func forgetKeptRecording() {
+        guard keptRecording != nil else { return }
+        keptRecording = nil
+        keptRecordingExpiry?.cancel()
+        keptRecordingExpiry = nil
+        Log.speech.info("kept recording released")
+    }
+
+    /// *Réessayer*: the kept recording through another engine, and the text into the app it
+    /// was meant for — still checked at the moment of typing.
+    private func retryKeptRecording() async {
+        guard session == nil else { return }
+        guard let kept = keptRecording, DictationRetry.isAvailable(keptAt: kept.keptAt, now: Self.uptime) else {
+            forgetKeptRecording()
+            show(.failure(.recordingExpired))
+            return
+        }
+        ParakeetDownload.shared.refresh()
+        let engine = DictationRetry.otherEngine(
+            than: kept.failedEngine,
+            parakeetReady: ParakeetDownload.shared.isReady,
+            whisperReady: WhisperModels.isDownloaded(variant: Settings.shared.whisperModel)
+        )
+        let kind = SpeechEngineChoice(engine)
+        let session = DictationSession(source: .retry, isComparing: false, engineName: kind.displayName, engineKind: kind, started: kept.started)
+        session.releasedAt = kept.releasedAt
+        session.target = kept.target
+        self.session = session
+        sessionEngine = kind
+        timeline.handle(.dictationStarted, at: Self.uptime)
+        state = .finishing
+        transcript = ""
+        Log.speech.info("dictation · retry asked for, on \(engine.rawValue, privacy: .public)")
+
+        let started = HostClock.now
+        let result = await replay(kept.chunks, on: kind)
+        guard self.session === session else { return }
+        switch result {
+        case .success(let text) where !TranscriptHealth.isDegenerate(text):
+            await deliver(text, session: session, engineSeconds: HostClock.now - started)
+        case .success:
+            keptRecording?.failedEngine = engine
+            fail(.repeated(engine, canRetry: DictationRetry.isAvailable(keptAt: kept.keptAt, now: Self.uptime)))
+        case .failure:
+            keptRecording?.failedEngine = engine
+            fail(.engineFailed(engine, canRetry: DictationRetry.isAvailable(keptAt: kept.keptAt, now: Self.uptime)))
         }
     }
 
@@ -1187,7 +1376,8 @@ extension DictationController {
 /// the capture, the HUD or the injector of whatever came after it.
 @MainActor
 private final class DictationSession {
-    enum Source { case hotkey, button }
+    /// `retry`: the capsule's *Réessayer* on a kept recording (FLU-29); no microphone.
+    enum Source { case hotkey, button, retry }
 
     let source: Source
     let isComparing: Bool
@@ -1233,6 +1423,8 @@ private final class DictationSession {
     var limitTask: Task<Void, Never>?
     /// The engine's result stream threw.
     var engineError: Error?
+    /// FLU-29: the engine never started; the recording was only kept, for another engine.
+    var startError: Error?
     /// Capture ended on its own; the reason, for the log.
     var interruption: String?
     /// Fluence pressed Wispr Flow's key for this recording (compare mode, Record button), so
@@ -1257,4 +1449,6 @@ private struct FeedResult: Sendable {
     /// Compare mode only: the recording in the engine's format, so every engine replays it.
     var recording: [AudioChunk]
     var gate: SpeechGate.Verdict
+    /// FLU-29: the whole recording at 16 kHz mono, for a retry; nil when too long to keep.
+    var kept: [AudioChunk]?
 }
