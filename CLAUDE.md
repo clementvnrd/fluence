@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-Read `AGENTS.md` first: it describes the project, the cross-platform test vectors and the traps
-(iCloud builds, code signing, Windows pins). This file only adds the working agreement with Clement
+Read `AGENTS.md` first: it describes the project, the test vectors and the traps (iCloud
+builds, code signing). This file only adds the working agreement with Clement
 around Linear.
 
 ## Working with Linear (Clement, 2026-10-05)
@@ -14,8 +14,9 @@ phase of a project, the **Reviews** tab lists the pull requests waiting for a re
 used.
 
 Labels on the team (the extra ones created after Clement's answer on FLU-9): type `Bug`, `Improvement`,
-`Feature`; area `macOS`, `Windows`, `Shared`; and `Decision`, `Owner action`, `Process`. Any other
-label: propose it (`save_issue_label`) and wait for Clement's answer, never create it silently.
+`Feature`; area `macOS` (`Windows` and `Shared` date from the Windows app, removed by FLU-75); and
+`Decision`, `Owner action`, `Process`. Any other label: propose it (`save_issue_label`) and wait for
+Clement's answer, never create it silently.
 
 ### 1. Start of every reply: read Clement's answers first
 Before anything else, list the issues in `Needs Input`, the open issues labelled `Decision` or
@@ -33,8 +34,8 @@ reply which answers were taken into account. Clement answers in Linear (a commen
   person must act, Claude cannot), `Decision` (a choice to make) or `Process` (how we work) once those
   labels exist.
 - **Priority**: P0 → Urgent, P1 → High, P2 → Medium, P3 → Low.
-- An issue about the macOS and the Windows apps says which one it concerns. Anything that changes
-  correction behaviour starts from `shared/dictionary-test-vectors.json` (see `AGENTS.md`).
+- Anything that changes correction behaviour starts from
+  `Tests/FluenceDictionaryTests/dictionary-test-vectors.json` (see `AGENTS.md`).
 
 ### 3. The status says who has the ball
 

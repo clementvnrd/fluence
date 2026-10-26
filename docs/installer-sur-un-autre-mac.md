@@ -6,7 +6,6 @@ Ce guide est pour quelqu'un qui n'a jamais vu Fluence. Comptez dix minutes, dont
 
 - Un **Mac avec une puce Apple** (M1 ou plus récent) sous **macOS 26 ou plus récent**. Fluence ne s'installe pas sur un Mac Intel ni sur un macOS plus ancien.
 - Environ **1 Go** de place libre : l'app est petite, les modèles de voix qu'elle télécharge ensuite ne le sont pas.
-- Fluence existe aussi pour Windows, mais pas dans cette version.
 
 ## 1. Récupérer l'app
 

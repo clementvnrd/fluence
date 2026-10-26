@@ -1,12 +1,10 @@
 # Fluence
 
-Push-to-talk dictation for macOS and Windows. Hold a key, talk, release — cleaned-up text
+Push-to-talk dictation for macOS. Hold a key, talk, release — cleaned-up text
 lands in whatever text field has focus. The macOS app is in French, in Clement's own look:
 light canvas, rounded white cards, an aqua-blue accent and the Aqua orb (see the design
 system in [`AGENTS.md`](AGENTS.md)). A Wispr Flow-shaped app, built native and **fully
 on-device**: speech, cleanup and storage never leave the machine.
-
-Windows lives in [`windows/`](windows/README.md). This file is about the macOS app.
 
 **Status (October 2026).** Dictation works end to end and was in daily use under the app's
 previous name. The October 2026 hardening (encrypted history, no transcript text in logs,
@@ -277,7 +275,7 @@ Sources/
 │                            snippet matching, edit learning, push-to-talk gestures,
 │                            Command Mode checks, speech gate, downmix, sealed history, retention,
 │                            Clement's speech repairs, the legacy-data merge
-└── FluenceDictionary/        the correction engine — a cross-platform contract
+└── FluenceDictionary/        the correction engine, specified by its test vectors
 ```
 
 ---
@@ -307,7 +305,7 @@ utterance, its result (read-only from its local database) joins the comparison.
 ## Testing without a Mac app build
 
 ```bash
-swift test --filter VectorTests        # the cross-platform dictionary contract
+swift test --filter VectorTests        # the dictionary contract (test vectors)
 swift test --filter FluenceCoreTests   # cleanup guard, speech gate, history lines…
 ```
 

@@ -202,4 +202,3 @@ Status on 2026-10-09, after Clement's answers (FLU-39) and the install (FLU-41).
   (its models live in a folder the audit did not read); real speakers (the corpus used two
   synthetic voices).
 * The GitHub account plan (the Developer ID question is closed: never).
-* Windows: `dotnet` is not installed on this Mac; Windows CI is the only evidence.

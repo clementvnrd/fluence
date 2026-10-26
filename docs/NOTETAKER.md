@@ -5,9 +5,8 @@ A local, bot-free meeting note-taker: detect the meeting, capture **my voice (mi
 speaker, and produce notes. Nothing leaves the machine.
 
 Status: **built for macOS (milestones 1–3), never run on a real call yet.** The pure logic
-(`FluenceMeetingCore`, `FluenceNotesCore`) is unit tested and shares
-`shared/meeting-test-vectors.json` with the future Windows port; the app code is compiled by
-CI. Windows (milestone 4) is not started. Versions checked 2026-10-07.
+(`FluenceMeetingCore`, `FluenceNotesCore`) is unit tested against the contracts in
+`Tests/FluenceMeetingCoreTests/`; the app code is compiled by CI. Versions checked 2026-10-07.
 
 ### Where things are
 
@@ -41,7 +40,7 @@ calendar attendees.
 | 3 | Voice prints are **opt-in, off by default**; names come first from Zoom/Teams/Meet and the calendar. |
 | 4 | FluidAudio is upgraded 0.15.6 → 0.17.5 at the start of the Notetaker. |
 | 6 | The product is named **Fluence**. |
-| 7 | Windows hardware testing later; the Windows port (FLU-10) waits. |
+| 7 | Windows hardware testing later; the Windows port (FLU-10) waits. Superseded: the Windows app was removed (FLU-75). |
 
 ---
 
@@ -203,8 +202,8 @@ On speakers, the mic hears the remote side → duplicated text attributed to "Me
 - Final, after the meeting: `OfflineDiarizerManager` (pyannote-style segmentation +
   WeSpeaker + VBx; 15.1 % DER on VoxConverse at 122× real-time) relabels everything.
 - **Consolidation before attribution (FLU-22)**, `FluenceMeetingCore/SpeakerConsolidation.swift`,
-  contract `shared/speaker-consolidation-vectors.json`: VoIP audio splits one person into
-  several clusters and a cough becomes a voice, so the diarizer's voices are merged when their
+  contract `Tests/FluenceMeetingCoreTests/speaker-consolidation-vectors.json`: VoIP audio
+  splits one person into several clusters and a cough becomes a voice, so the diarizer's voices are merged when their
   embeddings reach cosine 0.68, a voice heard less than min(8 s, 3 % of remote speech) joins
   the closest major voice, and the count is capped by the call window's participants (or the
   calendar's invitees + 1). The cap is also FluidAudio's `maxSpeakers`. The thresholds are a
@@ -256,7 +255,7 @@ On speakers, the mic hears the remote side → duplicated text attributed to "Me
   `Name  0:15` header, Google Meet's time lines, `# Title`), WebVTT (Zoom `Name:` prefixes,
   Teams `<v Name>` spans) and SubRip. Audio files are not imported.
 - Reading rules: `FluenceMeetingCore/TranscriptImport.swift`, contract
-  `shared/transcript-import-vectors.json` (the Windows port runs it once it gains the import).
+  `Tests/FluenceMeetingCoreTests/transcript-import-vectors.json`.
 - One confirmation per file: title (Markdown heading or file name), date (the file's), and
   which speaker is the user (guessed from the Mac account's name). Names from the file are
   kept as typed by the user (`nameSource = user`), one speaker per person however the file
@@ -283,37 +282,9 @@ On speakers, the mic hears the remote side → duplicated text attributed to "Me
 
 ## 3. Windows
 
-Status (FLU-10, 2026-10-07): **implemented and tested on fakes and on macOS, not yet run on
-Windows hardware.** Same pipeline as macOS; the platform-neutral logic is a C# port that runs
-the same `shared/meeting-test-vectors.json`. Code: `windows/src/Murmur.Meeting` (the port of
-FluenceMeetingCore and the notes core), `windows/src/Murmur.Core/Meetings` (pipeline, store,
-controller), `windows/src/Murmur.Speech` (sherpa-onnx), `windows/src/Murmur.Platform.Windows`
-(loopback and detection bindings only).
-
-| Piece | Windows, as built |
-|---|---|
-| System audio | **Process loopback** (`ActivateAudioInterfaceAsync("VAD\Process_Loopback")`, build ≥ 20348) on the call's process tree, trying 16 kHz float, 16 kHz s16, then 44.1 kHz stereo; falls back to **whole-system loopback** (the recording panel says so). NAudio stays on **2.3.0**: its public `IAudioClient` / `AudioCaptureClient.GetBuffer` with QPC timestamps are enough, and only `ActivateAudioInterfaceAsync` is P/Invoked (3.1 would also drag `System.Numerics.Tensors`, which the publish glob drops). Loopback delivers nothing during silence: a heartbeat pads the timeline up to 0.5 s ago — only once the loopback has been quiet that long, so late packets are never trimmed as overlaps — and packet timestamps place speech. |
-| Microphone | A second WASAPI capture beside dictation's, timed by sample count (not arrival). |
-| Detection | Every second: active WASAPI **capture sessions** → process names (Teams, Zoom, Webex, Slack, Discord, GoTo), and for browsers the **visible window titles** (Meet, Teams, Zoom, Webex…). One offer per call; "Not now" holds until the app releases the microphone. **No UI Automation**: a call in a background browser tab is missed. **No calendar** on Windows. |
-| Card and panel | Always-on-top panel: "<service> call detected", waits for a click (FLU-34; "Record without a click" after 10 or 30 s is a setting, off by default, and the old `NotetakerCountdownSeconds` is not carried over), Record / Not now; then the recording strip with the **red lamp lit only while recording**, counter, Stop, **Keep audio**, and **Consent FR / EN** keys copying the macOS `ConsentNotice` text word for word (a test compares it with the Swift source). The panel cannot be closed while recording. |
-| Echo | **No echo canceller on Windows yet.** The text dedupe (`TranscriptMerger`) is the backstop, as on macOS. |
-| ASR | sherpa-onnx **1.13.8** (from 1.13.5): Silero VAD (512-sample hops into the ported segmenter; energy fallback when not installed) + Parakeet with token timestamps. Token durations from 1.13.8 are unreliable, so a word ends at the next token's start (capped). SentencePiece pieces are merged into words, then the dictionary corrects. |
-| Diarization | After the meeting, on the **system channel only**: `OfflineSpeakerDiarization` (pyannote segmentation 3.0 + WeSpeaker ResNet34-LM), cluster threshold **0.45** (measured on one two-speaker clip: 0.5 merged both, 0.4 split one), on the speech only. Word → speaker as on macOS. Without the models, remote speech stays "Others". |
-| Voice prints | **Opt-in, off by default**, sealed with the meetings key, deletable (turning the setting off deletes all). They are only ever matched against **calendar attendees**, and Windows has no calendar source, so on Windows **names come from the user's renames only**; a rename still enrols the voice for the day a calendar exists. |
-| Notes | Behind `INotesModel`. The default is **no model → no notes, never invented**: the Meetings window and the export say so. The macOS map-reduce prompts are not ported yet (nothing on Windows would run them). |
-| Storage | `%LOCALAPPDATA%\Fluence\meetings`: a master key wrapped by **DPAPI** (the FLU-2 history crypto), one **AES-256-GCM key per meeting** wrapped by it, the meeting and the index sealed, the audio spooled in sealed one-second records bound to meeting, channel and index. The spool is deleted after processing unless Keep audio. Retention (Forever / 7 / 30 / 90 days / 1 year, default Forever) purges at launch and on change; "Delete all meetings" in Settings and the Meetings window. No DPAPI → nothing is recorded (no plaintext fallback). |
-| Meetings window | MEETINGS section of the main window: search (decrypts, case- and accent-insensitive), transcript with speakers and timestamps, rename a speaker everywhere, Copy as Markdown, Export (the macOS `MarkdownRenderer`, ported with its tests), Delete. |
-| Stops | Stop, the call releasing the microphone for 30 s, 10 min of silence, 180 min, workstation lock. A crashed recording is finished from its spool at the next launch. |
-
-Optional models and their pinned hashes: `docs/PARAKEET-WINDOWS.md` → Meeting models.
-The WeSpeaker weights' licence must be confirmed before Fluence redistributes them.
-
-**Not verified until it runs on Windows:** process-loopback activation and the formats it
-accepts, capture-session enumeration and the process names Teams/Zoom actually use, window
-titles of real calls, microphone/loopback clock drift over an hour, DPAPI for the meetings
-key, the panel's placement and focus behaviour. `Fluence.exe --selftest` checks the store,
-the sherpa VAD/diarization types, loopback activation and session enumeration on a real
-machine; the first real test should then be a short Teams call.
+Removed. A C# port of this pipeline (FLU-10) lived under `windows/`, never ran on Windows
+hardware, and went with the Windows app on Clement's decision (FLU-75); it is kept under the
+tag `windows-archive`.
 
 ---
 
@@ -324,7 +295,7 @@ machine; the first real test should then be a short Teams call.
 2. **Speakers**: system-channel diarization, word→speaker, names (window, attendees,
    voice prints, rename).
 3. **Notes**: map-reduce summary, templates, search, Markdown export, retention.
-4. **Windows port**.
+4. **Windows port**: dropped, the Windows app was removed (FLU-75).
 
 ## 5. Evaluation
 
