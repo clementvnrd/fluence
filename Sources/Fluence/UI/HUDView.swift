@@ -2,8 +2,14 @@ import FluenceCore
 import SwiftUI
 
 /// The dictation capsule above the Dock (FLU-12, mock-up 06): one capsule, one place, and
-/// only its content changes — Écoute, Mains libres, Mode commande, Transcription…, Annulé,
-/// the auto-learn offer (the one wider state), errors and notices.
+/// only its content changes — Écoute, Mains libres, Mode commande, Transcription…, the
+/// auto-learn offer (the one wider state), and since FLU-29 what happened at the end: errors,
+/// « Rien entendu », « Copié », « Annulé », notices (`CapsuleMessage`).
+///
+/// FLU-29 (Clement's choices A on the mock-ups): a model download shows as a pie in the small
+/// icon slot, a reload as a turning arc; a message is a title and a detail line, both cut at
+/// their end, with at most one button, in the same fixed height; the level bars only while
+/// listening. Live text is still cut at its start, so the latest words stay in view.
 struct HUDView: View {
     @Bindable var controller: DictationController
     /// Screenshots only (see `HUDPreview`): a fixed state instead of the controller's.
@@ -11,6 +17,7 @@ struct HUDView: View {
 
     @State private var learned = LearnedWords.shared
     @State private var settings = Settings.shared
+    @State private var download = ParakeetDownload.shared
     @State private var startedAt: Date?
 
     var body: some View {
@@ -26,17 +33,22 @@ struct HUDView: View {
 
     // MARK: State
 
+    /// A model getting ready while the user talks (FLU-29, FLU-31).
+    enum Preparation: Equatable {
+        /// Parakeet downloading, Apple listening meanwhile: 0…1.
+        case download(Double)
+        /// A reload taking more than a second: the engine's name, no percentage.
+        case loading(String)
+    }
+
     enum Content: Equatable {
-        case listen(text: String)
+        case listen(text: String, preparation: Preparation?, showsLanguage: Bool)
         case handsFree(text: String)
         case command(text: String)
-        case transcribing(text: String, command: Bool)
-        case cancelled
-        /// The text is only on the clipboard (FLU-27).
-        case copied
+        case transcribing(text: String, command: Bool, preparation: Preparation?)
+        /// FLU-29: what happened — errors, « Rien entendu », « Copié », « Annulé », notices.
+        case message(CapsuleMessage)
         case learn(EditLearner.Proposal)
-        case notice(String)
-        case error(String)
         case idle
     }
 
@@ -46,21 +58,31 @@ struct HUDView: View {
         case .starting, .listening:
             if controller.isCommandMode { return .command(text: controller.transcript) }
             if controller.isHandsFree { return .handsFree(text: controller.transcript) }
-            return .listen(text: controller.transcript)
+            return .listen(
+                text: controller.transcript,
+                preparation: preparation(includingDownload: true),
+                // Parakeet takes the language from the audio; the pill is for the others.
+                showsLanguage: (controller.sessionEngine ?? settings.activeEngine) != .parakeet
+            )
         case .finishing:
-            return .transcribing(text: controller.transcript, command: controller.isCommandMode)
-        case .notice(DictationController.cancelledNotice):
-            return .cancelled
-        case .notice(DictationController.clipboardNotice):
-            return .copied
-        case .notice(let message):
-            return .notice(message)
-        case .error(let message):
-            return .error(message)
+            return .transcribing(text: controller.transcript, command: controller.isCommandMode, preparation: preparation(includingDownload: false))
+        case .message(let message, _):
+            return .message(message)
         case .idle:
             if let proposal = learned.spotlight { return .learn(proposal) }
             return .idle
         }
+    }
+
+    /// The reload outranks the download: it is what this dictation waits on.
+    private func preparation(includingDownload: Bool) -> Preparation? {
+        if controller.isPreparingEngine {
+            return .loading((controller.sessionEngine ?? settings.activeEngine).shortName)
+        }
+        if includingDownload, settings.isWaitingForParakeet, let fraction = download.fraction {
+            return .download(fraction)
+        }
+        return nil
     }
 
     private var isActive: Bool {
@@ -77,6 +99,14 @@ struct HUDView: View {
         }
     }
 
+    /// The level bars: only while there is something to hear (FLU-29: hidden on results).
+    private var showsWave: Bool {
+        switch content {
+        case .message, .learn: false
+        default: true
+        }
+    }
+
     private var key: String { ShortcutLabel.display(settings.pushToTalkKey.shortName) }
 
     // MARK: Capsule
@@ -86,9 +116,7 @@ struct HUDView: View {
         let content = self.content
         HStack(spacing: 12) {
             AquaOrbView(size: 24, isActive: isActive, isListening: isListening)
-            if case .learn = content {
-                EmptyView()
-            } else {
+            if showsWave {
                 MiniWave(isActive: isListening, level: preview == nil ? controller.level : 0.7, count: 7, maxHeight: 18)
                     .frame(width: 48)
             }
@@ -98,13 +126,15 @@ struct HUDView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(titleIsQuiet(content) ? DS.Color.inkSecondary : DS.Color.ink)
                     .lineLimit(1)
-                    .truncationMode(.head)
+                    // Live text keeps its latest words; a message keeps its first ones.
+                    .truncationMode(isMessage(content) ? .tail : .head)
                     .animation(DS.Motion.readout, value: controller.transcript)
                 if let caption = caption(content) {
                     Text(caption)
                         .font(.system(size: 10))
                         .foregroundStyle(DS.Color.inkSecondary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -136,21 +166,39 @@ struct HUDView: View {
         return false
     }
 
+    private func isMessage(_ content: Content) -> Bool {
+        if case .message = content { return true }
+        return false
+    }
+
     @ViewBuilder
     private func lead(_ content: Content) -> some View {
         switch content {
+        case .listen(_, let preparation?, _), .transcribing(_, _, let preparation?):
+            switch preparation {
+            case .download(let fraction): DownloadPie(fraction: fraction)
+            case .loading: SpinningArc(isAnimated: preview == nil)
+            }
         case .handsFree:
             Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(DS.Color.accent)
         case .command:
             Image(systemName: "wand.and.stars").font(.system(size: 12, weight: .semibold)).foregroundStyle(DS.Color.accent)
-        case .cancelled:
-            Image(systemName: "xmark.circle").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.inkSecondary)
-        case .copied:
-            Image(systemName: "doc.on.clipboard").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.accent)
         case .learn:
             Image(systemName: "book.closed").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.accent)
-        case .error:
-            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12)).foregroundStyle(DS.Color.meterAmber)
+        case .message(let message):
+            switch message.icon {
+            case .cancelled:
+                Image(systemName: "xmark.circle").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.inkSecondary)
+            case .nothingHeard:
+                Image(systemName: "waveform.slash").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.inkSecondary)
+            case .copied:
+                Image(systemName: "doc.on.clipboard").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.accent)
+            case .warning:
+                // Amber on the error glyph only: never red on the capsule (red = a meeting).
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12)).foregroundStyle(DS.Color.meterAmber)
+            case .none:
+                EmptyView()
+            }
         default:
             EmptyView()
         }
@@ -158,50 +206,40 @@ struct HUDView: View {
 
     private func title(_ content: Content) -> String {
         switch content {
-        case .listen(let text): text.isEmpty ? "Parlez maintenant…" : text
+        case .listen(let text, _, _): text.isEmpty ? "Parlez maintenant…" : text
         case .handsFree(let text): text.isEmpty ? "Mains libres · \(elapsedText)" : text
         case .command(let text): text.isEmpty ? "Réécrire la sélection…" : text
-        case .transcribing(let text, let command):
+        case .transcribing(let text, let command, _):
             command ? "Application de la consigne…" : (text.isEmpty ? "Transcription…" : text)
-        case .cancelled: "Annulé"
-        case .copied: DictationController.clipboardNotice
+        case .message(let message): message.title
         case .learn(let proposal): "Ajouter \(FrenchFormat.quoted(proposal.written)) au dictionnaire ?"
-        case .notice(let message), .error(let message): message
         case .idle: "Fluence · prêt"
         }
     }
 
     private func titleIsQuiet(_ content: Content) -> Bool {
         switch content {
-        case .transcribing(let text, _): text.isEmpty
-        case .cancelled: true
+        case .transcribing(let text, _, _): text.isEmpty
+        case .message(let message): message.icon == .cancelled
         default: false
         }
     }
 
     private func caption(_ content: Content) -> String? {
-        // FLU-31: the engine is still loading; what is said is being recorded meanwhile.
-        if controller.isPreparingEngine, preview == nil {
-            switch content {
-            case .listen, .transcribing: return "Préparation de \(settings.activeEngine.shortName)…"
-            default: break
-            }
-        }
-        return steadyCaption(content)
-    }
-
-    private func steadyCaption(_ content: Content) -> String? {
         switch content {
+        case .listen(_, let preparation?, _), .transcribing(_, _, let preparation?):
+            switch preparation {
+            case .download(let fraction): "Préparation du modèle… " + FrenchFormat.percent(fraction)
+            case .loading(let engine): "Préparation de \(engine)…"
+            }
         case .handsFree(let text):
             (text.isEmpty ? "" : "Mains libres · \(elapsedText) · ") + "Touchez \(key) pour arrêter · Échap pour annuler"
         case .command:
             "Dites la consigne, ex. \(FrenchFormat.quoted("plus court et poli"))"
         case .transcribing:
-            "Sur ce Mac · \(settings.activeEngine.shortName)"
-        case .cancelled:
-            "Rien n'a été collé"
-        case .copied:
-            "Accessibilité non autorisée"
+            "Sur ce Mac · \((controller.sessionEngine ?? settings.activeEngine).shortName)"
+        case .message(let message):
+            message.detail
         case .learn(let proposal):
             proposal.isCorrection
                 ? "Vous avez corrigé \(FrenchFormat.quoted(proposal.heard))"
@@ -214,8 +252,8 @@ struct HUDView: View {
     @ViewBuilder
     private func trail(_ content: Content) -> some View {
         switch content {
-        case .listen, .handsFree:
-            if case .listen = content, settings.activeEngine != .parakeet {
+        case .listen(_, _, let showsLanguage):
+            if showsLanguage {
                 Button { settings.toggleLanguage() } label: {
                     Text(settings.dictationLanguage.shortDisplay)
                         .font(.system(size: 10, weight: .bold, design: .rounded))
@@ -229,10 +267,20 @@ struct HUDView: View {
                 .help("Basculer la langue (⌥L)")
             }
             finishButton
+        case .handsFree:
+            finishButton
         case .command:
             KeyCap(text: ShortcutLabel.display(settings.commandModeKey.shortName))
         case .transcribing:
             ProgressDots()
+        case .message(let message):
+            // One button at most: blue for the way out of an error, grey beside a copy.
+            if let action = message.action {
+                SmallPill(title: action.title, primary: action.isPrimary) {
+                    guard preview == nil else { return }
+                    controller.performCapsuleAction()
+                }
+            }
         case .learn(let proposal):
             HStack(spacing: 6) {
                 SmallPill(title: "Ignorer") { learned.dismiss(proposal) }
@@ -287,6 +335,8 @@ private struct SmallPill: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        // Never squeezed by a long message: the message is cut, the button is not.
+        .fixedSize()
     }
 }
 
@@ -307,9 +357,19 @@ private struct ProgressDots: View {
     }
 }
 
-/// Screenshots of the HUD's states without dictating (FLU-12): only with
-/// `FLUENCE_SUPPORT_DIRECTORY` set (a scratch folder) and `FLUENCE_PREVIEW_HUD` naming a
-/// state — `listen`, `handsFree`, `command`, `transcribing`, `cancelled`, `copied` or `learn`.
+/// Screenshots of the HUD's states without dictating (FLU-12, FLU-29): only with
+/// `FLUENCE_SUPPORT_DIRECTORY` set (a scratch folder) and `FLUENCE_PREVIEW_HUD` naming a state:
+///
+/// - `listen`, `handsFree`, `command`, `transcribing`, `cancelled`, `learn` (FLU-12);
+/// - `preparingModel` (« Préparation du modèle… 42 % », `…_PROGRESS` = 0.42 by default),
+///   `preparingEngine` (« Préparation de Parakeet… »);
+/// - `nothingHeard` (`…_MIC` names the microphone, « MacBook Pro » by default);
+/// - `copied` (Accessibilité non autorisée + Réglages), `copiedAppChanged`;
+/// - `errorRetry` (« La transcription a échoué » + Réessayer, `…_ENGINE` = apple, parakeet or
+///   whisper), `errorMicrophone` (« Micro indisponible » + Réglages);
+/// - `failure` with `…_FAILURE` naming any `DictationFailure.kind` (`microphoneLost`,
+///   `engineDidNotStart`, `repeated`, `stoppedEarly`, `pasteSkipped`, `recordingExpired`…).
+///
 /// `FLUENCE_PREVIEW_HUD_TEXT` gives the live text; `…_HEARD` / `…_WRITTEN` the offer.
 struct HUDPreview {
     let content: HUDView.Content
@@ -320,13 +380,29 @@ struct HUDPreview {
         let env = ProcessInfo.processInfo.environment
         guard AppPaths.override != nil, let kind = env["FLUENCE_PREVIEW_HUD"] else { return nil }
         let text = env["FLUENCE_PREVIEW_HUD_TEXT"] ?? ""
+        let engine = ComparedEngine(rawValue: env["FLUENCE_PREVIEW_HUD_ENGINE"] ?? "") ?? .parakeet
         switch kind {
-        case "listen": return HUDPreview(content: .listen(text: text))
+        case "listen": return HUDPreview(content: .listen(text: text, preparation: nil, showsLanguage: true))
         case "handsFree": return HUDPreview(content: .handsFree(text: text))
         case "command": return HUDPreview(content: .command(text: text))
-        case "transcribing": return HUDPreview(content: .transcribing(text: text, command: false))
-        case "cancelled": return HUDPreview(content: .cancelled)
-        case "copied": return HUDPreview(content: .copied)
+        case "transcribing": return HUDPreview(content: .transcribing(text: text, command: false, preparation: nil))
+        case "preparingModel":
+            let progress = env["FLUENCE_PREVIEW_HUD_PROGRESS"].flatMap(Double.init) ?? 0.42
+            return HUDPreview(content: .listen(text: text, preparation: .download(progress), showsLanguage: true))
+        case "preparingEngine":
+            return HUDPreview(content: .listen(text: text, preparation: .loading(SpeechEngineChoice(engine).shortName), showsLanguage: engine != .parakeet))
+        case "cancelled": return HUDPreview(content: .message(.cancelled))
+        case "nothingHeard": return HUDPreview(content: .message(.nothingHeard(microphone: env["FLUENCE_PREVIEW_HUD_MIC"] ?? "MacBook Pro")))
+        case "copied": return HUDPreview(content: .message(.copied(.noAccessibility)))
+        case "copiedAppChanged": return HUDPreview(content: .message(.copied(.appChanged)))
+        case "errorRetry": return HUDPreview(content: .message(.failure(.engineFailed(engine, canRetry: true))))
+        case "errorMicrophone": return HUDPreview(content: .message(.failure(.microphoneDenied)))
+        case "failure":
+            let name = env["FLUENCE_PREVIEW_HUD_FAILURE"] ?? ""
+            guard let failure = DictationFailure.allCases.first(where: { $0.kind == name && $0.action != nil })
+                ?? DictationFailure.allCases.first(where: { $0.kind == name })
+            else { return nil }
+            return HUDPreview(content: .message(.failure(failure)))
         case "learn":
             return HUDPreview(content: .learn(EditLearner.Proposal(
                 heard: env["FLUENCE_PREVIEW_HUD_HEARD"] ?? "",

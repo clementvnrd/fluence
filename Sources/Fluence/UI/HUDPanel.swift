@@ -36,6 +36,10 @@ final class HUDPanel: NSPanel {
         sharingType = .none
 
         let hosting = ClickThroughHostingView(rootView: HUDView(controller: controller, preview: preview))
+        // FLU-29: a message's clock stops while the pointer is on the capsule.
+        if preview == nil {
+            hosting.onHover = { [weak controller] inside in controller?.capsuleHoverChanged(inside) }
+        }
         hosting.wantsLayer = true
         hosting.layer?.backgroundColor = NSColor.clear.cgColor
         contentView = hosting
@@ -108,4 +112,37 @@ final class HUDPanel: NSPanel {
 /// first click on the Stop key would be spent bringing the panel forward instead of pressing.
 private final class ClickThroughHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    // MARK: FLU-29 — hover
+
+    /// The pointer entered (true) or left (false) the capsule.
+    var onHover: ((Bool) -> Void)?
+    private var hoverArea: NSTrackingArea?
+
+    /// `.activeAlways`: the panel never becomes key and Fluence is rarely the active app while
+    /// dictating, and SwiftUI's own hover tracking only follows the key window there.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        // The capsule, centred on the shadow canvas (`HUDView`'s layout).
+        let capsule = NSRect(
+            x: (bounds.width - DS.HUD.capsule.width) / 2,
+            y: (bounds.height - DS.HUD.capsule.height) / 2,
+            width: DS.HUD.capsule.width,
+            height: DS.HUD.capsule.height
+        )
+        let area = NSTrackingArea(rect: capsule, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        onHover?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onHover?(false)
+    }
 }
