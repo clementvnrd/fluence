@@ -193,6 +193,7 @@ final class MeetingAudioSpoolReader: @unchecked Sendable {
             cached = plaintext.withUnsafeBytes { Array($0.bindMemory(to: Int16.self)) }
         } catch {
             Log.audio.error("spool record \(index) unreadable")
+            Diagnostics.error("meeting.spool.record.unreadable")
         }
         return cached
     }

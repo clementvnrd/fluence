@@ -65,6 +65,7 @@ final class CarbonHotkeyManager {
 
         if status != noErr {
             Log.hotkey.error("Carbon InstallEventHandler failed: \(status)")
+            Diagnostics.error("hotkey.carbon.handler", code: Int(status))
         }
     }
 
@@ -96,6 +97,7 @@ final class CarbonHotkeyManager {
             return true
         } else {
             Log.hotkey.error("RegisterEventHotKey failed: \(status)")
+            Diagnostics.error("hotkey.carbon.register", code: Int(status))
             return false
         }
     }

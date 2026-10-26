@@ -132,6 +132,7 @@ final class MicCapture: @unchecked Sendable {
                     self.restart()
                 } else {
                     Log.audio.error("meeting mic could not restart: \(error.localizedDescription, privacy: .public)")
+                    Diagnostics.error("meeting.mic.restart", error)
                     self.onFailure?(error)
                 }
             }

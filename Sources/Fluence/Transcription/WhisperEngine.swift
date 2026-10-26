@@ -42,6 +42,7 @@ actor WhisperEngine: TranscriptionEngine {
             samples.append(contentsOf: try converter.resampleBuffer(buffer))
         } catch {
             Log.speech.error("WhisperKit: audio conversion failed — \(error.localizedDescription)")
+            Diagnostics.error("speech.whisper.convert", error)
         }
     }
 
@@ -84,6 +85,7 @@ actor WhisperEngine: TranscriptionEngine {
             )
         } catch {
             Log.speech.error("WhisperKit failed: \(error.localizedDescription)")
+            Diagnostics.error("speech.whisper.failed", error)
             continuation?.finish(throwing: error)
             continuation = nil
         }

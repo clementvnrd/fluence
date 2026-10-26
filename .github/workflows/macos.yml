@@ -1,22 +1,36 @@
 name: macOS
 
-# Builds the whole app and runs every Swift test target, including the behaviour contracts
-# (dictionary vectors, meeting vectors).
+# Two jobs:
+# - build-test: builds the whole app (debug) and runs every Swift test target, including the
+#   behaviour contracts (dictionary vectors, meeting vectors).
+# - release-launch (FLU-35): builds the release bundle the way `make` ships it — Sparkle
+#   embedded with its own signing order, the rpath that finds it — checks it, and launches it
+#   with --selftest. A broken rpath or signature, or a crash at launch, only shows there:
+#   FLU-15's crash passed the debug build and broke every meeting.
 #
-# Pull requests and manual runs only: on a private repository a macOS minute costs ten
-# included minutes, and a merge to main has already passed this on its pull request.
+# On pull requests (paths below, the Makefile and Tools included), on every push to main,
+# every night and by hand. Pushes and the nightly run have no paths filter: whatever reaches
+# main is built and launched, and the nightly run catches what changed outside the repo
+# (runner image, Xcode, a dependency's release).
 
 on:
   pull_request:
-    paths: ['Sources/**', 'Tests/**', 'Resources/**', 'Package.swift', 'Package.resolved', '.github/workflows/macos.yml']
+    paths: ['Sources/**', 'Tests/**', 'Resources/**', 'Package.swift', 'Package.resolved', 'Makefile', 'Tools/**', '.github/workflows/macos.yml']
+  push:
+    branches: [main]
+  schedule:
+    # 03:17 UTC, off the hour when scheduled runs pile up.
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: macos-${{ github.ref }}
-  cancel-in-progress: true
+  # A new push to a pull request replaces its running check; runs on main and nightly runs
+  # finish, so every commit that reaches main gets a verdict.
+  group: macos-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-test:
@@ -52,3 +66,26 @@ jobs:
       - name: Test
         run: swift test
 
+  release-launch:
+    name: Release bundle launches
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest Xcode
+        run: |
+          latest=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using $latest"
+          sudo xcode-select -s "$latest/Contents/Developer"
+          swift --version
+
+      # `make app` as it ships (release, PUBLIC=1 like `make release`), signed ad-hoc: the
+      # runner has no signing identity. The Makefile's own detection is left as it is;
+      # SIGN_ID=- only says out loud what it falls back to without one. check-app then
+      # verifies the signature, Info.plist's version and build, Sparkle and its rpath, the
+      # absence of the Wispr Flow interop, and launches Contents/MacOS/Fluence --selftest
+      # under a timeout (Tools/check_app_bundle.sh). Any failure turns the run red.
+      - name: Build the release bundle and launch it with --selftest
+        run: make check-app PUBLIC=1 SIGN_ID=-

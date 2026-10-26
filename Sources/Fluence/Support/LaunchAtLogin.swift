@@ -46,6 +46,7 @@ final class LaunchAtLogin {
         } catch {
             // The system's wording is English and technical; keep it out of the UI, log it.
             Log.app.error("login item \(on ? "register" : "unregister", privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("launchAtLogin.change", error)
             problem = on
                 ? "Fluence n'a pas pu s'ajouter aux éléments d'ouverture. Essayez depuis Réglages Système."
                 : "Fluence n'a pas pu se retirer des éléments d'ouverture. Essayez depuis Réglages Système."

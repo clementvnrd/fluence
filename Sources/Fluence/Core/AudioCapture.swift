@@ -137,6 +137,7 @@ final class AudioCapture: @unchecked Sendable {
             try input.auAudioUnit.setDeviceID(device)
         } catch {
             Log.audio.error("couldn't select the chosen microphone — using the system input: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.recovery("audio.device.select", error)
         }
     }
 
@@ -207,6 +208,7 @@ final class AudioCapture: @unchecked Sendable {
         } catch {
             self.sink = nil
             Log.audio.error("capture lost: \(error.localizedDescription)")
+            Diagnostics.error("audio.capture.lost", error)
             sink.onInterrupted(
                 (error as? RecoveryFailure) == .flapping
                     ? "Le micro changeait sans cesse : l'enregistrement s'est arrêté."
@@ -357,6 +359,7 @@ final class StreamConverter {
             }
             if let conversionError {
                 Log.audio.error("audio conversion failed: \(conversionError.localizedDescription)")
+                Diagnostics.error("audio.convert", conversionError)
                 break
             }
             if converted.frameLength > 0 { results.append(converted) }

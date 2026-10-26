@@ -172,6 +172,7 @@ actor ChannelPipeline {
             try spool?.close()
         } catch {
             Log.audio.error("spool close failed: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("meeting.spool.close", error)
         }
         await retryFailed()
         return Outcome(segments: produced, untranscribed: failed)
@@ -223,6 +224,7 @@ actor ChannelPipeline {
             return try await ParakeetModels.shared.manager()
         } catch {
             Log.speech.error("meeting retry: speech engine unavailable, \(count, privacy: .public) utterances kept: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("meeting.retry.engineUnavailable", error)
             return nil
         }
     }
@@ -265,6 +267,7 @@ actor ChannelPipeline {
             } catch {
                 spoolFailed = true
                 Log.audio.error("spool write failed: \(error.localizedDescription, privacy: .public)")
+                Diagnostics.error("meeting.spool.write", error)
             }
         }
 
@@ -305,6 +308,7 @@ actor ChannelPipeline {
             } catch {
                 echoUnavailable = true
                 Log.audio.error("echo canceller unavailable, text dedupe only: \(error.localizedDescription, privacy: .public)")
+                Diagnostics.recovery("meeting.echoCanceller.unavailable", error)
             }
         }
 
@@ -339,6 +343,7 @@ actor ChannelPipeline {
             // A failed call discards the stream's clip; restart cleanly and keep the
             // timeline intact with the unprocessed block.
             Log.audio.error("echo cancellation failed: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("meeting.echoCancellation", error)
             echoActive = false
             await analyse(block)
         }
@@ -377,6 +382,7 @@ actor ChannelPipeline {
             } catch {
                 vadFailed = true
                 Log.speech.error("VAD unavailable, falling back to energy: \(error.localizedDescription, privacy: .public)")
+                Diagnostics.recovery("meeting.vad.fallbackToEnergy", error)
             }
         }
         // Fallback: a crude energy gate (about −40 dBFS).
@@ -411,6 +417,7 @@ actor ChannelPipeline {
             failed.append(span)
             callbacks.untranscribed(span)
             Log.speech.error("meeting utterance not transcribed, kept for a retry: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("meeting.utterance.transcribe", error)
         }
     }
 

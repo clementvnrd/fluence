@@ -79,6 +79,7 @@ final class SpeechModelStore {
             }
         } catch {
             Log.app.error("speech model not moved to the Trash: \(model.rawValue, privacy: .public) — \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("speech.model.trash", error)
             failure = "Suppression impossible : \(error.localizedDescription)"
         }
         await refresh()

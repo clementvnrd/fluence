@@ -94,6 +94,7 @@ actor AppleSpeechEngine: TranscriptionEngine {
                 outputContinuation.finish()
             } catch {
                 Log.speech.error("SpeechAnalyzer: results stream failed — \(error.localizedDescription)")
+                Diagnostics.error("speech.apple.results", error)
                 outputContinuation.finish(throwing: error)
             }
         }
@@ -118,6 +119,7 @@ actor AppleSpeechEngine: TranscriptionEngine {
             try await analyzer?.finalizeAndFinishThroughEndOfInput()
         } catch {
             Log.speech.error("SpeechAnalyzer: finalize failed — \(error.localizedDescription)")
+            Diagnostics.error("speech.apple.finalize", error)
             await analyzer?.cancelAndFinishNow()
         }
 
@@ -209,6 +211,7 @@ actor AppleSpeechEngine: TranscriptionEngine {
             Log.speech.info("prewarm: speech model ready for \(resolved.identifier, privacy: .public)")
         } catch {
             Log.speech.error("prewarm failed for \(resolved.identifier, privacy: .public): \(error.localizedDescription)")
+            Diagnostics.error("speech.apple.prewarm", error)
         }
     }
 }

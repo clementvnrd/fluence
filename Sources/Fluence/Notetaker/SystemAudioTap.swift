@@ -165,6 +165,7 @@ final class SystemAudioTap: @unchecked Sendable {
                 return
             }
             Log.audio.error("process tap (\(scope.rawValue, privacy: .public)) failed: \(lastStatus)")
+            Diagnostics.error("meeting.systemTap", code: Int(lastStatus))
         }
         throw Failure.tap(lastStatus)
     }

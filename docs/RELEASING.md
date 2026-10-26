@@ -55,6 +55,12 @@ installed apps: nothing reaches them until the release is published.
    Keychain key (no prompt) and writes `appcast.xml` — all into
    `~/Library/Fluence Releases/<version>/`. It refuses an ad-hoc signature (every update would
    then lose the permissions), a feed that is not https, and uncommitted changes.
+
+   CI's *Release bundle launches* job (FLU-35) has already built that commit the same way
+   (ad-hoc), checked its signature, version, Sparkle and rpath, and launched it with
+   `--selftest`. The same check on the signed bundle, before uploading:
+   `Tools/check_app_bundle.sh <the path make release printed after "built"> --public`. (Not
+   `make check-app`, which would rebuild the bundle without the feed.)
 3. Upload, as a **draft** first: `gh release create v<version> --draft --repo clementvnrd/fluence
    --target <commit> --notes-file docs/releases/<version>.md <zip> <zip>.sha256 appcast.xml`.
    A draft creates no tag; publishing does. Publishing is Clement's call; installed copies see
@@ -86,6 +92,12 @@ The first copy that contains Sparkle has to be installed by hand once (copy `Flu
   `com.apple.quarantine`, so Gatekeeper never assesses it. A first copy downloaded by a browser
   *is* quarantined and is refused until System Settings › Privacy & Security › *Open Anyway*
   (not re-tested here).
+* **An ad-hoc build gets `com.apple.security.cs.disable-library-validation`** (FLU-35). Without a
+  Team ID, the hardened runtime's library validation refuses the embedded Sparkle and the app
+  aborts before `main` (`different Team IDs`): every ad-hoc bundle since FLU-26 did, and only a
+  launch shows it. The Makefile adds that entitlement only when `SIGN_ID` is `-` (CI, a Mac
+  without a certificate); a build signed with an identity keeps `Resources/Fluence.entitlements`
+  as it is.
 * **No notarization** (decided 2026-10-08, FLU-39: no Developer ID, ever). It would need a
   paid Developer ID Application certificate. A first copy on another Mac therefore needs
   *Open Anyway* once; its updates do not.

@@ -183,7 +183,8 @@ final class Settings {
 
     // MARK: end FLU-5 input
 
-    private let defaults = UserDefaults.standard
+    /// `.standard`, or the self-test's scratch settings (FLU-35).
+    private let defaults = AppPaths.defaults
 
     enum Keys {
         static let pushToTalkKey = "pushToTalkKey"

@@ -150,6 +150,7 @@ final class HistoryFile: @unchecked Sendable {
         }
         if !contents.unreadable.isEmpty {
             Log.app.error("history: \(contents.unreadable.count, privacy: .public) line(s) could not be opened and were kept as-is")
+            Diagnostics.error("history.unreadableLines")
         }
         return contents
     }

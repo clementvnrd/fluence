@@ -80,6 +80,7 @@ enum EngineComparison {
             // The engine never ran: cancel, not finish, so nothing is transcribed on its way
             // out, and the row says it failed instead of showing a time.
             Log.speech.error("compare: \(name, privacy: .public) did not start: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("compare.engine.start", error)
             await engine.cancel()
             return ComparisonResult(engine: name, text: ComparisonRow.startFailure, seconds: 0, failed: true)
         }
@@ -114,6 +115,7 @@ enum EngineComparison {
             )
         } catch {
             Log.speech.error("compare: \(name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("compare.engine.failed", error)
             // Its session is over either way; cancel is safe after finish and drops what it held.
             await engine.cancel()
             return ComparisonResult(

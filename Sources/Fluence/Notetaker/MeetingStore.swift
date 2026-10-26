@@ -156,6 +156,7 @@ final class MeetingStore {
                 saved = try Self.decoder.decode([MeetingSummary].self, from: Vault.read(indexURL))
             } catch {
                 Log.app.error("meeting index unreadable, rebuilding from the folders: \(String(describing: error), privacy: .public)")
+                Diagnostics.error("meeting.index.unreadable", error)
             }
         }
         let folders = folderNames().map { names in
@@ -176,6 +177,7 @@ final class MeetingStore {
         if Vault.isKeyLost { lastError = Vault.keyLostMessage }
         if !index.unreadable.isEmpty {
             Log.app.error("\(self.index.unreadable.count) meetings unreadable; the index is left as it is")
+            Diagnostics.error("meeting.unreadable")
         }
         if index.isStale { try? saveIndex() }
     }

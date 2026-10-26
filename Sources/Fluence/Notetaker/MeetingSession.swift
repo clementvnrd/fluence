@@ -95,6 +95,7 @@ final class MeetingSession {
             self.tap = tap
         } catch {
             Log.audio.error("system audio unavailable: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("meeting.systemAudio.unavailable", error)
             self.tap = nil
         }
 
@@ -245,6 +246,7 @@ final class MeetingSession {
             Log.audio.info("system tap rebuilt")
         } catch {
             Log.audio.error("system tap rebuild failed: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("meeting.systemTap.rebuild", error)
         }
     }
 

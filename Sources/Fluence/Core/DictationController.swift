@@ -532,6 +532,7 @@ final class DictationController {
         // Typing it into the user's document is worse than typing nothing.
         if TranscriptHealth.isDegenerate(raw) {
             Log.speech.error("dictation dropped — the engine repeated itself (\(raw.count, privacy: .public) characters)")
+            Diagnostics.error("dictation.repetitionDropped")
             fail("La transcription a tourné en boucle et n'a pas été collée. Réessayez ; si ça se répète, essayez un autre moteur dans Réglages › Transcription.")
             return
         }
@@ -865,6 +866,7 @@ final class DictationController {
 
     private func fail(_ message: String) {
         Log.app.error("dictation failed: \(message)")
+        Diagnostics.error("dictation.failed")
         // A held Wispr key outlives our failure: Wispr would keep recording, and uploading.
         releaseWispr()
         if let session { teardown(session) }

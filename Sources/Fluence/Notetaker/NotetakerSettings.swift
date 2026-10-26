@@ -53,7 +53,8 @@ final class NotetakerSettings {
         didSet { defaults.set(maxDurationMinutes, forKey: Keys.maxDurationMinutes) }
     }
 
-    private let defaults = UserDefaults.standard
+    /// `.standard`, or the self-test's scratch settings (FLU-35).
+    private let defaults = AppPaths.defaults
 
     private enum Keys {
         static let detectMeetings = "notetaker.detectMeetings"

@@ -66,6 +66,7 @@ final class DataSafetyModel {
             Self.reloadStores()
         case .failure(let error):
             Log.app.error("vault: fresh start failed — \(String(describing: error), privacy: .public)")
+            Diagnostics.error("vault.freshStart", error)
             note = Note(text: "Impossible de repartir de zéro : \(Self.describe(error))", isFault: true)
         }
     }
@@ -143,6 +144,7 @@ final class DataSafetyModel {
             note = Note(text: "Sauvegarde enregistrée.", isFault: false)
         case .failure(let error):
             Log.app.error("backup failed — \(String(describing: error), privacy: .public)")
+            Diagnostics.error("backup.write", error)
             note = Note(text: "Sauvegarde impossible : \(Self.describe(error))", isFault: true)
         }
     }
@@ -157,6 +159,7 @@ final class DataSafetyModel {
             Self.reloadStores()
         case .failure(let error):
             Log.app.error("restore failed — \(String(describing: error), privacy: .public)")
+            Diagnostics.error("backup.restore", error)
             note = Note(text: "Restauration impossible : \(Self.describe(error))", isFault: true)
         }
     }

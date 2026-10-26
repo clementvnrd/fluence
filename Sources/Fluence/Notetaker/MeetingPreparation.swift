@@ -91,6 +91,7 @@ final class MeetingPreparation {
             tap.stop()
             failure = "Le son des appels n'a pas pu être demandé : \(error.localizedDescription)"
             Log.audio.error("meeting preparation: system audio tap failed — \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("meeting.preparation.systemTap", error)
         }
     }
 
@@ -104,6 +105,7 @@ final class MeetingPreparation {
         } catch {
             failure = "Téléchargement interrompu. Réessayez ; ce qui est déjà téléchargé est gardé."
             Log.speech.error("meeting preparation: download failed — \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("meeting.preparation.download", error)
         }
     }
 

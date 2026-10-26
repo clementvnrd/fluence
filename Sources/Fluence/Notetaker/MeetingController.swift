@@ -279,6 +279,7 @@ final class MeetingController {
         state = .failed(message)
         recordingPanel?.dismiss()
         Log.app.error("meeting failed: \(message, privacy: .public)")
+        Diagnostics.error("meeting.failed")
     }
 
     // MARK: - While recording
@@ -345,6 +346,7 @@ final class MeetingController {
                 let dropped = session.takeDroppedBlocks()
                 if let message = DroppedAudio.notice(blocks: dropped) {
                     Log.audio.error("meeting audio: \(dropped) blocks dropped, transcription behind")
+                    Diagnostics.error("meeting.audio.dropped")
                     self.notice = message
                 }
                 if tick % 10 == 0 { self.autosave() }
@@ -362,6 +364,7 @@ final class MeetingController {
             try MeetingStore.shared.save(meeting)
         } catch {
             Log.app.error("meeting autosave failed: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("meeting.autosave", error)
         }
     }
 
@@ -507,6 +510,7 @@ final class MeetingController {
         } catch {
             saved = false
             Log.app.error("final meeting save failed, audio and marker kept: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.error("meeting.save.final", error)
         }
         let missing = meeting.untranscribed?.count ?? 0
         let plan = MeetingCompletion.plan(saved: saved, untranscribed: missing, keepAudio: meeting.keepAudio)
@@ -525,6 +529,7 @@ final class MeetingController {
         guard saved else { return .saveFailed }
         guard missing == 0 else {
             Log.app.error("meeting saved with \(missing) utterances untranscribed; audio and marker kept for the next launch")
+            Diagnostics.error("meeting.transcription.pending")
             return .transcriptionPending
         }
         Log.app.info("meeting finalized: \(meeting.segments.count) segments, \(meeting.speakers.count) speakers")
@@ -581,6 +586,7 @@ final class MeetingController {
                 guard announce else { continue }
                 try? String(RecoveryPlan.announcedCount).write(to: attemptsURL, atomically: true, encoding: .utf8)
                 Log.app.error("interrupted meeting left as is after \(RecoveryPlan.maxAttempts) attempts")
+                Diagnostics.error("meeting.recovery.gaveUp")
                 // FLU-54: a meeting only waiting for sentences the engine never managed gets
                 // its notes from what was transcribed.
                 if MeetingCompletion.announcesOnGivingUp(untranscribed: meeting.untranscribed?.count ?? 0) {
@@ -606,6 +612,7 @@ final class MeetingController {
             )
             if Self.complete(finalized, directory: directory) == .done {
                 Log.app.info("recovered an interrupted meeting")
+                Diagnostics.recovery("meeting.recovered")
             }
         }
     }
@@ -655,6 +662,7 @@ final class MeetingController {
             sleepAssertion = id
         } else {
             Log.app.error("idle sleep assertion refused: \(result)")
+            Diagnostics.error("meeting.sleepAssertion", code: Int(result))
         }
     }
 

@@ -332,6 +332,7 @@ struct NotesEngine: Sendable {
                     ~\(TokenEstimate.tokens(in: instructions) + TokenEstimate.tokens(in: prompt), privacy: .public) tokens in, \
                     answer cap \(budget.responseTokens, privacy: .public): \(Self.errorKind(error), privacy: .public)
                     """)
+                Diagnostics.error("meeting.notes.call", error)
                 throw error
             }
         }
