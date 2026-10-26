@@ -363,6 +363,7 @@ final class DictationController {
         } catch {
             // The system's own text (English, technical) stays in the log.
             Log.audio.error("capture did not start: \(error.localizedDescription)")
+            Diagnostics.error("audio.capture.start", error)
             fail(.microphoneDidNotStart)
             return false
         }
@@ -858,6 +859,7 @@ final class DictationController {
         guard self.session === session else { return }
         // English and technical: the log's, not the capsule's.
         Log.speech.error("engine failed during the dictation: \(error.localizedDescription)")
+        Diagnostics.error("dictation.engineFailed", error)
         session.engineError = error
         // FLU-29: still holding the key, the recording goes on — into memory, for the retry
         // at release (`recover`). Nothing to tell the user before then.
