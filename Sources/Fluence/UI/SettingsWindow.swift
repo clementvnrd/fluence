@@ -495,7 +495,7 @@ struct TranscriptionSettingsSection: View {
             SettingsRow(
                 systemImage: "square.split.2x1",
                 title: "Mode comparaison",
-                info: "Chaque dictée passe par tous les moteurs, côte à côte. Rien n'est tapé dans ce mode."
+                info: "Chaque dictée passe par les moteurs déjà téléchargés, côte à côte. Rien n'est tapé dans ce mode."
             ) {
                 HStack(spacing: DS.Space.snug) {
                     CapButton(title: "Ouvrir", height: 24) {

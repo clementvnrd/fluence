@@ -31,6 +31,13 @@ struct DictationRun: Codable, Sendable, Identifiable {
     /// works. Nil for runs older than the dictionary.
     var corrections: [AppliedCorrection]?
 
+    /// Compare mode: the engine failed, and `text` is a French message, not a transcript
+    /// (FLU-48). Nil on rows saved before the flag; those marked a failure with "⚠️".
+    var failed: Bool?
+    /// Compare mode: `processSeconds` is an outside app's end-to-end latency (Wispr Flow's,
+    /// network included), not local compute time. Nil on rows saved before the flag.
+    var endToEnd: Bool?
+
     var realtimeFactor: Double { audioSeconds / max(processSeconds, 0.0001) }
     var characters: Int { text.count }
 
@@ -43,7 +50,9 @@ struct DictationRun: Codable, Sendable, Identifiable {
         text: String,
         rawText: String? = nil,
         group: String? = nil,
-        corrections: [AppliedCorrection]? = nil
+        corrections: [AppliedCorrection]? = nil,
+        failed: Bool? = nil,
+        endToEnd: Bool? = nil
     ) {
         self.id = id
         self.date = date
@@ -54,6 +63,8 @@ struct DictationRun: Codable, Sendable, Identifiable {
         self.rawText = rawText
         self.group = group
         self.corrections = corrections
+        self.failed = failed
+        self.endToEnd = endToEnd
     }
 
     init(from decoder: any Decoder) throws {
@@ -67,6 +78,22 @@ struct DictationRun: Codable, Sendable, Identifiable {
         rawText = try container.decodeIfPresent(String.self, forKey: .rawText)
         group = try container.decodeIfPresent(String.self, forKey: .group)
         corrections = try container.decodeIfPresent([AppliedCorrection].self, forKey: .corrections)
+        failed = try container.decodeIfPresent(Bool.self, forKey: .failed)
+        endToEnd = try container.decodeIfPresent(Bool.self, forKey: .endToEnd)
+    }
+
+    /// The row as the comparison card ranks and labels it (`ComparisonRanking`).
+    var comparisonRow: ComparisonRow {
+        // Rows filed before the flag: Wispr Flow was the only end-to-end engine.
+        let isEndToEnd = endToEnd ?? (engine == "Wispr Flow")
+        return ComparisonRow(
+            engine: engine,
+            seconds: processSeconds,
+            audioSeconds: audioSeconds,
+            text: text,
+            failed: failed,
+            timing: isEndToEnd ? .endToEnd : .compute
+        )
     }
 }
 

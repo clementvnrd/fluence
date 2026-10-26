@@ -15,9 +15,6 @@ enum WisprReader {
     /// than the local engines: the row is polled for.
     private static let pollInterval: Duration = .milliseconds(300)
 
-    /// How far before or after the hold start Wispr's stamp may fall (why: `result(after:timeout:)`).
-    private static let window: TimeInterval = 5
-
     private static var databaseURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Wispr Flow/flow.sqlite")
@@ -27,11 +24,14 @@ enum WisprReader {
         FileManager.default.fileExists(atPath: databaseURL.path)
     }
 
-    /// Waits for Wispr's row for the utterance whose hold started at `holdStarted`.
+    /// Waits for Wispr's row whose stamp falls in `window`
+    /// (`ComparisonPlan.externalStampWindow`), around the hold start of the utterance Fluence
+    /// pressed Wispr's key for.
     ///
-    /// Nil when Wispr is not installed, was not triggered for this utterance, or had not finished
-    /// by `timeout`. When only Fluence's own key was held there is no row, which is normal.
-    static func result(after holdStarted: Date, timeout: TimeInterval) async -> ComparisonResult? {
+    /// Nil when Wispr is not installed, had not finished by `timeout`, or the wait was
+    /// cancelled. Only called when Fluence pressed the key itself (FLU-48): without it there is
+    /// no row, and waiting for one only held the comparison up.
+    static func result(stampedIn window: ClosedRange<Date>, timeout: TimeInterval) async -> ComparisonResult? {
         guard isInstalled else { return nil }
 
         // Wispr stamps a row with the moment its utterance began. The two keys never go down in
@@ -40,11 +40,11 @@ enum WisprReader {
         // the past would not do either: Wispr inserts the row as the utterance starts, text still
         // null, and fills it in later, so the first poll would find the previous dictation's
         // row. Hence a window bounded on both sides.
-        let lower = stamp(holdStarted.addingTimeInterval(-window))
-        let upper = stamp(holdStarted.addingTimeInterval(window))
+        let lower = stamp(window.lowerBound)
+        let upper = stamp(window.upperBound)
         let deadline = Date().addingTimeInterval(timeout)
 
-        while Date() < deadline {
+        while Date() < deadline, !Task.isCancelled {
             if let found = latestRow(between: lower, and: upper) { return found }
             try? await Task.sleep(for: pollInterval)
         }
@@ -100,11 +100,12 @@ enum WisprReader {
         guard !text.isEmpty else { return nil }
 
         // Milliseconds, end to end: a network round trip and Wispr's cleanup are in it, so it is
-        // not comparable with the local engines' compute time (the UI says so).
+        // not comparable with the local engines' compute time: the card lists it apart.
         return ComparisonResult(
             engine: "Wispr Flow",
             text: text,
-            seconds: sqlite3_column_double(statement, 1) / 1000
+            seconds: sqlite3_column_double(statement, 1) / 1000,
+            endToEnd: true
         )
     }
 }

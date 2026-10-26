@@ -82,6 +82,16 @@ final class DictationController {
     /// Whether a shortcut is armed (Carbon or the event tap) — the main window's status pill.
     private(set) var isHotkeyActive = false
 
+    /// The comparison whose local engines are running, by group: its card shows a spinner.
+    private(set) var runningComparisonGroup: String?
+    /// Comparisons still waiting for Wispr Flow's row, by group. The dictation itself has
+    /// already ended: a new one can start meanwhile (FLU-48).
+    private(set) var groupsWaitingForWispr: Set<String> = []
+    var isWaitingForWispr: Bool { !groupsWaitingForWispr.isEmpty }
+    /// Release of the last recording Wispr was triggered for: the next one's search for
+    /// Wispr's row starts there, so it never takes the previous row for its own.
+    @ObservationIgnored private var lastWisprReleasedAt: Date?
+
     /// The last app other than Fluence to be frontmost: where a dictation started from the
     /// main window's Dicter button is typed (Clement's focus restore).
     @ObservationIgnored private var lastExternalApp: NSRunningApplication?
@@ -232,9 +242,14 @@ final class DictationController {
         #endif
     }
 
-    private func pressWisprInCompareMode() {
+    /// - Returns: whether Wispr's key was pressed, i.e. whether Wispr hears this recording.
+    private func pressWisprInCompareMode() -> Bool {
         #if !FLUENCE_WITHOUT_WISPR
-        if Settings.shared.compareMode { WisprTrigger.press() }
+        guard Settings.shared.compareMode else { return false }
+        WisprTrigger.press()
+        return true
+        #else
+        return false
         #endif
     }
 
@@ -244,8 +259,10 @@ final class DictationController {
     /// for plain dictation that would quietly send every recording to Wispr's cloud.
     func startButtonRecording() {
         guard session == nil else { return }
-        pressWisprInCompareMode()
+        let pressedWispr = pressWisprInCompareMode()
         beginDictation(from: .button)
+        // Only a recording Wispr heard is worth waiting for (FLU-48).
+        session?.pressedWispr = pressedWispr
     }
 
     /// Stops any dictation, hotkey ones included (the HUD's finish button lands here). Wispr is
@@ -651,19 +668,22 @@ final class DictationController {
 
         let group = UUID().uuidString
         let holdSeconds = releasedAt.timeIntervalSince(holdStarted)
+        // Only engines whose model is already on disk (FLU-48): a comparison downloads nothing.
+        let whisperVariant = Settings.shared.whisperModel
+        let engines = EngineComparison.plannedEngines(whisperVariant: whisperVariant)
+        Log.speech.info("compare · engines: \(engines.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+
+        runningComparisonGroup = group
+        defer { if runningComparisonGroup == group { runningComparisonGroup = nil } }
 
         // Filed engine by engine, so a row shows up without waiting for the slower one.
-        let results = await EngineComparison.run(chunks: chunks) { result in
-            RunLog.record(
-                DictationRun(
-                    date: releasedAt,
-                    engine: result.engine,
-                    audioSeconds: holdSeconds,
-                    processSeconds: result.seconds,
-                    text: result.text,
-                    group: group
-                )
-            )
+        let results = await EngineComparison.run(
+            chunks: chunks,
+            engines: engines,
+            whisperVariant: whisperVariant,
+            whisperLanguage: Settings.shared.dictationLanguage.whisperLanguageCode
+        ) { result in
+            RunLog.record(Self.historyRow(result, date: releasedAt, audioSeconds: holdSeconds, group: group))
         }
         guard self.session === session else { return }
 
@@ -677,37 +697,67 @@ final class DictationController {
                 """)
         }
 
-#if !FLUENCE_WITHOUT_WISPR
-        // Wispr last: its cloud round trip ends after the local engines, whose rows are already
-        // filed by now. A Wispr row exists only if its key was down for this utterance.
-        if WisprReader.isInstalled {
-            transcript = "En attente de Wispr Flow…"
-            if let wispr = await WisprReader.result(after: holdStarted, timeout: 8) {
-                guard self.session === session else { return }
-                RunLog.record(
-                    DictationRun(
-                        date: releasedAt,
-                        engine: wispr.engine,
-                        audioSeconds: holdSeconds,
-                        processSeconds: wispr.seconds,
-                        text: wispr.text,
-                        group: group
-                    )
-                )
-                Log.speech.info("""
-                    compare · \(wispr.engine, privacy: .public) · \
-                    \(wispr.seconds, format: .fixed(precision: 2), privacy: .public)s · \
-                    \(wispr.text.count, privacy: .public) chars
-                    """)
-            } else {
-                Log.speech.info("compare · no Wispr Flow result (key not held, or the wait timed out)")
-            }
-        }
-#endif
-
-        guard self.session === session else { return }
+        // The local engines are done, and so is the dictation: the next one may start now,
+        // whether or not Wispr Flow is still on its way (FLU-48).
         end(session, as: .idle)
         if Settings.shared.soundEnabled { NSSound(named: "Glass")?.play() }
+
+#if !FLUENCE_WITHOUT_WISPR
+        // Wispr last, in the background: its cloud round trip ends after the local engines.
+        // Waited for only when Fluence pressed its key for this recording; a comparison started
+        // with Fluence's own shortcut has no Wispr row to wait for.
+        if ComparisonPlan.waitsForExternalResult(
+            installed: WisprReader.isInstalled,
+            keyPressedByFluence: session.pressedWispr
+        ) {
+            let window = ComparisonPlan.externalStampWindow(
+                holdStarted: holdStarted,
+                releasedAt: releasedAt,
+                previousReleasedAt: lastWisprReleasedAt
+            )
+            lastWisprReleasedAt = releasedAt
+            waitForWispr(stampedIn: window, group: group, date: releasedAt, audioSeconds: holdSeconds)
+        }
+#endif
+    }
+
+#if !FLUENCE_WITHOUT_WISPR
+    /// Files Wispr Flow's row into the comparison once it shows up, up to 8 s after the local
+    /// engines finished, without holding any dictation up meanwhile.
+    private func waitForWispr(stampedIn window: ClosedRange<Date>, group: String, date: Date, audioSeconds: Double) {
+        groupsWaitingForWispr.insert(group)
+        Task { [weak self] in
+            let wispr = await WisprReader.result(stampedIn: window, timeout: 8)
+            guard let self else { return }
+            self.groupsWaitingForWispr.remove(group)
+            guard let wispr else {
+                Log.speech.info("compare · no Wispr Flow result (the wait timed out)")
+                return
+            }
+            // Deleted while Wispr was finishing: don't bring the comparison back as a lone row.
+            guard RunStore.shared.runs.contains(where: { $0.group == group }) else { return }
+            RunLog.record(Self.historyRow(wispr, date: date, audioSeconds: audioSeconds, group: group))
+            Log.speech.info("""
+                compare · \(wispr.engine, privacy: .public) · \
+                \(wispr.seconds, format: .fixed(precision: 2), privacy: .public)s end to end · \
+                \(wispr.text.count, privacy: .public) chars
+                """)
+        }
+    }
+#endif
+
+    /// One engine's result as a history row of its comparison.
+    private static func historyRow(_ result: ComparisonResult, date: Date, audioSeconds: Double, group: String) -> DictationRun {
+        DictationRun(
+            date: date,
+            engine: result.engine,
+            audioSeconds: audioSeconds,
+            processSeconds: result.seconds,
+            text: result.text,
+            group: group,
+            failed: result.failed,
+            endToEnd: result.endToEnd
+        )
     }
 
     /// Files the finished utterance in the history.
@@ -954,6 +1004,9 @@ private final class DictationSession {
     var engineError: Error?
     /// Capture ended on its own; the reason, for the user.
     var interruption: String?
+    /// Fluence pressed Wispr Flow's key for this recording (compare mode, Record button), so
+    /// Wispr heard it and its row is worth waiting for.
+    var pressedWispr = false
     // MARK: FLU-5 text
     /// The frontmost app at release, and its category — the style at level High.
     var target: FrontmostApp.Target?
