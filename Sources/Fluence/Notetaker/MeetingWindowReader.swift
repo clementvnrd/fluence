@@ -12,7 +12,9 @@ import Foundation
 ///   panel as AX lists, but none of them documents its AX tree and each update can change
 ///   it. The reader looks for a container labelled like a participant list and collects
 ///   the text under it; `ParticipantNames.clean` removes role markers and control labels.
-///   When the panel is closed nothing is found, and naming falls back to the calendar.
+///   When the panel is closed nothing is found, and naming falls back to the calendar. A
+///   read says whether it saw the whole list (FLU-33), and only a list that looks complete
+///   caps the voices (`ParticipantRoster`).
 ///
 /// Nothing read here is logged.
 @MainActor
@@ -40,53 +42,52 @@ enum MeetingWindowReader {
 
     // MARK: - Participants
 
-    private static let listLabels = [
-        "participants", "people", "in this meeting", "in the meeting", "attendees",
-        "personnes", "dans la réunion", "participants à la réunion",
-    ]
-
-    /// Raw candidate names from a visible participant panel. Bounded walk: at most
-    /// `budget` elements, so a huge web page cannot stall the main thread.
-    static func participantCandidates(pid: pid_t, budget: Int = 4_000) -> [String] {
-        guard AXIsProcessTrusted() else { return [] }
+    /// One read of a visible participant panel (FLU-33): the cleaned names, whether the list
+    /// was found and read to its end within `budget` (elements and time, `WalkBudget`), and
+    /// the count the app prints beside it. The walk stops at the first list it reads.
+    static func participants(pid: pid_t, excluding user: [String], budget: WalkBudget = WalkBudget()) -> ParticipantRead {
+        guard AXIsProcessTrusted() else { return ParticipantRead(names: [], complete: false) }
+        var budget = budget
         let app = AXUIElementCreateApplication(pid)
-        var visited = 0
-        var names: [String] = []
+        let windows = elements(app, kAXWindowsAttribute)
 
-        for window in elements(app, kAXWindowsAttribute) {
-            // Zoom shows participants in their own window, "Participants (4)".
-            if let title = string(window, kAXTitleAttribute), isListLabel(title) {
-                names += texts(under: window, visited: &visited, budget: budget)
-                continue
-            }
-            var queue: [(AXUIElement, Int)] = [(window, 0)]
-            while !queue.isEmpty, visited < budget {
-                let (element, depth) = queue.removeFirst()
-                visited += 1
-                let label = string(element, kAXDescriptionAttribute) ?? string(element, kAXTitleAttribute) ?? ""
-                let role = string(element, kAXRoleAttribute) ?? ""
-                if isListLabel(label), ["AXList", "AXOutline", "AXTable", "AXGroup"].contains(role) {
-                    names += texts(under: element, visited: &visited, budget: budget)
-                    continue
-                }
-                guard depth < 30 else { continue }
-                queue += elements(element, kAXChildrenAttribute).map { ($0, depth + 1) }
+        func read(_ list: AXUIElement, label: String) -> ParticipantRead {
+            let raw = texts(under: list, budget: &budget)
+            return ParticipantRead(
+                names: ParticipantNames.clean(raw, excluding: user),
+                complete: !budget.isExhausted,
+                reportedCount: ParticipantNames.reportedCount(inLabel: label)
+            )
+        }
+
+        // Zoom shows participants in their own window, « Participants (4) ».
+        for window in windows {
+            if let title = string(window, kAXTitleAttribute), ParticipantNames.isListLabel(title) {
+                return read(window, label: title)
             }
         }
-        return names
-    }
-
-    private static func isListLabel(_ label: String) -> Bool {
-        let lower = label.lowercased().trimmingCharacters(in: .whitespaces)
-        return listLabels.contains { lower == $0 || lower.hasPrefix($0 + " (") || lower.hasPrefix($0 + " ·") }
+        var queue: [(AXUIElement, Int)] = windows.map { ($0, 0) }
+        var next = 0
+        while next < queue.count, budget.spend() {
+            let (element, depth) = queue[next]
+            next += 1
+            let label = string(element, kAXDescriptionAttribute) ?? string(element, kAXTitleAttribute) ?? ""
+            let role = string(element, kAXRoleAttribute) ?? ""
+            if ParticipantNames.isListLabel(label), ["AXList", "AXOutline", "AXTable", "AXGroup"].contains(role) {
+                return read(element, label: label)
+            }
+            guard depth < 30 else { continue }
+            queue += elements(element, kAXChildrenAttribute).map { ($0, depth + 1) }
+        }
+        return ParticipantRead(names: [], complete: false)
     }
 
     /// Static texts and row descriptions under `root`.
-    private static func texts(under root: AXUIElement, visited: inout Int, budget: Int) -> [String] {
+    private static func texts(under root: AXUIElement, budget: inout WalkBudget) -> [String] {
         var result: [String] = []
         var stack: [(AXUIElement, Int)] = [(root, 0)]
-        while let (element, depth) = stack.popLast(), visited < budget {
-            visited += 1
+        while let (element, depth) = stack.popLast() {
+            guard budget.spend() else { break }
             let role = string(element, kAXRoleAttribute) ?? ""
             if role == kAXStaticTextRole as String, let value = string(element, kAXValueAttribute) {
                 result.append(value)

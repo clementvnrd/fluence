@@ -8,6 +8,27 @@ struct SpeakerConsolidationVectorTests {
     struct Vectors: Decodable {
         var consolidate: [Case]
         var speakerCap: [CapCase]
+        var roster: [RosterCase]
+        var windowNames: [WindowNamesCase]
+    }
+
+    /// FLU-33: when the call window's list gives a count.
+    struct RosterCase: Decodable {
+        var name: String
+        var reads: [ParticipantRead]
+        var trustedCount: Int?
+    }
+
+    /// FLU-33: the window's names through the cap, the consolidation and the naming.
+    struct WindowNamesCase: Decodable {
+        var name: String
+        var reads: [ParticipantRead]
+        var attendees: Int
+        var turns: [SpeakerTurn]
+        var embeddings: [String: [Float]]
+        var cap: Int?
+        var voices: Int
+        var names: [String: String]
     }
 
     struct Case: Decodable {
@@ -44,6 +65,39 @@ struct SpeakerConsolidationVectorTests {
     func cap(_ name: String) {
         let testCase = Self.vectors.speakerCap.first { $0.name == name }!
         #expect(SpeakerConsolidation.speakerCap(windowParticipants: testCase.windowParticipants, attendees: testCase.attendees) == testCase.cap)
+    }
+
+    @Test("the call window gives a count only when its list looks complete", arguments: vectors.roster.map(\.name))
+    func roster(_ name: String) {
+        let testCase = Self.vectors.roster.first { $0.name == name }!
+        #expect(ParticipantRoster(reads: testCase.reads).trustedCount == testCase.trustedCount)
+    }
+
+    @Test("a partial participant list never folds distinct voices into its names", arguments: vectors.windowNames.map(\.name))
+    func windowNames(_ name: String) {
+        let testCase = Self.vectors.windowNames.first { $0.name == name }!
+        let roster = ParticipantRoster(reads: testCase.reads)
+        let cap = SpeakerConsolidation.speakerCap(roster: roster, attendees: testCase.attendees)
+        #expect(cap == testCase.cap)
+
+        let result = SpeakerConsolidation.consolidate(turns: testCase.turns, embeddings: testCase.embeddings, cap: cap)
+        var voices: [String] = []
+        for turn in result.turns where !voices.contains(turn.speaker) { voices.append(turn.speaker) }
+        #expect(voices.count == testCase.voices)
+
+        let named = SpeakerNaming.name([.me()] + voices.map { Speaker(id: $0) }, candidates: .init(
+            windowParticipants: roster.names
+        ))
+        let names = Dictionary(uniqueKeysWithValues: named.compactMap { speaker in speaker.name.map { (speaker.id, $0) } })
+        #expect(names == testCase.names)
+    }
+
+    @Test("the diarizer is never held below two voices")
+    func diarizerCeiling() {
+        #expect(SpeakerConsolidation.diarizerCeiling(cap: nil) == nil)
+        #expect(SpeakerConsolidation.diarizerCeiling(cap: 1) == 2)
+        #expect(SpeakerConsolidation.diarizerCeiling(cap: 2) == 2)
+        #expect(SpeakerConsolidation.diarizerCeiling(cap: 5) == 5)
     }
 
     @Test("an over-split meeting comes back to its real speakers")

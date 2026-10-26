@@ -12,7 +12,8 @@ extension MeetingAudioSpoolReader: AudioSampleSource {}
 ///    mic is the user by construction, so their voice can never be split into clusters.
 ///    Calendar attendees give a speaker-count ceiling.
 /// 1b. Consolidate the voices (`SpeakerConsolidation`, FLU-22): merge near-duplicates,
-///    absorb voices heard for a few seconds, cap the count with the call's participants.
+///    absorb voices heard for a few seconds, cap the count with the call's participants
+///    when the window's list looks complete (FLU-33) or the calendar's.
 /// 2. Attribute each system word to the voice most active over it, split segments where
 ///    the voice changes, relabel `S1…Sn` by first appearance (`SpeakerAssignment`).
 /// 3. Merge with the mic transcript, dropping mic echoes (`TranscriptMerger`).
@@ -27,8 +28,9 @@ enum MeetingFinalizer {
         var systemSpool: URL?
         var key: SymmetricKey?
         var corrector: DictionaryCorrector
-        /// Remote names the call window showed during the meeting (FLU-22: the cap).
-        var windowParticipantCount = 0
+        /// What the call window showed during the meeting: a cap only when its list looks
+        /// complete (FLU-22, FLU-33).
+        var windowRoster = ParticipantRoster()
     }
 
     struct Output: Sendable {
@@ -49,16 +51,14 @@ enum MeetingFinalizer {
             do {
                 let reader = try MeetingAudioSpoolReader(url: url, key: key)
                 if reader.sampleCount >= 2 * MeetingAudioFormat.sampleRate {
-                    let cap = SpeakerConsolidation.speakerCap(
-                        windowParticipants: input.windowParticipantCount,
-                        attendees: meeting.attendees.count
-                    )
-                    (turns, rawEmbeddings) = try await diarize(reader, cap: cap)
+                    let cap = SpeakerConsolidation.speakerCap(roster: input.windowRoster, attendees: meeting.attendees.count)
+                    (turns, rawEmbeddings) = try await diarize(reader, ceiling: SpeakerConsolidation.diarizerCeiling(cap: cap))
                     let consolidated = SpeakerConsolidation.consolidate(turns: turns, embeddings: rawEmbeddings, cap: cap)
                     Log.speech.info("""
                         voices: \(Set(turns.map(\.speaker)).count, privacy: .public) from the diarizer, \
                         \(Set(consolidated.turns.map(\.speaker)).count, privacy: .public) after consolidation \
-                        (cap \(cap.map(String.init) ?? "none", privacy: .public))
+                        (cap \(cap.map(String.init) ?? "none", privacy: .public), \
+                        window list \(input.windowRoster.isComplete ? "complete" : "not trusted", privacy: .public))
                         """)
                     turns = consolidated.turns
                     rawEmbeddings = consolidated.embeddings
@@ -115,12 +115,12 @@ enum MeetingFinalizer {
 
     private static func diarize(
         _ reader: MeetingAudioSpoolReader,
-        cap: Int?
+        ceiling: Int?
     ) async throws -> ([SpeakerTurn], [String: [Float]]) {
         var config = OfflineDiarizerConfig.default
-        if let cap {
+        if let ceiling {
             // A ceiling, not an exact count: not everyone in the call speaks.
-            config.clustering.maxSpeakers = cap
+            config.clustering.maxSpeakers = ceiling
         }
         let manager = OfflineDiarizerManager(config: config)
         try await manager.prepareModels()

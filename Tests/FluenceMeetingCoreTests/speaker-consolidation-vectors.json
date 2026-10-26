@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Behavioural contract for consolidating the diarizer's voices before word attribution (FLU-22): merge near-duplicate voices (cosine >= 0.68), absorb minor voices (< min(8 s, 3 % of remote speech)) into the closest major one by embedding, else the one speaking nearest in time, then merge the closest pair until the count fits the cap. The larger voice absorbs the smaller; on a tie, the one heard first. Rules in Sources/FluenceMeetingCore/SpeakerConsolidation.swift. FluenceMeetingCore runs every case.",
+  "about": "Behavioural contract for consolidating the diarizer's voices before word attribution (FLU-22): merge near-duplicate voices (cosine >= 0.68), absorb minor voices (< min(8 s, 3 % of remote speech)) into the closest major one by embedding, else the one speaking nearest in time, then merge the closest pair until the count fits the cap. The larger voice absorbs the smaller; on a tie, the one heard first. Rules in Sources/FluenceMeetingCore/SpeakerConsolidation.swift. FLU-33: the call window's names give a cap only when its list looks complete (`roster`, ParticipantRoster.swift: the last two reads complete and identical, with the app's own count matching or at least two names), and a partial list never shrinks distinct voices to the names it shows (`windowNames`: cap, consolidation, then naming). FluenceMeetingCore runs every case.",
   "consolidate": [
     {
       "name": "one voice split by the call's audio merges back",
@@ -74,5 +74,162 @@
     { "name": "the window alone", "windowParticipants": 3, "attendees": 0, "cap": 3 },
     { "name": "the calendar alone, plus an uninvited guest", "windowParticipants": 0, "attendees": 4, "cap": 5 },
     { "name": "nothing known: no cap", "windowParticipants": 0, "attendees": 0, "cap": null }
+  ],
+  "roster": [
+    {
+      "name": "one read is not enough",
+      "reads": [
+        { "names": ["Ada", "Bob"], "complete": true }
+      ],
+      "trustedCount": null
+    },
+    {
+      "name": "two complete reads of the same people",
+      "reads": [
+        { "names": ["Ada", "Bob"], "complete": true },
+        { "names": ["bob", "ADA"], "complete": true }
+      ],
+      "trustedCount": 2
+    },
+    {
+      "name": "a walk that ran out of budget is not complete",
+      "reads": [
+        { "names": ["Ada", "Bob"], "complete": true },
+        { "names": ["Ada", "Bob"], "complete": false }
+      ],
+      "trustedCount": null
+    },
+    {
+      "name": "the list changed between the last two reads",
+      "reads": [
+        { "names": ["Ada", "Bob"], "complete": true },
+        { "names": ["Ada", "Bob", "Cy"], "complete": true }
+      ],
+      "trustedCount": null
+    },
+    {
+      "name": "stable again after a change",
+      "reads": [
+        { "names": ["Ada", "Bob"], "complete": true },
+        { "names": ["Ada", "Bob", "Cy"], "complete": true },
+        { "names": ["Ada", "Bob", "Cy"], "complete": true }
+      ],
+      "trustedCount": 3
+    },
+    {
+      "name": "a lone name without the app's count",
+      "reads": [
+        { "names": ["Ada"], "complete": true },
+        { "names": ["Ada"], "complete": true }
+      ],
+      "trustedCount": null
+    },
+    {
+      "name": "a lone name the app's count confirms",
+      "reads": [
+        { "names": ["Ada"], "complete": true, "reportedCount": 2 },
+        { "names": ["Ada"], "complete": true, "reportedCount": 2 }
+      ],
+      "trustedCount": 1
+    },
+    {
+      "name": "the app's count says the list is cut",
+      "reads": [
+        { "names": ["Ada", "Bob", "Cy"], "complete": true, "reportedCount": 7 },
+        { "names": ["Ada", "Bob", "Cy"], "complete": true, "reportedCount": 7 }
+      ],
+      "trustedCount": null
+    },
+    {
+      "name": "names read earlier, even partly, count too",
+      "reads": [
+        { "names": ["Ada", "Bob", "Cy", "Dee"], "complete": false },
+        { "names": ["Ada", "Bob"], "complete": true },
+        { "names": ["Ada", "Bob"], "complete": true }
+      ],
+      "trustedCount": 4
+    },
+    {
+      "name": "the panel closed before the end",
+      "reads": [
+        { "names": ["Ada", "Bob"], "complete": true },
+        { "names": ["Ada", "Bob"], "complete": true },
+        { "names": [], "complete": false }
+      ],
+      "trustedCount": null
+    }
+  ],
+  "windowNames": [
+    {
+      "name": "four voices and one name read from the window: four voices stay, the name goes to none",
+      "reads": [
+        { "names": ["Ada"], "complete": true },
+        { "names": ["Ada"], "complete": true },
+        { "names": ["Ada"], "complete": true }
+      ],
+      "attendees": 0,
+      "turns": [
+        { "speaker": "A", "start": 0, "end": 60 },
+        { "speaker": "B", "start": 60, "end": 120 },
+        { "speaker": "C", "start": 120, "end": 180 },
+        { "speaker": "D", "start": 180, "end": 240 }
+      ],
+      "embeddings": { "A": [1, 0, 0, 0], "B": [0, 1, 0, 0], "C": [0, 0, 1, 0], "D": [0, 0, 0, 1] },
+      "cap": null,
+      "voices": 4,
+      "names": {}
+    },
+    {
+      "name": "four voices and a walk cut short on one name: no cap, no name",
+      "reads": [
+        { "names": ["Ada"], "complete": false },
+        { "names": ["Ada"], "complete": false }
+      ],
+      "attendees": 0,
+      "turns": [
+        { "speaker": "A", "start": 0, "end": 60 },
+        { "speaker": "B", "start": 60, "end": 120 },
+        { "speaker": "C", "start": 120, "end": 180 },
+        { "speaker": "D", "start": 180, "end": 240 }
+      ],
+      "embeddings": { "A": [1, 0, 0, 0], "B": [0, 1, 0, 0], "C": [0, 0, 1, 0], "D": [0, 0, 0, 1] },
+      "cap": null,
+      "voices": 4,
+      "names": {}
+    },
+    {
+      "name": "four voices and a complete list of four: the cap holds, names wait for evidence",
+      "reads": [
+        { "names": ["Ada", "Bob", "Cy", "Dee"], "complete": true, "reportedCount": 5 },
+        { "names": ["Ada", "Bob", "Cy", "Dee"], "complete": true, "reportedCount": 5 }
+      ],
+      "attendees": 0,
+      "turns": [
+        { "speaker": "A", "start": 0, "end": 60 },
+        { "speaker": "B", "start": 60, "end": 120 },
+        { "speaker": "C", "start": 120, "end": 180 },
+        { "speaker": "D", "start": 180, "end": 240 }
+      ],
+      "embeddings": { "A": [1, 0, 0, 0], "B": [0, 1, 0, 0], "C": [0, 0, 1, 0], "D": [0, 0, 0, 1] },
+      "cap": 4,
+      "voices": 4,
+      "names": {}
+    },
+    {
+      "name": "one voice and the one name a complete list shows",
+      "reads": [
+        { "names": ["Ada"], "complete": true, "reportedCount": 2 },
+        { "names": ["Ada"], "complete": true, "reportedCount": 2 }
+      ],
+      "attendees": 0,
+      "turns": [
+        { "speaker": "A", "start": 0, "end": 60 },
+        { "speaker": "A", "start": 70, "end": 120 }
+      ],
+      "embeddings": { "A": [1, 0, 0, 0] },
+      "cap": 1,
+      "voices": 1,
+      "names": { "A": "Ada" }
+    }
   ]
 }

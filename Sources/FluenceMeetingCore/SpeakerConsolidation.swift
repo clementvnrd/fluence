@@ -12,7 +12,8 @@ import Foundation
 /// 2. **Absorb minor voices**: a voice that speaks for only a few seconds in the whole
 ///    meeting joins the closest major voice (by embedding, else the one speaking around it).
 /// 3. **Cap**: never more voices than people known to be in the call; the closest pair
-///    merges until the count fits.
+///    merges until the count fits. The call window's names count only when its list looks
+///    complete (`ParticipantRoster`, FLU-33).
 ///
 /// The larger voice always absorbs the smaller, and its embedding becomes the
 /// speech-weighted mean of both. Pure arithmetic, pinned by
@@ -137,6 +138,19 @@ public enum SpeakerConsolidation {
         if windowParticipants > 0 { return max(windowParticipants, attendees) }
         if attendees > 0 { return attendees + 1 }
         return nil
+    }
+
+    /// The cap from the call window and the calendar (FLU-33): the window's names count only
+    /// when its list looks complete (`ParticipantRoster.trustedCount`). A partial list gives
+    /// no cap, so it can never fold distinct voices into the few names it shows.
+    public static func speakerCap(roster: ParticipantRoster, attendees: Int) -> Int? {
+        speakerCap(windowParticipants: roster.trustedCount ?? 0, attendees: attendees)
+    }
+
+    /// The most voices the diarizer may cluster into (FLU-33): the cap, never below two.
+    /// The consolidation, which compares the voices' embeddings, makes any last merge.
+    public static func diarizerCeiling(cap: Int?) -> Int? {
+        cap.map { max($0, 2) }
     }
 
     static func cosine(_ a: [Float], _ b: [Float]) -> Double? {

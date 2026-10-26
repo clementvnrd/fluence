@@ -17,8 +17,10 @@ final class MeetingSession {
     let inputLevel = InputLevelBox()
     /// Meeting time the app was last seen on the mic (call-ended rule).
     var appLastOnMic: TimeInterval = 0
-    /// Remote display names read from the meeting window so far, cleaned.
-    private(set) var participants: [String] = []
+    /// Remote display names read from the meeting window so far, cleaned, and whether its
+    /// list looks complete (FLU-33).
+    private(set) var roster = ParticipantRoster()
+    var participants: [String] { roster.names }
 
     private let appPID: pid_t?
     private let userNames: [String]
@@ -254,10 +256,14 @@ final class MeetingSession {
 
     func readParticipants() {
         guard let pid = appPID ?? app.flatMap(MeetingWindowReader.mainPID) else { return }
-        let names = ParticipantNames.clean(MeetingWindowReader.participantCandidates(pid: pid), excluding: userNames)
-        for name in names where !participants.contains(name) {
-            participants.append(name)
-        }
+        let started = Date()
+        let read = MeetingWindowReader.participants(pid: pid, excluding: userNames)
+        roster.record(read)
+        Log.app.info("""
+            participant walk: \(read.names.count, privacy: .public) names, \
+            \(read.complete ? "complete" : "partial", privacy: .public), \
+            \(Int(Date().timeIntervalSince(started) * 1000), privacy: .public) ms
+            """)
     }
 
     // MARK: - End

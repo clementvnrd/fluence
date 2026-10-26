@@ -402,7 +402,7 @@ final class MeetingController {
                 meeting,
                 spool: session.systemSpoolURL,
                 key: session.key,
-                windowParticipants: session.participants
+                windowRoster: session.roster
             )
             let completion = Self.complete(finalized, directory: session.directory)
 
@@ -474,17 +474,17 @@ final class MeetingController {
         _ meeting: Meeting,
         spool: URL?,
         key: SymmetricKey?,
-        windowParticipants: [String]
+        windowRoster: ParticipantRoster
     ) async -> (Meeting, [String: [Float]]) {
         let input = MeetingFinalizer.Input(
             meeting: meeting,
             systemSpool: spool,
             key: key,
             corrector: DictionaryStore.shared.corrector,
-            windowParticipantCount: windowParticipants.count
+            windowRoster: windowRoster
         )
         let output = await Task.detached(priority: .utility) { await MeetingFinalizer.attribute(input) }.value
-        return (MeetingFinalizer.name(output, windowParticipants: windowParticipants), output.voices)
+        return (MeetingFinalizer.name(output, windowParticipants: windowRoster.names), output.voices)
     }
 
     enum Completion {
@@ -608,7 +608,7 @@ final class MeetingController {
                 meeting,
                 spool: FileManager.default.fileExists(atPath: spool.path) ? spool : nil,
                 key: key,
-                windowParticipants: []
+                windowRoster: ParticipantRoster()
             )
             if Self.complete(finalized, directory: directory) == .done {
                 Log.app.info("recovered an interrupted meeting")
