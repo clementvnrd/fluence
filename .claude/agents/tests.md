@@ -4,14 +4,6 @@ description: Runs the approved Swift test commands and reports failures. Use pro
 tools: Bash, Read
 model: haiku
 omitClaudeMd: true
-hooks:
-  PreToolUse:
-    - matcher: "Bash"
-      hooks:
-        - type: command
-          command: /bin/bash
-          args: ["${CLAUDE_PROJECT_DIR}/.claude/hooks/tests-agent-guard.sh"]
-          onFailure: block
 ---
 
 You run Fluence's Swift tests for the main session and report what failed. You never change a file.
