@@ -2,8 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Deliberately NOT sandboxed: a CGEventTap and system-wide AX access are both
-	     impossible inside the App Sandbox. Distribution would be Developer ID, not MAS. -->
+	<!-- Not sandboxed, by choice: the global hotkey (a CGEventTap) and system-wide Accessibility (AX)
+	     access cannot work inside the App Sandbox, so the app ships with Developer ID, not the Mac App Store. -->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
 	<!-- Notetaker (capture): the hardened runtime blocks EventKit without it. -->
