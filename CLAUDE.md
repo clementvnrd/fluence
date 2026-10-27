@@ -1,8 +1,18 @@
 # CLAUDE.md
 
 Read `AGENTS.md` first: it describes the project, the test vectors and the traps (iCloud
-builds, code signing). This file only adds the working agreement with Clement
-around Linear.
+builds, code signing). This file only adds the working agreement with Clement:
+planning, then Linear.
+
+## Planning and delegation (Clement, 2026-10-27)
+
+Use Plan Mode before new features, significant design tradeoffs, and bugs that survive the first
+attempted fix.
+
+The default model is `opusplan` (`.claude/settings.json`): Opus while in Plan Mode, Sonnet once
+the plan is approved. Focused side tasks go to the Haiku subagents in `.claude/agents/`: `search`
+maps the code (read-only), `tests` runs the approved `swift test` commands and reports failures,
+`docs` fetches API documentation. None of them edits a file.
 
 ## Working with Linear (Clement, 2026-10-05)
 

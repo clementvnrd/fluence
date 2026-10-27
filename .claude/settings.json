@@ -1,0 +1,20 @@
+{
+  "model": "opusplan",
+  "effortLevel": "high",
+  "permissions": {
+    "allow": [
+      "Bash(swift test --scratch-path ~/Library/Caches/FluenceBuild/tests)",
+      "Bash(swift test --scratch-path ~/Library/Caches/FluenceBuild/tests --filter *)",
+      "Bash(swift test list --scratch-path ~/Library/Caches/FluenceBuild/tests)",
+      "WebSearch",
+      "WebFetch(domain:developer.apple.com)",
+      "WebFetch(domain:docs.swift.org)",
+      "WebFetch(domain:www.swift.org)",
+      "WebFetch(domain:swiftpackageindex.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:sparkle-project.org)",
+      "WebFetch(domain:code.claude.com)"
+    ]
+  }
+}
