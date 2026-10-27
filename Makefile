@@ -3,33 +3,32 @@ EXEC     := Fluence
 ## resampling, echo cancellation) are far slower unoptimised. `make CONFIG=debug run` to debug.
 CONFIG   ?= release
 
-## Build products live OUTSIDE this directory, for the same reason the .app does.
-##
-## ~/Desktop is iCloud/file-provider synced, and the provider mutates files inside
-## .build while the compiler is using them — producing "input file was modified during
-## the build" on random object files, and occasionally a wedged swift-frontend stuck at
-## 0% CPU. Moving the scratch path to ~/Library/Caches (never synced) removes the race.
+## SwiftPM's build products stay out of the repository folder too, for the reason that keeps
+## the staged app out of it (see below). The checkout lives in an iCloud-synced folder, and the
+## sync engine rewrites files under the build directory while the compiler is reading them: the
+## "input file was modified during the build" error on whichever object files it hit, and once
+## in a while a compiler front-end that sits there at zero CPU. ~/Library/Caches is never synced,
+## so a scratch path there takes the race away.
 ##
 ## Keyed by checkout path, so two git worktrees building at once never share (and corrupt)
 ## one scratch directory.
 CHECKOUT := $(shell pwd | shasum | cut -c1-10)
 SCRATCH  := $(HOME)/Library/Caches/FluenceBuild/$(CHECKOUT)/scratch
 BUILD    := $(SCRATCH)/$(CONFIG)/$(EXEC)
-
-## The bundle is assembled and signed OUTSIDE this directory on purpose.
-##
-## This tree lives under ~/Desktop, which is iCloud/file-provider synced. The provider
-## stamps com.apple.FinderInfo onto files inside an .app faster than we can strip them,
-## and codesign hard-refuses anything carrying them ("resource fork, Finder information,
-## or similar detritus not allowed"). `xattr -cr` immediately before signing is not enough
-## — the provider re-stamps in between. Staging in ~/Library/Caches sidesteps it entirely.
+## The .app is put together and signed outside the repo, on purpose. The repo sits in the iCloud
+## (file-provider) synced folder, whose sync engine tags the files inside a bundle with the
+## com.apple.FinderInfo extended attribute quicker than anything can take it off again, and
+## codesign will not sign a bundle holding such attributes at all (it complains about Finder
+## information and "detritus"). Clearing the attributes recursively right before signing is not
+## enough: the sync engine writes them back in between. Staging under ~/Library/Caches avoids it
+## altogether.
 STAGE    := $(HOME)/Library/Caches/FluenceBuild/$(CHECKOUT)
 APPNAME  := Fluence.app
 BUNDLE   := $(STAGE)/$(APPNAME)
 CONTENTS := $(BUNDLE)/Contents
-
-## TCC keys the Accessibility grant to the code signature, so an ad-hoc signature — which
-## changes on every build — makes the user re-grant after every `make`. Signing with a
+## Signing identity. TCC binds the Accessibility grant to the app's code signature, and an
+## ad-hoc signature comes out different on every build: with one, the permission has to be
+## granted again after each `make`. Signing with a
 ## stable identity keeps it constant and the grant sticky: a Developer ID if there is one,
 ## otherwise the free "Apple Development" certificate Xcode creates for any Apple ID
 ## (Xcode ▸ Settings ▸ Accounts ▸ Manage Certificates ▸ +). Falls back to ad-hoc ("-").
@@ -122,8 +121,8 @@ notices:
 	@swift package resolve --scratch-path "$(SCRATCH)"
 	@Tools/generate_third_party_notices.sh "$(SCRATCH)/checkouts"
 
-## Assemble a real .app bundle. TCC (microphone + Accessibility) keys on bundle identity
-## and code signature, so the raw SwiftPM binary can't be used directly.
+## Assembles a real .app bundle: TCC (microphone, Accessibility) recognises an app by its bundle
+## identity and its code signature, so the bare executable SwiftPM produces will not do.
 app: build
 	@test -n "$(APP_BUILD)" || { echo "APP_VERSION must look like 1.2.3, not '$(APP_VERSION)'"; exit 1; }
 	@rm -rf "$(BUNDLE)"
@@ -151,8 +150,8 @@ app: build
 	@# FLU-31: a release drops the local symbols (about 30 MB down to 20 MB); the global ones
 	@# stay, so a crash report still names the functions. Before signing, which it would break.
 	@if [ -n "$(STRIP)" ]; then strip -x "$(CONTENTS)/MacOS/$(EXEC)"; fi
-	@# Belt and braces: the staging dir isn't synced, but the copied binary can still carry
-	@# xattrs inherited from the synced .build directory.
+	@# Belt and braces: the staging folder is not synced, but the executable copied in above may
+	@# still carry extended attributes from the build directory, which once lived in the synced tree.
 	@xattr -cr "$(BUNDLE)"
 	@# Inside out, every piece with this app's identity and the hardened runtime: library
 	@# validation then accepts the framework, and Sparkle's check that an update is signed
@@ -183,11 +182,12 @@ run: app
 	@pkill -x $(EXEC) 2>/dev/null || true
 	@open "$(BUNDLE)"
 
-## Ad-hoc signatures change on every rebuild, which resets the Accessibility grant.
-## Installing to /Applications keeps the path stable and makes re-granting a one-click fix.
+## An ad-hoc signature is new after every build, which costs the Accessibility grant; a fixed
+## path in /Applications at least turns granting it again into a single click.
 install: app
 	@pkill -x $(EXEC) 2>/dev/null || true
-	@# $(BUNDLE) is an absolute staging path — the destination must use $(APPNAME) alone.
+	@# BUNDLE is an absolute path in the staging folder, so the destination in /Applications is
+	@# built from the app name alone, never from BUNDLE.
 	@rm -rf "/Applications/$(APPNAME)"
 	@cp -R "$(BUNDLE)" "/Applications/$(APPNAME)"
 	@open "/Applications/$(APPNAME)"
