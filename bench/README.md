@@ -1,120 +1,151 @@
-# Speech engine benchmark
+# bench — Apple vs Parakeet, on your own voice
 
-Apple's macOS 26 `SpeechTranscriber` vs NVIDIA's **Parakeet TDT 0.6B** running on the
-Neural Engine, on the same audio, scored the same way.
+A command-line race between two speech recognisers that run entirely on the Mac:
+
+- **Apple `SpeechTranscriber`**, the on-device engine of macOS 26;
+- **Parakeet TDT 0.6B**, NVIDIA's model, run on the ANE (Apple Neural Engine) as CoreML.
+
+Both get the identical audio file and both are scored the same way.
 
 Self-contained — it doesn't build or touch the Fluence app.
 
-```bash
-cd bench
-swift run bench record take1.wav          # talk, press RETURN
-swift run bench run take1.wav             # transcribe with both, open dashboard
-```
+## Try it
 
-To score accuracy, write down what you actually said and pass it as the reference:
+From `bench/`:
 
 ```bash
-echo "the quick brown fox jumps over the lazy dog" > take1.txt
-swift run bench run take1.wav --ref take1.txt
+swift run bench record demo.wav   # talk, then hit Return
+swift run bench run demo.wav      # both engines, then the report opens
 ```
 
-Flags: `--v2` (English-only Parakeet, higher recall), `--int4` (smaller/faster encoder).
+The first `run` downloads Parakeet's CoreML models once (469 MB measured for v3 INT8);
+later runs reuse them.
 
-Outputs `take1-results.json` and `take1-dashboard.html`, and opens the dashboard.
+## Measuring accuracy
 
----
+Type what you really said into a text file beside the clip, for example `demo.txt`
+containing « Pack my box with five dozen liquor jugs. », and hand it over:
 
-## Where the Parakeet model comes from
+```bash
+swift run bench run demo.wav --ref demo.txt
+```
 
-Parakeet is NVIDIA's ASR model, trained in their NeMo framework and published as PyTorch
-weights. It can't run on the Neural Engine in that form.
+Both engines then get a word error rate (WER) and a character error rate (CER).
 
-**Fluid Inference** is an open-source project that converts frontier audio models to
-**CoreML** and wraps them in a Swift SDK called **FluidAudio** — the same thing Argmax's
-WhisperKit does for Whisper. They publish the converted weights on Hugging Face:
+## Options
 
-| | |
+| Flag | Effect |
 |---|---|
-| Repo | [`FluidInference/parakeet-tdt-0.6b-v3-coreml`](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml) |
-| Base model | `nvidia/parakeet-tdt-0.6b-v3` |
-| License | CC-BY-4.0 |
-| Languages | 25 (English + European) |
+| `--ref FILE` | score against the text in `FILE` |
+| `--v2` | Parakeet v2: English only, better recall |
+| `--int4` | 4-bit encoder: smaller and faster |
 
-Nothing but `curl` is needed to inspect it — the Hugging Face API is public and unauthenticated:
+## What you get
+
+With the example above, in the directory you ran the command from:
+
+- `demo-results.json` — the raw numbers, one object per engine;
+- `demo-dashboard.html` — the report, opened in your browser straight away.
+
+Neither should be committed.
+
+## Where Parakeet comes from
+
+- **The model.** Parakeet is NVIDIA's speech recogniser, trained with NeMo and released as
+  PyTorch weights. The Neural Engine cannot run those as they are.
+- **The conversion.** The open-source Fluid Inference project converts audio models to CoreML
+  and publishes FluidAudio, a Swift SDK to run them — much as Argmax's WhisperKit does for Whisper.
+  The converted weights are public on Hugging Face.
+- **The repo used here.**
+  [`FluidInference/parakeet-tdt-0.6b-v3-coreml`](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml),
+  derived from `nvidia/parakeet-tdt-0.6b-v3`, licensed CC-BY-4.0, 25 languages (English and
+  the European languages).
+
+### Looking inside the repo
+
+`curl` is enough (`jq` makes it readable); the Hugging Face API needs no account and no token.
 
 ```bash
-REPO=FluidInference/parakeet-tdt-0.6b-v3-coreml
+MODEL=FluidInference/parakeet-tdt-0.6b-v3-coreml
 
-# metadata
-curl -s "https://huggingface.co/api/models/$REPO" | jq '{id, downloads, likes, pipeline_tag}'
+# A few facts about the model
+curl -s "https://huggingface.co/api/models/$MODEL" \
+  | jq '{id, downloads, likes, pipeline_tag}'
 
-# every file with sizes
-curl -s "https://huggingface.co/api/models/$REPO/tree/main?recursive=true" \
-  | jq -r '.[] | select(.type=="file") | "\(.lfs.size // .size)\t\(.path)"' \
-  | sort -rn | head
+# Every file with its size, biggest first (LFS size when the file has one)
+curl -s "https://huggingface.co/api/models/$MODEL/tree/main?recursive=true" \
+  | jq -r '[.[] | select(.type == "file") | {path, bytes: (.lfs.size // .size)}]
+           | sort_by(-.bytes) | .[:8][] | "\(.bytes)\t\(.path)"'
 
-# one file, directly
-curl -L -O "https://huggingface.co/$REPO/resolve/main/Encoder.mlmodelc/weights/weight.bin"
+# Fetch a single file, here the encoder weights
+curl -L -o weight.bin \
+  "https://huggingface.co/$MODEL/resolve/main/Encoder.mlmodelc/weights/weight.bin"
 ```
 
-The repo totals ~3 GB because it ships several variants of the same network — compiled
-`.mlmodelc` bundles, the source `.mlpackage` form, and an INT4-quantized encoder.
+### Repo size is not download size
 
-**You don't download all of it.** Measured on a real first run, FluidAudio pulled exactly
-four compiled models totalling **469 MB** into
+The repo weighs about 3 GB because it keeps the same network in several shapes: `.mlpackage`
+sources, compiled `.mlmodelc` bundles and an INT4 variant of the encoder. A measured first run pulled only
+four compiled models, 469 MB in all, into
 `~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3/`:
 
-| Component | Role | Weights |
-|---|---|---|
-| `Encoder.mlmodelc` | acoustic model (INT8) | 433 MB |
-| `Decoder.mlmodelc` | transducer decoder | 23 MB |
-| `JointDecisionv3.mlmodelc` | joint network | 12 MB |
-| `Preprocessor.mlmodelc` | audio → mel features | <1 MB |
+| Size | File | Role |
+|---:|---|---|
+| 433 MB | `Encoder.mlmodelc` | INT8 acoustic network |
+| 23 MB | `Decoder.mlmodelc` | prediction network of the transducer |
+| 12 MB | `JointDecisionv3.mlmodelc` | joint layer |
+| < 1 MB | `Preprocessor.mlmodelc` | audio to mel features |
 
-Note it takes the small `Preprocessor` rather than the 595 MB `MelEncoder`, and the INT8
-encoder rather than the `.mlpackage` sources — which is why the download is a sixth of the
-repo. Don't infer download size from repo size.
+FluidAudio skips `MelEncoder` (595 MB) and uses the small preprocessor instead, and prefers
+the compiled INT8 encoder to the `.mlpackage` sources: about a sixth of the repo in the end.
+The size of a repo tells you nothing about what a client will download.
 
-You never invoke any of this by hand — `AsrModels.downloadAndLoad(version: .v3)` fetches
-and caches it. To pre-fetch or work offline, the official CLI mirrors the whole repo:
+### Fetching the models yourself
+
+You never have to: FluidAudio's download-and-load call does it and keeps them. To fill a
+cache ahead of time or work offline, the official Hugging Face CLI copies the entire repo
+to `~/.cache/huggingface/`:
 
 ```bash
 pip install -U "huggingface_hub[cli]"
 hf download FluidInference/parakeet-tdt-0.6b-v3-coreml
 ```
 
-Cache lands in `~/.cache/huggingface/`; FluidAudio's copy in
-`~/Library/Application Support/FluidAudio/Models/`. Delete either to force a re-download.
+FluidAudio keeps its own copy in `~/Library/Application Support/FluidAudio/Models/`. Remove
+either folder and the next run downloads again.
 
----
+## What the numbers mean
 
-## What's being measured
+- **Process time** runs from handing over the audio to receiving the final text. Getting the
+  model ready is timed apart and shown as *load*: Apple's models already live in the
+  operating system, while Parakeet loads its own once per process.
+- **RTF** (real-time factor) is clip length divided by process time, i.e. seconds of audio
+  processed per wall-clock second. Higher is quicker: at 100, a one-minute clip is done in 0.6 s.
+- **WER / CER** are Levenshtein edit distances over words / characters, divided by the
+  length of the reference. Both texts are normalised first (lower case, punctuation dropped,
+  single spaces). That step matters: Apple adds punctuation on its own, and a reference typed
+  without punctuation would otherwise collect errors that are not errors. CER is there because WER
+  counts a technical word missed by one letter (« Kubernetes » coming out as « Cubernetis »)
+  as entirely wrong.
 
-**Process seconds** — wall clock from "start transcribing" to final text. Model loading is
-excluded, because the two are not comparable: Apple's models are resident in the OS, while
-Parakeet pays a one-time load per process. Load time is reported separately.
+## What the numbers do not tell you
 
-**RTF** — audio seconds processed per wall-clock second. 100× means a 60-second clip
-transcribes in 0.6s. Higher is faster.
+Here each engine works in batch: the whole file goes in, the finished text comes out. That
+is the right setting for comparing throughput, and the wrong one for judging how dictation
+feels.
 
-**WER / CER** — word and character error rate against your reference, via Levenshtein
-distance. Scored on *normalized* text: lowercased, punctuation stripped, whitespace
-collapsed. This matters — Apple adds punctuation automatically, and against an unpunctuated
-reference that would score as dozens of phantom errors and make the comparison worthless.
-CER is included because WER counts a near-miss ("Kubernetes" → "cubernetties") as a wholly
-wrong word, which overstates the damage for technical vocabulary.
+Apple's transcriber is built to stream. With volatile results turned on it shows words while
+you are still speaking, so the wait you notice is close to nothing, whatever its RTF.
+In batch, Parakeet only starts once you have stopped talking. The fair test of perceived
+latency would use FluidAudio's streaming manager, `SlidingWindowAsrManager`; this tool does
+not run it.
 
-### What this does *not* measure
+So RTF says which engine clears a pile of recordings sooner, not which one feels quicker in
+the middle of a sentence. With push-to-talk, once the key is up you are simply waiting for the text,
+which makes the batch delay a fair stand-in for what you experience — but still not the
+whole story.
 
-Both engines run in **batch** here: whole file in, final text out. That's the fair way to
-compare throughput, but it isn't how dictation feels.
+## French and the app's own engines
 
-`SpeechTranscriber` is natively streaming — with `.volatileResults` it shows words as you
-speak, so perceived latency is near zero regardless of RTF. Parakeet's batch path can only
-start after you stop talking. FluidAudio does offer `SlidingWindowAsrManager` for real
-streaming, which would be the fair comparison for felt latency, but it's a different
-measurement and isn't wired up here.
-
-So: **RTF answers "which is faster at bulk transcription," not "which feels snappier
-while dictating."** For a push-to-talk app where you release the key and wait, batch
-latency is close to what you feel — but don't read these numbers as the whole story.
+To compare every engine Fluence ships, in French and set up exactly as the app runs them,
+use `bench/french` (`fbench`); its results and verdicts are in `docs/SPEECH-MODELS.md`.
