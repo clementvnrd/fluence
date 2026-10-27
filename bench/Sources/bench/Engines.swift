@@ -1,123 +1,115 @@
 import AVFoundation
-import Foundation
 import FluidAudio
+import Foundation
 import Speech
 
-/// One engine's result, timed identically so the numbers are comparable.
-struct EngineRun: Codable {
+/// One engine's outcome. Its encoded form is the `<stem>-results.json` contract, so the
+/// property names are the JSON keys: keep them spelled exactly so. `wer` and `cer` stay
+/// `nil` (and are then left out of the file) when there is no usable reference.
+struct EngineResult: Codable, Sendable {
     let engine: String
     let detail: String
-    /// Seconds to get models ready. Apple's are OS-managed and usually already resident;
-    /// Parakeet's are downloaded once then loaded from disk.
     let loadSeconds: Double
-    /// Seconds of wall clock spent turning the audio into final text.
     let processSeconds: Double
-    /// Audio seconds processed per wall-clock second. Higher is faster.
     let realtimeFactor: Double
+    /// Trimmed transcript as the engine produced it, punctuation and case included.
     let text: String
     var wer: Double?
     var cer: Double?
 }
 
-// MARK: - Apple SpeechAnalyzer
+/// A failure the bench reports in its own words (`error: …` on stderr, exit 1).
+struct BenchFailure: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
+}
+
+// Both engines follow the same rules so the race is fair: the very same file goes in with
+// no resampling by us, the whole file is handed over at once (batch, not streaming), and
+// getting a model ready is clocked apart from the transcription itself.
 
 enum AppleEngine {
-    static func run(url: URL, audioDuration: Double) async throws -> EngineRun {
-        let loadStart = Date()
 
+    static func transcribe(_ audio: URL, audioSeconds: Double) async throws -> EngineResult {
+        // Preparation: everything up to a ready analyzer, asset download included when the
+        // language pack is missing on this Mac.
+        let loadStarted = Date()
         guard SpeechTranscriber.isAvailable else {
-            throw BenchError.message("SpeechTranscriber unavailable on this Mac")
+            throw BenchFailure("apple's speech transcriber is not available on this mac")
         }
+        // Follows the system language; a Mac set to French is benchmarked in French.
         let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current)
             ?? Locale(identifier: "en-US")
-
-        // `.transcription` rather than a volatile preset: we want the committed result, and
-        // partial revisions would only add work that Parakeet's batch path never does.
+        // The plain transcription preset only reports settled text. Volatile guesses would be
+        // extra work that the Parakeet side never does.
         let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
-
+        let languageTag = locale.identifier(.bcp47)
         let installed = await SpeechTranscriber.installedLocales
-        if !installed.contains(where: { $0.identifier(.bcp47) == locale.identifier(.bcp47) }) {
-            if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-                try await request.downloadAndInstall()
-            }
+        if !installed.contains(where: { $0.identifier(.bcp47) == languageTag }),
+           let install = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+            try await install.downloadAndInstall()
         }
-
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         try await analyzer.prepareToAnalyze(in: nil)
-        let loadSeconds = Date().timeIntervalSince(loadStart)
+        let loadSeconds = Date().timeIntervalSince(loadStarted)
 
-        let processStart = Date()
-        let collector = Task { () -> String in
-            var committed = ""
-            for try await result in transcriber.results where result.isFinal {
-                committed += String(result.text.characters)
+        // Processing: feed the file, close the input, wait for the last final result.
+        let processStarted = Date()
+        let collector = Task { () throws -> String in
+            var gathered = ""
+            for try await piece in transcriber.results where piece.isFinal {
+                gathered += String(piece.text.characters)
             }
-            return committed
+            return gathered
         }
-
-        let file = try AVAudioFile(forReading: url)
+        let file = try AVAudioFile(forReading: audio)
         try await analyzer.start(inputAudioFile: file, finishAfterFile: true)
         try await analyzer.finalizeAndFinishThroughEndOfInput()
+        let raw = try await collector.value
+        let processSeconds = Date().timeIntervalSince(processStarted)
 
-        let text = try await collector.value
-        let processSeconds = Date().timeIntervalSince(processStart)
-
-        return EngineRun(
+        return EngineResult(
             engine: "Apple SpeechTranscriber",
-            detail: "macOS 26 · on-device · \(locale.identifier(.bcp47))",
+            detail: "macOS 26 · on-device · \(languageTag)",
             loadSeconds: loadSeconds,
             processSeconds: processSeconds,
-            realtimeFactor: audioDuration / max(processSeconds, 0.0001),
-            text: text.trimmingCharacters(in: .whitespacesAndNewlines)
+            realtimeFactor: Scoring.realtimeFactor(audioSeconds: audioSeconds, processSeconds: processSeconds),
+            text: raw.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
 }
 
-// MARK: - Parakeet via FluidAudio
-
 enum ParakeetEngine {
-    static func run(
-        url: URL,
-        audioDuration: Double,
-        version: AsrModelVersion,
-        precision: ParakeetEncoderPrecision
-    ) async throws -> EngineRun {
-        let loadStart = Date()
 
-        // First call downloads ~1.1 GB of CoreML packages from the FluidInference HF repo
-        // into ~/Library/Application Support/FluidAudio/Models/; later runs load from disk.
-        let models = try await AsrModels.downloadAndLoad(
-            version: version,
-            encoderPrecision: precision
-        )
-        let manager = AsrManager(config: .default)
-        try await manager.loadModels(models)
-        // Allocated before the timer starts — this is setup, and charging it to transcription
-        // would flatter Apple's side, whose equivalent allocation happens inside `prepareToAnalyze`.
-        var decoderState = try TdtDecoderState()
-        let loadSeconds = Date().timeIntervalSince(loadStart)
+    static func transcribe(
+        _ audio: URL, audioSeconds: Double, useV2: Bool, useInt4: Bool
+    ) async throws -> EngineResult {
+        let version: AsrModelVersion = useV2 ? .v2 : .v3
+        let precision: ParakeetEncoderPrecision = useInt4 ? .int4 : .int8
 
-        let processStart = Date()
-        let result = try await manager.transcribe(url, decoderState: &decoderState)
-        let processSeconds = Date().timeIntervalSince(processStart)
+        // Preparation. FluidAudio fetches the CoreML models on the first call only and keeps
+        // them in ~/Library/Application Support/FluidAudio/Models/.
+        let loadStarted = Date()
+        let bundle = try await AsrModels.downloadAndLoad(version: version, encoderPrecision: precision)
+        let asr = AsrManager(config: .default)
+        try await asr.loadModels(bundle)
+        // The decoder state is set-up work, so it is made before the processing clock starts;
+        // Apple does its equivalent inside its own preparation.
+        var decoder = try TdtDecoderState()
+        let loadSeconds = Date().timeIntervalSince(loadStarted)
 
-        let versionName = version == .v3 ? "v3" : "v2"
-        return EngineRun(
-            engine: "Parakeet TDT 0.6B \(versionName)",
+        let processStarted = Date()
+        let output = try await asr.transcribe(audio, decoderState: &decoder)
+        let processSeconds = Date().timeIntervalSince(processStarted)
+
+        return EngineResult(
+            engine: useV2 ? "Parakeet TDT 0.6B v2" : "Parakeet TDT 0.6B v3",
             detail: "FluidAudio · CoreML on ANE · \(precision.rawValue) encoder",
             loadSeconds: loadSeconds,
             processSeconds: processSeconds,
-            realtimeFactor: audioDuration / max(processSeconds, 0.0001),
-            text: result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            realtimeFactor: Scoring.realtimeFactor(audioSeconds: audioSeconds, processSeconds: processSeconds),
+            text: output.text.trimmingCharacters(in: .whitespacesAndNewlines)
         )
-    }
-}
-
-// MARK: - Shared
-
-enum Audio {
-    static func duration(of url: URL) throws -> Double {
-        let file = try AVAudioFile(forReading: url)
-        return Double(file.length) / file.fileFormat.sampleRate
     }
 }

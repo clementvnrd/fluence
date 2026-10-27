@@ -1,93 +1,167 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import Foundation
 
-/// Records the microphone to a 16 kHz mono WAV — the format both engines want, so no
-/// resampling difference can bias the comparison.
-enum Recorder {
-    static func record(to url: URL) async throws {
-        guard await requestMicrophone() else {
-            throw BenchError.message("""
-                Microphone access denied.
+// `bench record`: grabs a test clip from the microphone, already at 16 kHz mono, the format
+// both engines prefer. Recording in that format up front means neither engine gets an edge
+// from a different resampler.
 
-                A SwiftPM command-line binary isn't an app bundle, so macOS attributes the
-                request to the terminal running it. Grant your terminal (Terminal, iTerm,
-                Cursor, VS Code…) microphone access in:
-                  System Settings ▸ Privacy & Security ▸ Microphone
+enum MicRecorder {
+
+    static let sampleRate: Double = 16_000
+
+    static func record(to destination: URL) async throws {
+        guard await microphoneGranted() else {
+            throw BenchFailure("""
+                microphone access was denied.
+                a swift package command-line tool is not an app bundle, so macOS files the request \
+                under the terminal that started it.
+                allow your terminal app (Terminal, iTerm, Cursor, VS Code…) in
+                System Settings ▸ Privacy & Security ▸ Microphone, then try again.
                 """)
         }
 
         let engine = AVAudioEngine()
         let input = engine.inputNode
-        let nativeFormat = input.outputFormat(forBus: 0)
-
-        guard let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: 16_000,
-            channels: 1,
-            interleaved: false
-        ) else { throw BenchError.message("couldn't build 16 kHz mono format") }
-
-        let file = try AVAudioFile(
-            forWriting: url,
-            settings: [
-                AVFormatIDKey: kAudioFormatLinearPCM,
-                AVSampleRateKey: 16_000,
-                AVNumberOfChannelsKey: 1,
-                AVLinearPCMBitDepthKey: 16,
-                AVLinearPCMIsFloatKey: false,
-                AVLinearPCMIsBigEndianKey: false,
-            ]
-        )
-
-        let converter = nativeFormat == targetFormat ? nil : AVAudioConverter(from: nativeFormat, to: targetFormat)
-        nonisolated(unsafe) let sink = file
-        nonisolated(unsafe) let conv = converter
-
-        input.installTap(onBus: 0, bufferSize: 2048, format: nativeFormat) { buffer, _ in
-            guard let conv else {
-                try? sink.write(from: buffer)
-                return
-            }
-            let ratio = targetFormat.sampleRate / buffer.format.sampleRate
-            let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 64
-            guard let out = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return }
-
-            nonisolated(unsafe) let input = buffer
-            var handed = false
-            var error: NSError?
-            _ = conv.convert(to: out, error: &error) { _, status in
-                if handed { status.pointee = .noDataNow; return nil }
-                handed = true
-                status.pointee = .haveData
-                return input
-            }
-            if error == nil, out.frameLength > 0 { try? sink.write(from: out) }
+        let native = input.outputFormat(forBus: 0)
+        guard let wanted = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32, sampleRate: sampleRate, channels: 1, interleaved: false
+        ) else {
+            throw BenchFailure("could not make a 16 khz mono audio format")
         }
 
-        engine.prepare()
-        try engine.start()
+        // On disk: 16-bit little-endian integer PCM, 16 kHz, one channel. AVFoundation picks
+        // the container from the extension the user typed (.wav is the documented case).
+        let diskSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+        ]
+        let file = try AVAudioFile(
+            forWriting: destination, settings: diskSettings, commonFormat: .pcmFormatFloat32, interleaved: false
+        )
 
-        print("🔴 Recording — press RETURN to stop.")
+        let converter: AVAudioConverter?
+        if native == wanted {
+            converter = nil
+        } else {
+            guard let made = AVAudioConverter(from: native, to: wanted) else {
+                throw BenchFailure("could not convert the microphone format to 16 khz mono")
+            }
+            converter = made
+        }
+
+        let sink = CaptureSink(file: file, converter: converter, target: wanted)
+        sink.attach(to: input, format: native)
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            input.removeTap(onBus: 0)
+            throw error
+        }
+
+        print("🔴 recording into \(destination.lastPathComponent) — press Return to stop")
         _ = readLine()
 
         input.removeTap(onBus: 0)
         engine.stop()
 
-        let duration = Double(file.length) / 16_000
-        print(String(format: "✅ Saved %@ (%.1fs)", url.lastPathComponent, duration))
+        let seconds = Double(sink.framesWritten) / sampleRate
+        print("✅ saved \(destination.lastPathComponent) (\(String(format: "%.1f", seconds))s)")
     }
 
-    private static func requestMicrophone() async -> Bool {
+    /// Granted stays granted, an unasked question is asked now, anything else is a no.
+    private static func microphoneGranted() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: return true
-        case .notDetermined: return await AVCaptureDevice.requestAccess(for: .audio)
-        default: return false
+        case .authorized:
+            return true
+        case .notDetermined:
+            return await AVCaptureDevice.requestAccess(for: .audio)
+        default:
+            return false
         }
     }
 }
 
-struct BenchError: LocalizedError {
-    let text: String
-    static func message(_ text: String) -> BenchError { BenchError(text: text) }
-    var errorDescription: String? { text }
+/// Receives the microphone buffers and writes them to the file.
+///
+/// Why `@unchecked Sendable`: the tap block runs on a real-time audio thread that Swift
+/// concurrency knows nothing about, and `AVAudioFile` / `AVAudioConverter` are not Sendable.
+/// The safety argument is by construction instead: once the tap is installed, only that
+/// audio thread touches `file`, `converter` and `framesWritten`; the main flow reads
+/// `framesWritten` only after `removeTap` and `stop()` have returned, when no callback can
+/// still be running.
+private final class CaptureSink: @unchecked Sendable {
+    private let file: AVAudioFile
+    private let converter: AVAudioConverter?
+    private let target: AVAudioFormat
+    private(set) var framesWritten: AVAudioFramePosition = 0
+
+    init(file: AVAudioFile, converter: AVAudioConverter?, target: AVAudioFormat) {
+        self.file = file
+        self.converter = converter
+        self.target = target
+    }
+
+    /// Kept out of any actor on purpose: a block created inside main-actor code would
+    /// inherit that isolation and trap when the audio thread calls it.
+    nonisolated func attach(to node: AVAudioInputNode, format: AVAudioFormat) {
+        node.installTap(onBus: 0, bufferSize: 2048, format: format) { [self] buffer, _ in
+            self.take(buffer)
+        }
+    }
+
+    private func take(_ buffer: AVAudioPCMBuffer) {
+        guard let converter else {
+            store(buffer)
+            return
+        }
+        // Room for the resampled audio plus a little slack for the converter's own filter.
+        let ratio = target.sampleRate / buffer.format.sampleRate
+        let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 64
+        guard let converted = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
+
+        // Hand over this one buffer, then say "nothing more for now" rather than "finished",
+        // so the converter keeps its filter state for the next buffer.
+        let feed = OneShotFeed(buffer)
+        var failure: NSError?
+        let status = converter.convert(to: converted, error: &failure) { _, inputStatus in
+            feed.next(inputStatus)
+        }
+        if status != .error, failure == nil, converted.frameLength > 0 {
+            store(converted)
+        }
+    }
+
+    /// Best effort: a failed write is dropped and the recording goes on.
+    private func store(_ buffer: AVAudioPCMBuffer) {
+        do {
+            try file.write(from: buffer)
+            framesWritten += AVAudioFramePosition(buffer.frameLength)
+        } catch {
+            // ignored on purpose
+        }
+    }
+}
+
+/// Supplies one buffer to an `AVAudioConverter` input block, then reports no data.
+/// Unchecked for the same reason as `CaptureSink`: it lives and dies inside one call to
+/// `convert`, on the audio thread.
+private final class OneShotFeed: @unchecked Sendable {
+    private var pending: AVAudioPCMBuffer?
+
+    init(_ buffer: AVAudioPCMBuffer) { pending = buffer }
+
+    func next(_ status: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? {
+        guard let buffer = pending else {
+            status.pointee = .noDataNow
+            return nil
+        }
+        pending = nil
+        status.pointee = .haveData
+        return buffer
+    }
 }
