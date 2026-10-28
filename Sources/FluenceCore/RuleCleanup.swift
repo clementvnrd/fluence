@@ -6,9 +6,12 @@ import Foundation
 /// when the model is unavailable, slow or rejected — so a failed model pass falls back to
 /// exactly Light and never to less (FLU-30: the fallback ran the rules without the repairs).
 /// `SpeechRepairs.after` runs after it, as after the model.
+///
+/// `developer`: the text is going into a terminal or a code editor, where French typography's
+/// no-break spaces break commands (FLU-90).
 public enum LightCleanup {
-    public static func apply(_ raw: String, language: DictationLanguage) -> String {
-        RuleCleanup.apply(SpeechRepairs.before(raw, language: language), language: language)
+    public static func apply(_ raw: String, language: DictationLanguage, developer: Bool = false) -> String {
+        RuleCleanup.apply(SpeechRepairs.before(raw, language: language), language: language, developer: developer)
     }
 }
 
@@ -23,7 +26,7 @@ public enum LightCleanup {
 /// its own rules (German, Polish…) gets only the neutral steps rather than English rules
 /// that would misfire on it.
 public enum RuleCleanup {
-    public static func apply(_ raw: String, language: DictationLanguage) -> String {
+    public static func apply(_ raw: String, language: DictationLanguage, developer: Bool = false) -> String {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return text }
 
@@ -41,7 +44,7 @@ public enum RuleCleanup {
         text = collapseWhitespace(text)
         text = capitalizeSentences(text)
         text = ensureTerminalPunctuation(text)
-        if language == .french { text = FrenchTypography.apply(to: text) }
+        if language == .french, !developer { text = FrenchTypography.apply(to: text) }
         return text
     }
 

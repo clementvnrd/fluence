@@ -70,6 +70,24 @@ struct DoNoHarmTests {
         "En deuxième lieu, il faut revoir le budget.",
         // Emphatic repeats (F12).
         "Oui, oui, oui, oui, oui, d'accord.",
+        // Cancel words inside a sentence are speech, not « scratch that » (FLU-87).
+        "Si le fichier est trop vieux supprime ça et on recommence demain.",
+        "Pour la réunion de jeudi annule ça s'il te plaît.",
+        "Le client a dit efface ça de la présentation.",
+        "Si le vol est retardé, annule tout le reste du voyage.",
+        "Quand la réunion est finie, efface ça du tableau.",
+        "Bonjour efface tout, salut.",
+        // Emphatic doubles said every day (FLU-90).
+        "Si si, c'est vrai.",
+        "Oh là là, quelle journée.",
+        "Vite vite, on va rater le train.",
+        "Allez allez, on y va.",
+        "Bon bon, on verra demain.",
+        "Bien bien, merci pour tout.",
+        "Encore encore, c'est trop bien.",
+        // A real short word before a longer one is not a stutter (FLU-90).
+        "Je relis le mail mailing avant l'envoi.",
+        "Le dossier data dataset est vide.",
     ]
 
     /// French typed into a terminal or an editor: Clement's prompts to Claude Code (FLU-30, F6).
@@ -115,8 +133,15 @@ struct DoNoHarmTests {
         // French typography writes the amount as « 400 € » (FLU-30, F13).
         ("le budget est de 300 non attends 400 euros", .french, "Le budget est de 400 €."),
         ("un pro problème", .french, "Un problème."),
+        // A real word cut off with a hyphen is still a stutter (FLU-90).
+        ("le mail- mailing", .french, "Le mailing."),
         ("c'est c'est bien", .french, "C'est bien."),
-        ("bonjour efface tout, salut", .french, "Salut."),
+        // A French cancel is a command only as the whole dictation or after a pause at its
+        // end (FLU-87): the dictation is dropped.
+        ("annule ça", .french, ""),
+        ("le budget est validé, annule ça.", .french, ""),
+        ("Envoie-le à Paul. Efface tout.", .french, ""),
+        ("send it to Paul scratch that send it to Marie", .english, "Send it to Marie."),
         ("meet on Tuesday, actually Wednesday", .english, "Meet on Wednesday."),
         ("let's meet at three no wait four", .english, "Let's meet at four."),
         ("send it in May, actually June", .english, "Send it in June."),
@@ -128,7 +153,15 @@ struct DoNoHarmTests {
     // MARK: - FLU-30
 
     static func developer(_ text: String, _ language: DictationLanguage) -> String {
-        SpeechRepairs.after(LightCleanup.apply(text, language: language), language: language, developer: true)
+        SpeechRepairs.after(LightCleanup.apply(text, language: language, developer: true), language: language, developer: true)
+    }
+
+    /// No French typography in a terminal or a code editor (FLU-90): a no-break space there
+    /// breaks commands and diffs.
+    @Test func noFrenchTypographyInDeveloperTools() {
+        let typed = Self.developer("La réunion est à 15h30 : on valide ? Ça coûte 2500 euros !", .french)
+        #expect(typed == "La réunion est à 15h30: on valide? Ça coûte 2500 euros!")
+        #expect(!typed.contains("\u{00A0}"))
     }
 
     /// The model's fallback is Light itself (F9): the repairs included, not the rules alone.

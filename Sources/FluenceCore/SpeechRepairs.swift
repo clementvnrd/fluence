@@ -53,10 +53,21 @@ public enum SpeechRepairs {
 
     /// "… scratch that, …" keeps only what follows; "Tuesday, actually Wednesday" keeps the
     /// revised word.
+    ///
+    /// The French cancels are ordinary French mid-sentence (« supprime ça et on recommence
+    /// demain », « annule tout le reste »), and deleting what came before them lost the
+    /// dictation (FLU-87). They are a command only as the whole dictation or at its very end
+    /// after a pause mark, where nothing follows them: the dictation is dropped.
     static func backtrack(_ text: String) -> String {
+        if text.range(
+            of: #"(?i)(?:^|[,.;:!?…])\s*(?:efface tout|efface ça|annule tout|annule ça|supprime ça)[\s.!…]*$"#,
+            options: .regularExpression
+        ) != nil {
+            return ""
+        }
         var result = text
         if let scratch = result.range(
-            of: #"(?i)\b(?:scratch that|delete that|efface tout|efface ça|annule tout|annule ça|supprime ça)\b"#,
+            of: #"(?i)\b(?:scratch that|delete that)\b"#,
             options: [.regularExpression, .backwards]
         ) {
             result = String(result[scratch.upperBound...])
@@ -139,6 +150,8 @@ public enum SpeechRepairs {
     /// Words that are legitimately said twice in a row.
     static let emphaticAllowed: Set<String> = [
         "très", "trop", "fort", "loin", "long", "jamais", "non", "oui", "bye", "merci",
+        // « si si », « oh là là », « allez allez » (FLU-90).
+        "si", "là", "vite", "allez", "bon", "bien", "encore", "vraiment",
         "very", "too", "so", "really", "no", "yes",
         // French reflexives: "nous nous sommes vus", "vous vous trompez".
         "nous", "vous",
@@ -208,14 +221,19 @@ public enum SpeechRepairs {
         "each", "even", "find", "give", "good", "here", "long", "look", "many", "much", "need",
         "next", "real", "same", "show", "sure", "tell", "time", "turn", "week", "year", "work",
         "know", "does", "done",
+        // Tech words heard in French (FLU-90): « le mail mailing », « data dataset ».
+        "mail", "data", "app", "code", "file", "test", "web", "site", "page", "link", "text",
+        "team", "chat", "note", "list", "user", "base", "bug", "log", "dev", "api", "tag", "push",
+        "pull",
     ]
 
-    /// "pro problème" → "problème", "dél délétère" → "délétère".
+    /// "pro problème" → "problème", "dél délétère" → "délétère", and a word cut off with a
+    /// hyphen even when it is a real one: "mail- mailing" → "mailing".
     ///
     /// The full word is matched by lookahead, so "un pro problème" still finds "pro" after
     /// "un" has been looked at (Clement's version consumed it and missed the stutter).
     static func removeStutterPrefixes(in text: String) -> String {
-        let pattern = #"(?i)(?<![\p{L}0-9_'])([\p{L}]{2,4})\s+(?=([\p{L}]+)(?![0-9\p{L}_']))"#
+        let pattern = #"(?i)(?<![\p{L}0-9_'])([\p{L}]{2,4})(-?)\s+(?=([\p{L}]+)(?![0-9\p{L}_']))"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
         var current = text
         var passes = 0
@@ -225,10 +243,11 @@ public enum SpeechRepairs {
             for match in regex.matches(in: current, range: NSRange(current.startIndex..., in: current)) {
                 guard let range = Range(match.range, in: current),
                       let prefixRange = Range(match.range(at: 1), in: current),
-                      let wordRange = Range(match.range(at: 2), in: current) else { continue }
+                      let wordRange = Range(match.range(at: 3), in: current) else { continue }
                 let prefix = current[prefixRange].lowercased()
                 let word = current[wordRange].lowercased()
-                if word.hasPrefix(prefix), word.count >= prefix.count + 2, !stutterStopWords.contains(prefix) {
+                let cutOff = match.range(at: 2).length > 0
+                if word.hasPrefix(prefix), word.count >= prefix.count + 2, cutOff || !stutterStopWords.contains(prefix) {
                     current.removeSubrange(range)
                     removed = true
                     break

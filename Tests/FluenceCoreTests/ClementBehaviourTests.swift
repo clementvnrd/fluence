@@ -7,7 +7,9 @@ import Testing
 struct SpeechRepairsTests {
     @Test func scratchThatKeepsWhatFollows() {
         #expect(SpeechRepairs.backtrack("send it to Paul scratch that send it to Marie") == "send it to Marie")
-        #expect(SpeechRepairs.backtrack("bonjour efface tout, salut") == "salut")
+        // French cancels act only alone or at the end after a pause, never mid-sentence (FLU-87).
+        #expect(SpeechRepairs.backtrack("bonjour efface tout, salut") == "bonjour efface tout, salut")
+        #expect(SpeechRepairs.backtrack("le budget est validé… supprime ça") == "")
     }
 
     @Test func selfCorrectionKeepsTheRevisedWord() {
