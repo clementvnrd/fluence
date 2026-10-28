@@ -1,79 +1,63 @@
-Now turn this into a proper macOS application.
+(Historical. This is the brief given to a coding assistant during the app's first weeks, when it
+was still a menu-bar tool. Nothing reads this file; today's design rules are in AGENTS.md.)
 
-Not a menu bar utility. A real app: dock icon, app menu, a standard resizable window,
-a Settings window on Cmd+comma, and a double-clickable .app I can keep in
-Applications. Drop LSUIElement.
+Turn the tool into a proper macOS app rather than something that only lives in the menu bar: an
+icon in the Dock, an application menu, an ordinary resizable main window, Settings on ⌘-comma, and a
+.app I can double-click and keep in Applications. Drop LSUIElement. Keep the menu bar item as a
+second way in: it shows the state and stays reachable for the hotkey from any other app.
 
-Keep a menu bar item as well, for status and the hotkey while I'm working in another
-app - but it is secondary now, not the whole interface.
+The main window should hold:
+- the transcription history, searchable, with a copy button on each entry;
+- a live audio level while recording;
+- a start / stop control;
+- the dictionary.
+Settings should hold the hotkey and the choice of speech model.
 
-The main window holds:
-- Past transcriptions, searchable, with copy on each one.
-- The live level meter while recording.
-- Start and stop.
-- A Dictionary.
+DICTIONARY
 
-Settings holds the hotkey and the model.
+I need somewhere to teach the app the words it keeps getting wrong: people's names, colleagues,
+jargon, product names. I want to add, edit, delete and search entries, have them saved on disk,
+and be able to edit them either in the app or as a plain text file.
 
-THE DICTIONARY
+Two kinds of entry:
+1. a term it should recognise — e.g. Supabase, Anthropic, Vercel;
+2. a pair: what it hears, and what it should write instead — e.g. "cloud code" becomes
+   "Claude Code".
 
-A place I can teach it words it keeps getting wrong - names, jargon, product names,
-the people I work with. Add, edit, delete, and search. It should persist and be
-editable as a plain file as well as in the UI.
+Use two mechanisms, because neither is enough on its own.
 
-Two entry types:
+a) Before transcription, pass the dictionary terms to the recogniser as a hint, with whatever
+   the engine supports, so it leans towards them. Keep that hint short: these models drift and
+   invent words in quiet stretches when given a long context.
 
-1. A word or phrase I want it to know. "Anthropic", "Vercel", "Supabase".
-2. A correction pair - when you hear X, write Y. "cloud code" becomes "Claude Code".
+b) After transcription, run a correction pass over the text: whole words only, case-insensitive,
+   longest trigger first. This is the part to rely on; the hint only nudges and can miss.
 
-Implement both mechanisms, because one alone is not enough:
+The correction pass must also catch a multi-word trigger that came out as one word or with a
+hyphen — "Claude Code" written "CloudCode" or "Cloud-Code" — so allow optional spaces or hyphens
+between the parts. It must not break real words: that rule has to leave "Cloudflare" and the
+plain word "cloud" untouched, and only fire when the whole pattern matches. When a new entry
+looks likely to catch everyday words, warn about it in the UI.
 
-First, bias the engine before it transcribes. Pass my dictionary words to the
-speech engine as context so it leans toward producing them - whatever the engine
-supports for this. Keep the list short when you pass it; long context makes these
-models drift and invent text on quiet audio.
+In the history, flag the dictations where a correction was applied and list what was replaced,
+so I can tell whether the dictionary is actually helping.
 
-Second, run a correction pass on the text afterward. Whole-word, case-insensitive,
-longest match first. This is the guaranteed path - biasing is a nudge, not a
-promise, and it will not catch everything.
+Before writing any view, set up a design system: named tokens for colours, type sizes, spacing,
+corner radii, borders, shadows and animation. Every view uses the tokens; no component carries
+its own hard-coded values.
 
-The correction pass must handle words the model glues together. If I add "Claude
-Code" it has to catch "CloudCode" and "Cloud-Code", not just the spaced version.
-Match on optional whitespace or hyphen between the parts.
+Visual direction (replaced since by Clement's own; kept here only as a record):
+the look of 1980s tape decks and portable field recorders — think Braun, Nakamichi, the Sony
+TC-D5, Marantz PMD machines. Brushed metal and matte plastic; a quiet palette of warm greys,
+near-black, cream and silver; one accent only, the red of a record lamp, with amber or green for
+levels. Buttons that look like they physically travel, real depth, crisp edges, visible seams
+between panels. Labels small, in capitals, tightly tracked, in a neutral sans-serif; counters
+and timings in segmented or monospaced digits. While recording, a needle VU meter, and level
+and waveform drawn like analog instruments.
 
-Be careful not to corrupt real words. A correction for "Claude Code" must never
-touch "Cloudflare" or the ordinary word "cloud". Require the full pattern, and show
-me a warning in the UI if an entry I add looks like it would match something common.
+It should feel like a sober piece of equipment, not a themed skin. Not wanted: neon,
+vaporwave or synthwave, purple and pink gradients, chrome lettering, glowing text, grid
+horizons. Aim for the plain, workshop side of that period.
 
-In the transcription history, show me when a correction fired and what it changed,
-so I can tell whether the dictionary is doing anything.
-
-Before you write any of it, define a design system and write it down as tokens I
-can point at later - color, type scale, spacing, corner radius, border, shadow,
-motion. Every view pulls from those tokens. No one-off values in the components.
-
-The direction is 1980s tape recorder. Portable field recorders and cassette decks -
-Sony TC-D5, Marantz PMD, Nakamichi, Braun. What that means concretely:
-
-Brushed aluminum and matte plastic surfaces. A muted palette - warm greys, off-black,
-cream, silver. One accent only: the red of a record light. Amber or green for level
-indicators.
-
-Physical controls. Buttons that look pressed rather than tinted. Real depth, hard
-edges, visible seams between panels.
-
-Silkscreen-style labels. Small, uppercase, tightly tracked, in a neutral grotesque.
-Segmented or monospaced numerals for counters and timings.
-
-The recording indicator is a VU meter with a needle, not a progress bar. Level and
-waveform read as analog instrumentation.
-
-Restraint over decoration. This should look like equipment, not like a theme.
-
-Do not use neon, vaporwave, synthwave, purple-and-pink gradients, glowing text,
-chrome lettering, or grid horizons. That whole aesthetic is overused and it is not
-what I am asking for. This is the sober, industrial side of the eighties.
-
-Show me the design tokens first and let me approve them before you build the views.
-
-The engine stays exactly as it is. This is the interface layer only.
+Process: show me the tokens first and wait for my go-ahead before building any view. Leave the
+speech engine alone; this step is only about the interface.
