@@ -1,9 +1,9 @@
-# macOS build
+# macOS build output
 .build/
 *.xcuserdatad
 .DS_Store
 
-# Built .app bundles, at the repo root ONLY.
+# Built app bundles, ignored at the top of the repository only.
 #
 # Anchored deliberately: on a case-insensitive macOS filesystem an unanchored `*.app/` also
 # matches any source folder whose name ends in `.App`, and once silently kept a whole

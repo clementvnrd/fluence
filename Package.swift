@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Fluence",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS("26.0")],
     dependencies: [
         // Parakeet on CoreML (FluidAudio), an optional engine: Apple's own speech engine
         // needs no package at all.
@@ -74,7 +74,9 @@ let package = Package(
             name: "FluenceDictionaryTests",
             dependencies: ["FluenceDictionary"],
             path: "Tests/FluenceDictionaryTests",
-            resources: [.copy("dictionary-test-vectors.json")],
+            resources: [
+                .copy("dictionary-test-vectors.json"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

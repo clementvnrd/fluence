@@ -1,37 +1,33 @@
 import Foundation
 
-/// Renders a self-contained HTML comparison — no external assets, opens straight from disk.
+/// Builds `<stem>-dashboard.html`: one standalone page (inline CSS, no script, no font or
+/// image fetched) so it opens from disk with no network. Every string that comes from the
+/// run is escaped before it lands in the markup.
 enum Dashboard {
-    static func render(
-        runs: [EngineRun],
-        audioFile: String,
-        audioDuration: Double,
-        reference: String?,
-        machine: String
-    ) -> String {
-        let fastest = runs.min(by: { $0.processSeconds < $1.processSeconds })?.engine
-        let mostAccurate = runs
-            .compactMap { run -> (String, Double)? in run.wer.map { (run.engine, $0) } }
-            .min(by: { $0.1 < $1.1 })?.0
 
-        let cards = runs.map { run in
-            card(run, isFastest: run.engine == fastest, isMostAccurate: run.engine == mostAccurate, reference: reference)
+    struct Input {
+        let audioName: String
+        let audioSeconds: Double
+        let machine: String
+        let results: [EngineResult]
+        let reference: String?
+    }
+
+    static func html(_ input: Input) -> String {
+        let fastest = winner(of: input.results) { $0.processSeconds }
+        let mostAccurate = winner(of: input.results) { $0.wer }
+        let referenceWords = input.reference.map { Scoring.words(of: Scoring.normalise($0)) }
+
+        let cards = input.results.map { result in
+            card(
+                for: result,
+                isFastest: result.engine == fastest,
+                isMostAccurate: result.engine == mostAccurate,
+                referenceWords: referenceWords
+            )
         }.joined(separator: "\n")
 
-        let refBlock = reference.map { ref in
-            """
-            <section class="panel">
-              <h2>Reference</h2>
-              <p class="ref">\(escape(ref))</p>
-            </section>
-            """
-        } ?? """
-            <section class="panel note">
-              <h2>No reference transcript</h2>
-              <p>Accuracy wasn't scored. Write down what you actually said and re-run with
-              <code>--ref transcript.txt</code> to get WER and CER.</p>
-            </section>
-            """
+        let subtitle = "\(escape(input.audioName)) · \(oneDecimal(input.audioSeconds))s of audio · \(escape(input.machine))"
 
         return """
         <!doctype html>
@@ -41,129 +37,195 @@ enum Dashboard {
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Speech engine benchmark</title>
         <style>
-        :root {
-          --bg:#fbfbfd; --panel:#fff; --ink:#1d1d1f; --muted:#6e6e73;
-          --line:#e3e3e8; --accent:#6b8cff; --accent2:#c278ff;
-          --good:#1a9c5b; --bad:#d1344b; --warn:#c07800;
-        }
-        @media (prefers-color-scheme: dark) {
-          :root { --bg:#0f0f12; --panel:#18181d; --ink:#f2f2f5; --muted:#9a9aa3;
-                  --line:#2c2c34; --good:#3ecf8e; --bad:#ff6b81; --warn:#e0a33a; }
-        }
-        :root[data-theme="dark"] { --bg:#0f0f12; --panel:#18181d; --ink:#f2f2f5; --muted:#9a9aa3;
-                  --line:#2c2c34; --good:#3ecf8e; --bad:#ff6b81; --warn:#e0a33a; }
-        :root[data-theme="light"] { --bg:#fbfbfd; --panel:#fff; --ink:#1d1d1f; --muted:#6e6e73;
-                  --line:#e3e3e8; --good:#1a9c5b; --bad:#d1344b; --warn:#c07800; }
-        * { box-sizing:border-box; }
-        body { margin:0; padding:40px 24px 72px; background:var(--bg); color:var(--ink);
-               font:15px/1.6 ui-rounded,-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif; }
-        .wrap { max-width:1040px; margin:0 auto; }
-        header { margin-bottom:32px; }
-        h1 { margin:0 0 6px; font-size:30px; letter-spacing:-.02em;
-             background:linear-gradient(90deg,var(--accent),var(--accent2));
-             -webkit-background-clip:text; background-clip:text; color:transparent; }
-        .sub { color:var(--muted); font-size:14px; }
-        .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); gap:20px; }
-        .panel { background:var(--panel); border:1px solid var(--line); border-radius:16px;
-                 padding:22px; margin-bottom:20px; }
-        .card h2 { margin:0; font-size:18px; letter-spacing:-.01em; }
-        .detail { color:var(--muted); font-size:12.5px; margin:4px 0 18px; }
-        .badges { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
-        .badge { font-size:11px; font-weight:600; padding:3px 9px; border-radius:999px;
-                 background:color-mix(in srgb, var(--accent) 16%, transparent); color:var(--accent); }
-        .badge.win { background:color-mix(in srgb, var(--good) 18%, transparent); color:var(--good); }
-        .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:18px; }
-        .stat { border:1px solid var(--line); border-radius:11px; padding:11px 12px; }
-        .stat .k { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
-        .stat .v { font-size:21px; font-weight:600; letter-spacing:-.02em; margin-top:3px;
-                   font-variant-numeric:tabular-nums; }
-        .transcript { border-top:1px solid var(--line); padding-top:14px; font-size:14px; }
-        .transcript .k { font-size:11px; color:var(--muted); text-transform:uppercase;
-                         letter-spacing:.05em; margin-bottom:7px; }
-        .sub-w { color:var(--bad); text-decoration:underline wavy var(--bad) 1px; }
-        .ins-w { color:var(--warn); }
-        .del-w { color:var(--muted); text-decoration:line-through; opacity:.65; }
-        .ref { font-size:14px; color:var(--muted); margin:0; }
-        .note p { color:var(--muted); font-size:13.5px; margin:6px 0 0; }
-        code { background:color-mix(in srgb, var(--ink) 8%, transparent); padding:1px 5px;
-               border-radius:5px; font-size:12.5px; }
-        .legend { display:flex; gap:16px; flex-wrap:wrap; color:var(--muted); font-size:12px; margin-top:10px; }
-        footer { margin-top:28px; color:var(--muted); font-size:12px; }
+        \(stylesheet)
         </style>
         </head>
-        <body><div class="wrap">
-        <header>
-          <h1>Speech engine benchmark</h1>
-          <div class="sub">
-            \(escape(audioFile)) · \(String(format: "%.1f", audioDuration))s of audio · \(escape(machine))
-          </div>
+        <body>
+        <main class="page">
+        <header class="masthead">
+        <h1>Speech engine benchmark</h1>
+        <p class="subtitle">\(subtitle)</p>
         </header>
-        <div class="grid">
+        <section class="engines">
         \(cards)
-        </div>
-        \(refBlock)
-        <footer>
-          RTF = audio seconds processed per wall-clock second; higher is faster.
-          Load time is excluded from RTF — Parakeet pays it once per process, Apple's models
-          are resident in the OS. Accuracy is scored on normalized text (lowercased,
-          punctuation stripped) so automatic punctuation isn't counted as error.
+        </section>
+        \(referencePanel(input.reference))
+        <footer class="notes">
+        <p><strong>RTF</strong> (real-time factor) is seconds of audio transcribed per second of work: the higher, the faster.</p>
+        <p>Load time is kept out of RTF: Apple's models come preloaded with macOS, whereas Parakeet has to load its own at the start of every process.</p>
+        <p>WER and CER compare normalised text (lower case, punctuation removed), so punctuation an engine adds by itself is not scored as a mistake.</p>
         </footer>
-        </div></body></html>
+        </main>
+        </body>
+        </html>
+
         """
     }
 
+    // MARK: Pieces
+
     private static func card(
-        _ run: EngineRun,
-        isFastest: Bool,
-        isMostAccurate: Bool,
-        reference: String?
+        for result: EngineResult, isFastest: Bool, isMostAccurate: Bool, referenceWords: [String]?
     ) -> String {
-        var badges = ""
-        if isFastest { badges += #"<span class="badge win">fastest</span>"# }
-        if isMostAccurate { badges += #"<span class="badge win">most accurate</span>"# }
-        badges += #"<span class="badge">\#(escape(run.detail))</span>"#
+        var badges: [String] = []
+        if isFastest { badges.append(#"<span class="pill win">fastest</span>"#) }
+        if isMostAccurate { badges.append(#"<span class="pill win">most accurate</span>"#) }
+        badges.append(#"<span class="pill info">\#(escape(result.detail))</span>"#)
 
-        let werCell = run.wer.map { String(format: "%.1f%%", $0 * 100) } ?? "—"
-        let cerCell = run.cer.map { String(format: "%.1f%%", $0 * 100) } ?? "—"
+        let werText = result.wer.map { "\(oneDecimal($0 * 100))%" } ?? "—"
+        let cerText = result.cer.map { "\(oneDecimal($0 * 100))%" } ?? "—"
 
-        let body: String
-        if let reference {
-            let tokens = Metrics.diff(reference: reference, hypothesis: run.text)
-            body = tokens.map { token in
-                switch token.kind {
-                case .match: escape(token.text)
-                case .substitution(let expected):
-                    #"<span class="sub-w" title="expected: \#(escape(expected))">\#(escape(token.text))</span>"#
-                case .insertion: #"<span class="ins-w" title="inserted">\#(escape(token.text))</span>"#
-                case .deletion: #"<span class="del-w" title="missed">\#(escape(token.text))</span>"#
-                }
-            }.joined(separator: " ")
+        let transcript: String
+        if let referenceWords {
+            let heard = Scoring.words(of: Scoring.normalise(result.text))
+            transcript = Scoring.align(referenceWords: referenceWords, hypothesisWords: heard)
+                .map(markup)
+                .joined(separator: " ")
         } else {
-            body = escape(run.text)
+            transcript = escape(result.text)
         }
 
         return """
-        <section class="panel card">
-          <h2>\(escape(run.engine))</h2>
-          <div class="detail">load \(String(format: "%.2f", run.loadSeconds))s</div>
-          <div class="badges">\(badges)</div>
-          <div class="stats">
-            <div class="stat"><div class="k">Process</div><div class="v">\(String(format: "%.2f", run.processSeconds))s</div></div>
-            <div class="stat"><div class="k">RTF</div><div class="v">\(String(format: "%.0f", run.realtimeFactor))×</div></div>
-            <div class="stat"><div class="k">WER</div><div class="v">\(werCell)</div></div>
-          </div>
-          <div class="transcript">
-            <div class="k">Transcript · CER \(cerCell)</div>
-            <div>\(body)</div>
-          </div>
+        <article class="card">
+        <h2>\(escape(result.engine))</h2>
+        <p class="load">load \(String(format: "%.2f", result.loadSeconds))s</p>
+        <div class="pills">\(badges.joined(separator: " "))</div>
+        <div class="tiles">
+        <div class="tile"><span class="label">Process</span><span class="figure">\(String(format: "%.2f", result.processSeconds))s</span></div>
+        <div class="tile"><span class="label">RTF</span><span class="figure">\(String(format: "%.0f", result.realtimeFactor))×</span></div>
+        <div class="tile"><span class="label">WER</span><span class="figure">\(werText)</span></div>
+        </div>
+        <div class="transcript">
+        <span class="label">Transcript · CER \(cerText)</span>
+        <p>\(transcript)</p>
+        </div>
+        </article>
+        """
+    }
+
+    private static func markup(_ token: Scoring.Token) -> String {
+        let word = escape(token.word)
+        switch token.kind {
+        case .match:
+            return word
+        case .substitution(let expected):
+            return #"<span class="swap" title="expected: \#(escape(expected))">\#(word)</span>"#
+        case .insertion:
+            return #"<span class="extra" title="inserted">\#(word)</span>"#
+        case .deletion:
+            return #"<span class="missed" title="missed">\#(word)</span>"#
+        }
+    }
+
+    private static func referencePanel(_ reference: String?) -> String {
+        if let reference {
+            return """
+            <section class="panel">
+            <h2>Reference</h2>
+            <p class="reference">\(escape(reference))</p>
+            </section>
+            """
+        }
+        return """
+        <section class="panel note">
+        <h2>No reference transcript</h2>
+        <p class="muted">Accuracy was not scored. Write down what you actually said in a text file and run again with <code>--ref &lt;file&gt;</code> to get both WER and CER.</p>
         </section>
         """
     }
 
-    private static func escape(_ s: String) -> String {
-        s.replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
+    // MARK: Helpers
+
+    /// Engine name of the result with the smallest metric; results without the metric are
+    /// skipped, and on a tie the one listed first keeps the title.
+    private static func winner(of results: [EngineResult], by metric: (EngineResult) -> Double?) -> String? {
+        var best: (engine: String, value: Double)?
+        for result in results {
+            guard let value = metric(result) else { continue }
+            if best == nil || value < best!.value {
+                best = (result.engine, value)
+            }
+        }
+        return best?.engine
     }
+
+    private static func oneDecimal(_ value: Double) -> String {
+        String(format: "%.1f", value)
+    }
+
+    static func escape(_ text: String) -> String {
+        var out = ""
+        out.reserveCapacity(text.count)
+        for character in text {
+            switch character {
+            case "&": out += "&amp;"
+            case "<": out += "&lt;"
+            case ">": out += "&gt;"
+            case "\"": out += "&quot;"
+            default: out.append(character)
+            }
+        }
+        return out
+    }
+
+    // MARK: Style
+
+    // Light by default, dark when the system asks for it; `data-theme` on <html> overrides
+    // either way (nothing sets it today, it is there for whoever wants to force one).
+    private static let stylesheet = """
+    :root {
+      --canvas: #f6f6f3; --card: #ffffff; --text: #1b1c1f; --soft: #6c6f76; --rule: #e3e3de;
+      --blue: #3b82f6; --violet: #8b5cf6; --ok: #16a34a; --ko: #dc2626; --caution: #d97706;
+      --code: rgba(59, 130, 246, 0.10);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --canvas: #111214; --card: #1c1d21; --text: #ececee; --soft: #9a9ca3; --rule: #2d2f35;
+        --blue: #60a5fa; --violet: #a78bfa; --ok: #4ade80; --ko: #f87171; --caution: #fbbf24;
+        --code: rgba(96, 165, 250, 0.16);
+      }
+    }
+    :root[data-theme="dark"] {
+      --canvas: #111214; --card: #1c1d21; --text: #ececee; --soft: #9a9ca3; --rule: #2d2f35;
+      --blue: #60a5fa; --violet: #a78bfa; --ok: #4ade80; --ko: #f87171; --caution: #fbbf24;
+      --code: rgba(96, 165, 250, 0.16);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--canvas); color: var(--text);
+      font: 15px/1.6 ui-rounded, -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "Helvetica Neue", sans-serif;
+    }
+    .page { max-width: 1040px; margin: 0 auto; padding: 48px 28px 64px; }
+    .masthead h1 {
+      margin: 0 0 6px; font-size: 40px; line-height: 1.15; letter-spacing: -0.02em;
+      background: linear-gradient(90deg, var(--blue), var(--violet));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .subtitle { margin: 0 0 28px; color: var(--soft); font-size: 14px; }
+    .engines { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; }
+    .card, .panel {
+      background: var(--card); border: 1px solid var(--rule); border-radius: 16px; padding: 22px 24px;
+    }
+    .panel { margin-top: 20px; }
+    .card h2, .panel h2 { margin: 0; font-size: 19px; }
+    .load { margin: 2px 0 12px; color: var(--soft); font-size: 13px; }
+    .pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+    .pill { border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+    .pill.win { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+    .pill.info { color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); font-weight: 500; }
+    .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .tile { border: 1px solid var(--rule); border-radius: 12px; padding: 10px 12px; }
+    .label { display: block; color: var(--soft); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+    .figure { display: block; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .transcript { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--rule); }
+    .transcript p { margin: 6px 0 0; }
+    .swap { color: var(--ko); text-decoration: underline wavy var(--ko); text-underline-offset: 3px; }
+    .extra { color: var(--caution); }
+    .missed { color: var(--soft); text-decoration: line-through; opacity: 0.55; }
+    .reference, .muted { color: var(--soft); }
+    .note h2 { font-size: 16px; }
+    code { background: var(--code); border-radius: 4px; padding: 1px 5px; font-size: 13px; }
+    .notes { margin-top: 28px; color: var(--soft); font-size: 12.5px; }
+    .notes p { margin: 4px 0; }
+    """
 }

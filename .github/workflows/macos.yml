@@ -46,11 +46,11 @@ jobs:
       # The app needs the macOS 26 SDK (SpeechAnalyzer, Foundation Models, process taps),
       # which ships with Xcode 26. Select the newest Xcode present rather than pinning a
       # version that will age out of the image.
-      - name: Select the newest Xcode
+      - name: Use the most recent Xcode
         run: |
-          latest=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
-          echo "Using $latest"
-          sudo xcode-select -s "$latest/Contents/Developer"
+          newest_xcode="$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)"
+          echo "Selected Xcode: $newest_xcode"
+          sudo xcode-select --switch "$newest_xcode/Contents/Developer"
           swift --version
           xcrun --show-sdk-version
 
@@ -78,11 +78,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select the newest Xcode
+      - name: Use the most recent Xcode
         run: |
-          latest=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
-          echo "Using $latest"
-          sudo xcode-select -s "$latest/Contents/Developer"
+          newest_xcode="$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)"
+          echo "Selected Xcode: $newest_xcode"
+          sudo xcode-select --switch "$newest_xcode/Contents/Developer"
           swift --version
 
       # `make app` as it ships (release, PUBLIC=1 like `make release`), signed ad-hoc: the

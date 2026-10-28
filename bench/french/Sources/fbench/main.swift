@@ -37,7 +37,7 @@ func load(_ path: String) throws -> [Float] {
 
 func clean(_ s: String) -> String {
     s.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: " ")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 }
 
 func emit(_ id: String, _ samples: [Float], _ elapsed: Double, _ text: String) {
@@ -98,7 +98,8 @@ case "apple":
         let t1 = Date()
         let collector = Task { () -> String in
             var text = ""
-            for try await result in transcriber.results where result.isFinal {
+            for try await result in transcriber.results {
+                guard result.isFinal else { continue }
                 text += String(result.text.characters)
             }
             return text
