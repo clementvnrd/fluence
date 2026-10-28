@@ -28,8 +28,10 @@ struct NameFixerFormatter: TextFormatter {
                 group.addTask {
                     try await session.respond(
                         to: prompt,
-                        // Greedy, as measured; a fix is never much longer than what was said.
-                        options: GenerationOptions(samplingMode: .greedy, maximumResponseTokens: 1200)
+                        // Temperature 0 ≈ the greedy decoding measured; `samplingMode:` (Xcode 27 SDK)
+                        // is `sampling:` in CI's Xcode 26 SDK, so neither label is used.
+                        // A fix is never much longer than what was said.
+                        options: GenerationOptions(temperature: 0, maximumResponseTokens: 1200)
                     ).content
                 }
                 group.addTask {
