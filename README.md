@@ -27,16 +27,16 @@ what Fluence is built on are in [`Resources/THIRD-PARTY-NOTICES.txt`](Resources/
 ## Quick start (building it yourself)
 
 ```bash
-make install     # builds, bundles, signs, copies to /Applications, launches
+make install   # compile, bundle, sign, then quit the old copy, replace it in /Applications, launch
 ```
 
 Needs **Xcode 26** (the Command Line Tools alone cannot compile SwiftUI's `@State` macro).
-Then grant two permissions — neither is optional, and neither can be requested silently:
+It needs two permissions for normal use, granted by you in a macOS prompt or System Settings:
 
-| Permission | Where | Needed for |
+| Permission | Granted in | Used for |
 |---|---|---|
 | **Accessibility** | System Settings ▸ Privacy & Security ▸ Accessibility | The AX text insert and ⌘V paste; the event tap for Esc, ⌃⌘V/⌃⌘C and modifier-only shortcuts |
-| **Microphone** | Prompted on first dictation | Audio capture |
+| **Microphone** | The macOS prompt, the first time Fluence needs it (after a refusal: System Settings) | Recording your voice, for dictation and for the meeting notes |
 
 On first launch a **Set up Fluence** window walks through both, plus the two optional grants
 the meeting notes use (System Audio Recording, Calendar): what each is for, a lamp that lights
@@ -77,33 +77,36 @@ after the sealed write succeeded; `ai.pivotstudio.murmur-youtube/snippets.json` 
 `snippets.sealed` the same way; Whisper models already live in `Fluence/WhisperModels/`. The
 permissions have to be granted once more, because macOS keys them to the bundle ID.
 
-### Why grants survive rebuilds here
+### Why rebuilding keeps the permissions
 
-TCC stores a *code-signing requirement* per entry, not just a path. An ad-hoc signature
-changes on every build, so the rebuilt binary stops satisfying the stored requirement —
-and the symptom is nasty: the Accessibility toggle still **shows as on** while the app is
-reported untrusted, and flipping it changes nothing because the stale row is the problem.
+macOS's privacy database (TCC) records, for every grant, the app's code-signing requirement as
+well as its path. An ad-hoc signature is new at each build, so a rebuilt app no longer matches
+what was stored. Misleadingly, System Settings still shows the Accessibility switch on while
+macOS treats the app as untrusted, and toggling it changes nothing: the entry itself is stale.
 
-The `Makefile` therefore signs with a stable Developer ID (auto-detected via
+So the Makefile signs every build with a stable identity (Developer ID or Apple Development, via
 `security find-identity`, falling back to ad-hoc). With an ad-hoc signature, expect to
 re-grant after rebuilds, and expect one Keychain prompt per rebuild for the encryption key
 ("Always Allow").
 
-If a grant ever does get wedged, reset that one row and re-add — never toggle:
+Stuck permission? Don't flip the switch: « Réparer » in the app, or reset Fluence's entry and re-grant:
 
 ```bash
 tccutil reset Accessibility io.github.clementvnrd.fluence
 tccutil reset Microphone   io.github.clementvnrd.fluence
 ```
 
-Always pass the bundle ID. A bare `tccutil reset Accessibility` wipes **every** app on the
+Always give the bundle ID: `tccutil reset Accessibility` without one clears it for every app on the
 machine. Then quit System Settings entirely (⌘Q) before reopening.
 
 > **Keep the build out of iCloud.** If the repo lives under a file-provider synced folder,
 > the sync engine can corrupt an `.app`'s signature. `make install` stages and signs in
 > `~/Library/Caches/FluenceBuild/<checkout>/` and runs the copy in `/Applications`.
 
-Other targets: `make app` (bundle only), `make run` (run in place), `make clean`.
+Other targets: `make app` builds and signs the bundle in `~/Library/Caches/FluenceBuild/<hash>/`
+without installing; `make run` then opens that staged copy; `make check-app` adds the bundle
+checks and a `--selftest` launch, as CI does (`PUBLIC=1` for a build for others); `make notices`,
+`make icon`, `make release` (`docs/RELEASING.md`); `make clean` removes the scratch and staging folders.
 
 ---
 
@@ -165,7 +168,7 @@ name, dependencies and branch.
 
 ---
 
-## Coexisting with another dictation app
+## Running beside another dictation app
 
 - **Bundle ID** — TCC keys Accessibility and Microphone to it, so grants here never affect
   another app.
@@ -207,11 +210,11 @@ Never sent: audio, transcripts, names, history, meeting notes.
 ## Architecture
 
 ```
- hold key ─► HotkeyMonitor ──► DictationController ◄── Settings
+ shortcut ─► HotkeyMonitor ──► DictationController ◄── Settings
                                 │  (one session token per dictation)
                      ┌──────────┼──────────────┐
                      ▼          ▼              ▼
-              AudioCapture  HUDPanel   TranscriptionEngine
+               AudioCapture  HUDPanel  TranscriptionEngine (protocol)
          (from key-down, ring          ├─ AppleSpeechEngine (SpeechAnalyzer, streaming)
           buffer, 250 ms tail)         └─ ParakeetEngine (FluidAudio, CoreML)
                      │                         │
@@ -225,13 +228,13 @@ Never sent: audio, transcripts, names, history, meeting notes.
                             TextInjector ─► focused app      RunLog ─► history.sealed
 ```
 
-### Decisions worth knowing
+### Design decisions to know first
 
-**The HUD must never take focus.** `HUDPanel` is a `.nonactivatingPanel` with
+**The HUD never takes keyboard focus.** `HUDPanel` is a borderless `.nonactivatingPanel` whose
 `canBecomeKey == false`. If the overlay took key status, the user's text field would lose
 focus and there'd be nothing left to inject into.
 
-**The hotkey needs a `CGEventTap`, not `NSEvent`.** `fn` and left/right modifier
+**Key shortcuts use Carbon; everything else takes a `CGEventTap`.** Esc swallowing and modifier-only
 discrimination only surface through a session event tap — which is why Accessibility is a
 hard requirement.
 
