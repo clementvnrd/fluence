@@ -8,7 +8,9 @@ struct CapsuleMessageTests {
     /// Every message the capsule can show for a result.
     private static var everyMessage: [CapsuleMessage] {
         DictationFailure.allCases.map(CapsuleMessage.failure)
-            + CapsuleMessage.CopyReason.allCases.map(CapsuleMessage.copied)
+            + CapsuleMessage.NotTypedReason.allCases.flatMap { reason in
+                [true, false].map { CapsuleMessage.notTyped(reason, canPasteLast: $0) }
+            }
             + [.cancelled, .nothingHeard(microphone: "MacBook Pro"), .nothingHeard(microphone: nil)]
     }
 
@@ -62,10 +64,16 @@ struct CapsuleMessageTests {
             == CapsuleMessage(icon: .warning, title: "La transcription a échoué", detail: "Parakeet n'a pas répondu", action: .retry))
         #expect(CapsuleMessage.failure(.microphoneDenied)
             == CapsuleMessage(icon: .warning, title: "Micro indisponible", detail: "Accès refusé dans Réglages Système", action: .microphoneSettings))
-        #expect(CapsuleMessage.copied(.noAccessibility)
-            == CapsuleMessage(icon: .copied, title: "Copié — collez avec ⌘V", detail: "Accessibilité non autorisée", action: .accessibilitySettings))
-        #expect(CapsuleMessage.copied(.appChanged)
-            == CapsuleMessage(icon: .copied, title: "Copié — collez avec ⌘V", detail: "Vous avez changé d'app"))
+        // FLU-120: nothing on the clipboard; ⌃⌘V when it can work, else the history.
+        #expect(CapsuleMessage.notTyped(.appChanged, canPasteLast: true)
+            == CapsuleMessage(icon: .notTyped, title: "Non collé — collez avec ⌃⌘V", detail: "Vous avez changé d'app"))
+        #expect(CapsuleMessage.notTyped(.appChanged, canPasteLast: false)
+            == CapsuleMessage(icon: .notTyped, title: "Non collé — voir Transcriptions", detail: "Vous avez changé d'app"))
+        // ⌃⌘V needs the grant too: never offered without it.
+        for canPasteLast in [true, false] {
+            #expect(CapsuleMessage.notTyped(.noAccessibility, canPasteLast: canPasteLast)
+                == CapsuleMessage(icon: .notTyped, title: "Non collé — voir Transcriptions", detail: "Accessibilité non autorisée", action: .accessibilitySettings))
+        }
         #expect(CapsuleMessage.nothingHeard(microphone: "MacBook Pro")
             == CapsuleMessage(icon: .nothingHeard, title: "Rien entendu", detail: "Micro\u{00A0}: MacBook Pro"))
     }
@@ -110,9 +118,9 @@ struct CapsuleMessageTests {
         #expect(CapsuleMessage.nothingHeard(microphone: "  ").detail == nil)
     }
 
-    @Test func thePasteShortcutGoesThroughShortcutLabel() {
-        #expect(PasteShortcut.label == ShortcutLabel.display("⌘V"))
-        #expect(CapsuleMessage.copied(.appChanged).title.hasSuffix(PasteShortcut.label))
+    @Test func thePasteLastShortcutGoesThroughShortcutLabel() {
+        #expect(PasteLastShortcut.label == ShortcutLabel.display("⌃⌘V"))
+        #expect(CapsuleMessage.notTyped(.appChanged, canPasteLast: true).title.hasSuffix(PasteLastShortcut.label))
     }
 
     @Test func failureKindsAreFixedWordsWithoutAccents() {
@@ -238,18 +246,18 @@ struct InsertTargetPolicyTests {
     }
 
     @Test func anotherAppGetsNothingTyped() {
-        #expect(InsertTargetPolicy.decide(target: notes, frontmost: mail, hasAccessibility: true) == .copy(.appChanged))
-        #expect(InsertTargetPolicy.decide(target: notes, frontmost: nil, hasAccessibility: true) == .copy(.appChanged))
+        #expect(InsertTargetPolicy.decide(target: notes, frontmost: mail, hasAccessibility: true) == .keep(.appChanged))
+        #expect(InsertTargetPolicy.decide(target: notes, frontmost: nil, hasAccessibility: true) == .keep(.appChanged))
     }
 
     @Test func aRelaunchedAppIsAnotherApp() {
         let relaunched = InsertTargetPolicy.App(processID: 900, bundleID: notes.bundleID)
-        #expect(InsertTargetPolicy.decide(target: notes, frontmost: relaunched, hasAccessibility: true) == .copy(.appChanged))
+        #expect(InsertTargetPolicy.decide(target: notes, frontmost: relaunched, hasAccessibility: true) == .keep(.appChanged))
     }
 
     @Test func noGrantIsSaidFirst() {
-        #expect(InsertTargetPolicy.decide(target: notes, frontmost: notes, hasAccessibility: false) == .copy(.noAccessibility))
-        #expect(InsertTargetPolicy.decide(target: notes, frontmost: mail, hasAccessibility: false) == .copy(.noAccessibility))
+        #expect(InsertTargetPolicy.decide(target: notes, frontmost: notes, hasAccessibility: false) == .keep(.noAccessibility))
+        #expect(InsertTargetPolicy.decide(target: notes, frontmost: mail, hasAccessibility: false) == .keep(.noAccessibility))
     }
 
     @Test func unknownTargetKeepsTheOldBehaviour() {

@@ -289,13 +289,14 @@ private struct AttentionBanner<Actions: View>: View {
     }
 }
 
-/// Accessibility never given (or removed by « Réparer »): typing falls back to the clipboard.
+/// Accessibility never given (or removed by « Réparer »): nothing is typed; the text waits in
+/// Transcriptions (FLU-120: never on the clipboard).
 private struct AccessibilityBanner: View {
     var body: some View {
         AttentionBanner(
             systemImage: "exclamationmark.triangle.fill",
             title: "Autorisez l'Accessibilité pour que Fluence écrive à votre place",
-            detail: "Sans elle, le texte reste dans le presse-papiers : collez-le avec \(PasteShortcut.label)."
+            detail: "Sans elle, rien n'est collé : le texte reste dans Transcriptions."
         ) {
             CapButton(title: "Autoriser dans Réglages…", height: 26) {
                 Permissions.requestAccessibility()  // FLU-37: the prompt, then System Settings

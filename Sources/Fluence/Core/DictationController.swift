@@ -627,7 +627,7 @@ final class DictationController {
             // again (a very long recording): type what there is, and say so.
             let stoppedEarly = session.engineError != nil
             await deliver(raw, session: session, engineSeconds: engineSeconds)
-            // Only over a clean finish: a « Copié » message says more than this one.
+            // Only over a clean finish: a « Non collé » message says more than this one.
             if stoppedEarly, self.session == nil, state == .idle {
                 fail(.stoppedEarly(session.engineKind.compared))
             }
@@ -783,11 +783,11 @@ final class DictationController {
             if outcome == .inserted, let bundleID = session.targetApp?.bundleID {
                 lastInsertion = .init(bundleID: bundleID, text: typed, at: ProcessInfo.processInfo.systemUptime)
             }
-        case .copy(let reason):
+        case .keep(let reason):
+            // FLU-120: never onto the clipboard — it stays the last transcript, for ⌃⌘V.
             let why = reason == .appChanged ? "the app in front changed" : "no Accessibility grant"
-            Log.inject.info("not typed — \(why, privacy: .public); left on the clipboard")
-            TextInjector.copyForManualPaste(output)
-            outcome = .onClipboard(reason)
+            Log.inject.info("not typed — \(why, privacy: .public); kept as the last transcript")
+            outcome = .notTyped(reason)
         }
         // The paste is awaited above: no `self.session` check would make sense after it, the
         // text has gone where it went.
@@ -803,7 +803,7 @@ final class DictationController {
 
         switch outcome {
         case .inserted: end(session, as: .idle)
-        case .onClipboard(let reason): end(session, showing: .copied(reason))
+        case .notTyped(let reason): end(session, showing: .notTyped(reason, canPasteLast: canPasteLast))
         case .pasteSkipped: end(session, showing: .failure(.pasteSkipped))
         }
         recordRun(session, text: output, raw: raw, processSeconds: processSeconds, corrections: corrections, engineName: engineName)
@@ -1354,6 +1354,9 @@ extension DictationController {
         return true
     }
 
+    /// Whether ⌃⌘V would answer now: switched on, and the event tap (Accessibility) armed.
+    private var canPasteLast: Bool { Settings.shared.lastTranscriptShortcuts && hotkey.hasEventTap }
+
     /// ⌃⌘V types the last transcript again; ⌃⌘C puts it on the pasteboard.
     fileprivate func handleLastTranscript(_ action: LastTranscriptAction) {
         // Mid-dictation the chord is swallowed and ignored: pasting now would land in the
@@ -1373,7 +1376,7 @@ extension DictationController {
                 // FLU-29: the capsule says where it went when it did not land.
                 switch await TextInjector.insert(text) {
                 case .inserted: break
-                case .onClipboard(let reason): self.showMessage(.copied(reason))
+                case .notTyped(let reason): self.showMessage(.notTyped(reason, canPasteLast: self.canPasteLast))
                 case .pasteSkipped: self.showMessage(.failure(.pasteSkipped))
                 }
             }
