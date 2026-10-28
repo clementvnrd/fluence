@@ -21,10 +21,14 @@ import Foundation
 public enum SpeakerConsolidation {
     public struct Settings: Sendable, Equatable {
         /// Cosine similarity at or above which two voices are the same person. The diarizer
-        /// itself stops merging around 0.82 (euclidean 0.6 on unit vectors); VoIP splits of
-        /// one voice typically sit between 0.65 and 0.8, different people below 0.5.
+        /// itself stops merging around 0.82 (euclidean 0.6 on unit vectors). Measured on AMI
+        /// meetings through a VoIP-like channel (bench/meetings, FLU-33): one person's split
+        /// voices sit at 0.53–0.77 (median 0.68), different people mostly below 0.5 but up to
+        /// 0.71, so no value separates them all. 0.60 to 0.70 give the same mean DER over the
+        /// bench's conditions, and 0.70, best on its dev meetings, lost on its test ones.
         public var mergeSimilarity: Double = 0.68
-        /// A voice speaking less than this in total is minor…
+        /// A voice speaking less than this in total is minor… (no AMI participant speaks
+        /// under 8 s, so the bench cannot calibrate this rule; as FLU-22 set it)
         public var minorSeconds: TimeInterval = 8
         /// …or less than this share of all remote speech, in a short meeting.
         public var minorShare: Double = 0.03
