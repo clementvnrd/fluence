@@ -70,6 +70,13 @@ struct DoNoHarmTests {
         "En deuxième lieu, il faut revoir le budget.",
         // Emphatic repeats (F12).
         "Oui, oui, oui, oui, oui, d'accord.",
+        // Cancel words inside a sentence are speech, not « scratch that » (FLU-87).
+        "Si le fichier est trop vieux supprime ça et on recommence demain.",
+        "Pour la réunion de jeudi annule ça s'il te plaît.",
+        "Le client a dit efface ça de la présentation.",
+        "Si le vol est retardé, annule tout le reste du voyage.",
+        "Quand la réunion est finie, efface ça du tableau.",
+        "Bonjour efface tout, salut.",
     ]
 
     /// French typed into a terminal or an editor: Clement's prompts to Claude Code (FLU-30, F6).
@@ -116,7 +123,12 @@ struct DoNoHarmTests {
         ("le budget est de 300 non attends 400 euros", .french, "Le budget est de 400 €."),
         ("un pro problème", .french, "Un problème."),
         ("c'est c'est bien", .french, "C'est bien."),
-        ("bonjour efface tout, salut", .french, "Salut."),
+        // A French cancel is a command only as the whole dictation or after a pause at its
+        // end (FLU-87): the dictation is dropped.
+        ("annule ça", .french, ""),
+        ("le budget est validé, annule ça.", .french, ""),
+        ("Envoie-le à Paul. Efface tout.", .french, ""),
+        ("send it to Paul scratch that send it to Marie", .english, "Send it to Marie."),
         ("meet on Tuesday, actually Wednesday", .english, "Meet on Wednesday."),
         ("let's meet at three no wait four", .english, "Let's meet at four."),
         ("send it in May, actually June", .english, "Send it in June."),
