@@ -9,9 +9,11 @@ public enum CleanupLevel: String, CaseIterable, Sendable, Codable {
     case none
     /// Deterministic rules: fillers, spoken punctuation, spacing, capitals, final full stop.
     case light
-    /// Light, then the on-device model: self-corrections, lists, numbers.
+    /// Light, then the on-device model may swap a misheard name for the dictionary's spelling
+    /// (`NameFixer`, FLU-92).
     case medium
-    /// Medium, plus a rewrite in the style chosen for the kind of app being typed into.
+    /// Outside French, Light then the on-device model's rewrite in the style chosen for the kind
+    /// of app being typed into; in French, the same as Medium (FLU-91).
     case high
 
     /// Whether this level runs the Foundation Models pass at all.
@@ -19,6 +21,12 @@ public enum CleanupLevel: String, CaseIterable, Sendable, Codable {
 
     /// Whether this level applies the per-app-category writing style.
     public var appliesStyle: Bool { self == .high }
+
+    /// Whether the model may rewrite the text in the app's style: High, except in French, where
+    /// that free rewrite answered or reworded dictations (FLU-91) and High fixes names instead.
+    public func rewrites(in language: DictationLanguage) -> Bool {
+        self == .high && language != .french
+    }
 
     /// Where the level comes from when nothing is stored under the level's own key.
     ///
