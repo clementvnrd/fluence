@@ -1,12 +1,12 @@
-# Working on this repo
+# Working in this repository
 
-Read this before changing anything. It is written for a coding agent picking the project up
-cold, and it is mostly a list of things that look wrong but aren't, plus things that look
-fine and will bite you.
+You are a coding agent with no memory of this project: read this whole file before you
+change anything. It holds the repo's binding rules and its traps — behaviour that looks broken
+but is meant, and steps that look harmless but do real damage.
 
 ---
 
-## What this is
+## What Fluence is
 
 **Fluence** — push-to-talk dictation, and (in progress) local meeting notes. Hold a key,
 talk, release, and cleaned-up text is typed into whatever had focus. Everything runs
@@ -35,7 +35,7 @@ for it** (0.2.1 on 2026-10-26, FLU-79), never as a side effect of other work.
 
 ---
 
-## The one rule that matters
+## The rule that comes first
 
 **`Tests/FluenceDictionaryTests/dictionary-test-vectors.json` is the specification for the
 macOS app's correction behaviour.**
@@ -96,17 +96,21 @@ without Xcode. CI builds the whole app on every pull request. Locally:
 
 ---
 
-## Things that look like bugs and are not
+## Intended surprises and traps
 
-**`swift build` fails with "input file was modified during the build."** The repo lives in an
-iCloud-synced folder and the sync engine touches files mid-compile. **Always build with
-`make`**, which uses `--scratch-path` outside the synced tree. A bare `swift build` also
-writes a `.build/` directory into iCloud, which makes every subsequent build minutes slower.
-If you see this error, wait a few seconds and retry.
+**A plain `swift build` can fail with `error: input file '<path>' was modified during the build`.**
+If the checkout sits in a folder synced by iCloud or another file provider, the sync daemon
+writes under the build folder while the compiler reads it. **Always build with `make`**: it passes
+`--scratch-path ~/Library/Caches/FluenceBuild/<hash of the checkout path>/scratch`, never synced
+and one per checkout, so two worktrees can build at once. A bare `swift build` also creates
+`.build/` in the checkout, which a synced folder then syncs, and every later build gets minutes
+slower. If the error still shows up, wait a few seconds and run the same command again.
 
-**Compare mode doesn't type anything.** By design — `Settings.compareMode` runs every engine
-on one recording and shows them side by side. If both injected, two transcripts would fight
-over one text field. This is the single most confusing behaviour in the app.
+**Compare mode types nothing into the focused app, on purpose** — the most confusing thing in
+the app. `Settings.compareMode` (menu bar « Mode comparaison ») gives one recording to Apple, and to
+Parakeet and Whisper when their model is already on disk (a comparison never downloads one), then
+shows the transcripts side by side: several results cannot all land in one text field. Command
+Mode instructions are never compared.
 
 **Speech models are chosen by measurement, in French.** Clement dictates mostly in French,
 often through a webcam mic. `bench/french` runs every engine the way the app runs it on
@@ -114,10 +118,11 @@ public and synthetic French audio (never anyone's recordings); `docs/SPEECH-MODE
 the numbers and the verdict on each model proposed so far. A new model or a new default
 goes through that bench first, and the result is written there (FLU-24).
 
-**The timing column isn't comparing like with like.** Apple and Parakeet are timed on local
-compute with the clock started *after* model load. Wispr Flow's number is its own
-`e2eLatency`, which includes a network round trip and its cleanup pass. Don't present them
-as one ranking.
+**The times in a comparison are not measured the same way.** Apple, Parakeet and Whisper
+report on-device compute only, timed once the model is loaded. Wispr Flow's number is its own
+end-to-end latency (the `e2eLatency` column of its database): network round trip plus Wispr's
+cleanup. Never rank them together; the comparison window ranks the local engines and shows
+Wispr's figure apart.
 
 **A release has no Wispr Flow in it, on purpose (FLU-69).** `WisprReader` and `WisprTrigger`
 (compare mode reads Wispr's database and presses its hotkey) are fine on Clement's own Mac but
@@ -132,9 +137,11 @@ comes from `make notices` (FLU-68): the licence files of the versions in `Packag
 hand-written list of the speech models Fluence downloads. When a dependency moves or a new model
 is added, run it and commit the result; `ThirdPartyNoticesTests` fails otherwise.
 
-**`MainActor.assumeIsolated` will crash the process.** It does not check the claim, it
-asserts it. Use `await MainActor.run` from any non-main-actor context. This took the app
-down once already.
+**`MainActor.assumeIsolated` kills the process when the claim is false.** It checks nothing:
+it asserts the code is on the main actor and traps otherwise, and it has crashed the app before.
+Do not use it; off the main actor, hop with `await MainActor.run`. The one accepted use is
+`HotkeyMonitor`'s event-tap callback, which must answer synchronously and tests
+`Thread.isMainThread` first.
 
 ---
 
@@ -188,20 +195,22 @@ bars and buttons, SF symbols in the accent colour, rounded monospaced digits for
 
 ## macOS specifics
 
-**Code signing is load-bearing, not cosmetic.** TCC stores a code-signing *requirement* per
-entry, not just a path. An ad-hoc signature changes every build, so the rebuilt binary stops
-satisfying the stored requirement — and the symptom lies: the Accessibility toggle still
-shows as **on** while the app is untrusted. The `Makefile` auto-detects a Developer ID via
-`security find-identity`. Don't replace that with `--sign -`.
+**The signature is functional, not cosmetic.** For each grant, macOS privacy (TCC) stores a
+code-signing requirement, not just the binary's path. An ad-hoc signature differs on every build,
+so a rebuilt binary stops matching it, and the symptom misleads: the Accessibility switch in
+System Settings still looks on while `AXIsProcessTrusted` says no. The Makefile picks the identity
+itself with `security find-identity`: a Developer ID Application certificate, else the free Apple
+Development one (Clement's case, FLU-39), else ad-hoc. **Never swap that for `--sign -`** on a
+local build; `make release` refuses an ad-hoc signature.
 
-If a grant does get wedged, reset that one row — never toggle, and never omit the bundle ID:
+If a grant sticks, never toggle the switch: use « Réparer » in the app, or reset Fluence's row only:
 
 ```bash
 tccutil reset Accessibility io.github.clementvnrd.fluence
 ```
 
-A bare `tccutil reset Accessibility` wipes every app on the machine. Then quit System
-Settings entirely (⌘Q) before reopening; the Privacy pane caches its list.
+Leave out the bundle ID and it clears the Accessibility grant of every app on the Mac. Then quit
+System Settings completely (⌘Q) before opening it again: it keeps a cached copy of the Privacy list.
 
 **Closing the last window does not quit: it moves Fluence to the menu bar** (FLU-59, Clement).
 One process, two presences. `AppPresence` switches `NSApp.setActivationPolicy` between `.regular`
@@ -244,10 +253,11 @@ gave up). A symptom to recognise in the log: `capture started — 44100Hz` while
 at 16000, and a dictation whose « Parakeet: N s audio » is about 0.36 × the capture time. Measure
 with the real class on the real device; the format a node *reports* proved nothing.
 
-**`log` may be shadowed in the user's shell.** Use `/usr/bin/log` explicitly.
+**In the user's shell, `log` is a zsh builtin, not the macOS log tool:** call `/usr/bin/log`.
 
-**Don't run the `.app` from the repo folder.** It's iCloud-synced and the sync engine can
-corrupt the signature. `make install` puts the running copy in `/Applications`.
+**Never launch a `.app` that sits inside the checkout.** In a synced folder the sync daemon can
+break its signature. `make` stages the bundle in `~/Library/Caches/FluenceBuild/<hash>/` (`make run`
+opens that copy); the one that really runs is what `make install` puts in `/Applications`.
 
 **A second copy quits at launch (FLU-27).** Two copies each typed every dictation. A copy
 whose bundle ID is already running brings that one forward and exits before anything starts
@@ -273,14 +283,14 @@ Facts measured on 2026-10-08, not assumptions:
 
 ---
 
-## Regex, if you touch the dictionary
+## Text matching in the dictionary
 
 **NFC normalization is load-bearing — don't remove it.** macOS returns decomposed strings,
 so without it an accented trigger silently never fires.
 
 ---
 
-## What isn't built
+## Not built, not planned
 
 1. **Context awareness** — reading the text around the caret (opt-in) to spell names right.
 2. **Notarization** is not planned: no Developer ID, decided 2026-10-08 (FLU-39); a first
