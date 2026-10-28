@@ -7,9 +7,9 @@ import FluenceDictionary
 /// le dictionnaire personnel et apprendre le vocabulaire de ses projets.
 ///
 /// FLU-11, against main's protections: everything here stays in memory, nothing it reads
-/// or learns is logged (counts only), and the silent learning of frequent terms runs only
-/// when the user opted in (Settings ▸ IA & Formatage, `learnFrequentTerms`). Corrections
-/// made in the *Corriger* sheet and a project scan are explicit actions and stay as they were.
+/// or learns is logged (counts only), and frequent terms are counted only when the user opted
+/// in (Settings ▸ IA & Formatage, `learnFrequentTerms`) and are then only proposed (FLU-88).
+/// A project scan is an explicit action and adds directly.
 @MainActor
 public final class AutoLearningEngine {
     public static let shared = AutoLearningEngine()
@@ -18,8 +18,8 @@ public final class AutoLearningEngine {
     public private(set) var lastInjectedText: String = ""
     public private(set) var lastInjectedDate: Date?
 
-    /// Mémorise les termes et noms propres fréquemment employés par l'utilisateur.
-    private var frequentTerms: [String: Int] = [:]
+    /// Termes et noms propres comptés dans les dictées (FLU-88), en mémoire seulement.
+    private var frequentTerms = FrequentTerms()
 
     /// Le contexte donné à Whisper avant la transcription : la fin de la dernière dictée si
     /// elle date de moins de 45 s, puis quelques termes du dictionnaire de l'utilisateur,
@@ -39,46 +39,9 @@ public final class AutoLearningEngine {
         self.lastInjectedText = text
         self.lastInjectedDate = Date()
         guard Settings.shared.learnFrequentTerms else { return }
-        extractAndLearnTerms(from: text)
-    }
-
-    /// Extrait automatiquement les termes spécifiques (noms propres, acronymes, CamelCase, jargon technique)
-    /// pour les mémoriser et renforcer l'attention de Whisper lors des futures dictées.
-    private func extractAndLearnTerms(from text: String) {
-        let words = text.components(separatedBy: CharacterSet.whitespacesAndNewlines)
-        for (index, rawWord) in words.enumerated() {
-            var word = rawWord.trimmingCharacters(in: CharacterSet.punctuationCharacters)
-            // Supprime les élisions françaises courantes (ex: d'Apple -> Apple, l'IA -> IA)
-            word = word.replacingOccurrences(of: "^[ldcjmtsnLDCMTSN]'|^qu'|^QU'", with: "", options: .regularExpression)
-            guard word.count >= 2 else { continue }
-
-            // Détecte les acronymes majuscules (ex: API, PR, LLM, CLI, AWS, PS5)
-            let isAcronym = word.allSatisfy { $0.isUppercase || $0.isNumber } && word.count >= 2 && word.count <= 6 && word.contains(where: { $0.isUppercase })
-
-            // Détecte les termes en CamelCase / PascalCase ou avec ponctuation interne (ex: SwiftUI, MacBook, Next.js, PostgreSQL)
-            let hasInternalCaps = word.dropFirst().contains { $0.isUppercase }
-            let hasInternalPunct = rawWord.contains(".") || rawWord.contains("-") || rawWord.contains("/")
-
-            // Détecte les noms propres capitalisés au milieu d'une phrase (pas en début de phrase index 0)
-            let isMidSentenceCapitalized = index > 0 && word.first?.isUppercase == true && !word.allSatisfy { $0.isUppercase }
-
-            if isAcronym || hasInternalCaps || hasInternalPunct || isMidSentenceCapitalized {
-                let candidate = (hasInternalPunct ? rawWord.trimmingCharacters(in: CharacterSet(charactersIn: ",;!?\"'()[]{}")) : word)
-                guard candidate.count >= 2 else { continue }
-                frequentTerms[candidate, default: 0] += 1
-
-                // Dès qu'un terme spécialisé a été employé 2 fois, l'ajouter au dictionnaire
-                if frequentTerms[candidate, default: 0] >= 2 {
-                    let exists = DictionaryStore.shared.entries.contains {
-                        $0.write.caseInsensitiveCompare(candidate) == .orderedSame
-                    }
-                    if !exists {
-                        DictionaryStore.shared.add(.term(candidate))
-                        Log.speech.info("AutoLearning: 1 terme ajouté au dictionnaire")
-                    }
-                }
-            }
-        }
+        // FLU-88: offered, never added — the silent `add` filled the dictionary with « prêt. », « Je »…
+        let due = frequentTerms.record(text, at: Date())
+        if !due.isEmpty { LearnedWords.shared.offer(due.map { EditLearner.Proposal(heard: $0, written: $0) }) }
     }
 
     // MARK: - Auto-Library & Workspace Scanner
