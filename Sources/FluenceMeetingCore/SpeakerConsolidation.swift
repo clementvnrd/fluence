@@ -12,7 +12,8 @@ import Foundation
 /// 2. **Absorb minor voices**: a voice that speaks for only a few seconds in the whole
 ///    meeting joins the closest major voice (by embedding, else the one speaking around it).
 /// 3. **Cap**: never more voices than people known to be in the call; the closest pair
-///    merges until the count fits.
+///    merges until the count fits. The call window's names count only when its list looks
+///    complete (`ParticipantRoster`, FLU-33).
 ///
 /// The larger voice always absorbs the smaller, and its embedding becomes the
 /// speech-weighted mean of both. Pure arithmetic, pinned by
@@ -20,10 +21,14 @@ import Foundation
 public enum SpeakerConsolidation {
     public struct Settings: Sendable, Equatable {
         /// Cosine similarity at or above which two voices are the same person. The diarizer
-        /// itself stops merging around 0.82 (euclidean 0.6 on unit vectors); VoIP splits of
-        /// one voice typically sit between 0.65 and 0.8, different people below 0.5.
+        /// itself stops merging around 0.82 (euclidean 0.6 on unit vectors). Measured on AMI
+        /// meetings through a VoIP-like channel (bench/meetings, FLU-33): one person's split
+        /// voices sit at 0.53–0.77 (median 0.68), different people mostly below 0.5 but up to
+        /// 0.71, so no value separates them all. 0.60 to 0.70 give the same mean DER over the
+        /// bench's conditions, and 0.70, best on its dev meetings, lost on its test ones.
         public var mergeSimilarity: Double = 0.68
-        /// A voice speaking less than this in total is minor…
+        /// A voice speaking less than this in total is minor… (no AMI participant speaks
+        /// under 8 s, so the bench cannot calibrate this rule; as FLU-22 set it)
         public var minorSeconds: TimeInterval = 8
         /// …or less than this share of all remote speech, in a short meeting.
         public var minorShare: Double = 0.03
@@ -137,6 +142,19 @@ public enum SpeakerConsolidation {
         if windowParticipants > 0 { return max(windowParticipants, attendees) }
         if attendees > 0 { return attendees + 1 }
         return nil
+    }
+
+    /// The cap from the call window and the calendar (FLU-33): the window's names count only
+    /// when its list looks complete (`ParticipantRoster.trustedCount`). A partial list gives
+    /// no cap, so it can never fold distinct voices into the few names it shows.
+    public static func speakerCap(roster: ParticipantRoster, attendees: Int) -> Int? {
+        speakerCap(windowParticipants: roster.trustedCount ?? 0, attendees: attendees)
+    }
+
+    /// The most voices the diarizer may cluster into (FLU-33): the cap, never below two.
+    /// The consolidation, which compares the voices' embeddings, makes any last merge.
+    public static func diarizerCeiling(cap: Int?) -> Int? {
+        cap.map { max($0, 2) }
     }
 
     static func cosine(_ a: [Float], _ b: [Float]) -> Double? {

@@ -92,11 +92,13 @@ public enum SpeakerAssignment {
     ///   stays whole keeps its text, span and id; a split piece gets the words' span and
     ///   `transform(words joined by single spaces)` as its text.
     /// - Output is time-ordered (`TranscriptMerger.sorted`), then labels are renamed
-    ///   `S1, S2…` in order of first appearance. `fallbackID` is never renamed.
+    ///   `S1, S2…` (`labelPrefix` then a number; `R` for the mic's in-room voices, FLU-33) in
+    ///   order of first appearance. `fallbackID` is never renamed.
     public static func attribute(
         _ segments: [TranscriptSegment],
         turns: [SpeakerTurn],
         fallbackID: String,
+        labelPrefix: String = "S",
         transform: (String) -> String = { $0 }
     ) -> Result {
         var pieces: [TranscriptSegment] = []
@@ -151,7 +153,7 @@ public enum SpeakerAssignment {
         var mapping: [String: String] = [:]
         var next = 1
         for segment in ordered where segment.speakerID != fallbackID && mapping[segment.speakerID] == nil {
-            mapping[segment.speakerID] = "S\(next)"
+            mapping[segment.speakerID] = "\(labelPrefix)\(next)"
             next += 1
         }
         let relabelled = ordered.map { segment -> TranscriptSegment in

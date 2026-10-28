@@ -75,6 +75,8 @@ struct MeetingVectorTests {
         }
         let name: String
         let fallbackID: String
+        /// FLU-33: "S" when absent.
+        var labelPrefix: String?
         let turns: [SpeakerTurn]
         let segments: [VectorSegment]
         let expected: [Expected]
@@ -90,6 +92,8 @@ struct MeetingVectorTests {
         let name: String
         let speakers: [VectorSpeaker]
         let windowParticipants: [String]
+        /// FLU-33: the window's list looked complete. Absent means false.
+        var windowComplete: Bool?
         let attendees: [String]
         let voicePrintSimilarity: [String: [String: Double]]
         let expected: [VectorSpeaker]
@@ -137,7 +141,8 @@ struct MeetingVectorTests {
             let result = SpeakerAssignment.attribute(
                 testCase.segments.map(\.segment),
                 turns: testCase.turns,
-                fallbackID: testCase.fallbackID
+                fallbackID: testCase.fallbackID,
+                labelPrefix: testCase.labelPrefix ?? "S"
             )
             let actual = result.segments.map { "\($0.speakerID) \($0.start)-\($0.end) \($0.text)" }
             let expected = testCase.expected.map { "\($0.speakerID) \($0.start)-\($0.end) \($0.text)" }
@@ -154,6 +159,7 @@ struct MeetingVectorTests {
             }
             let named = SpeakerNaming.name(speakers, candidates: .init(
                 windowParticipants: testCase.windowParticipants,
+                windowListComplete: testCase.windowComplete ?? false,
                 attendees: testCase.attendees,
                 voicePrintSimilarity: testCase.voicePrintSimilarity
             ))

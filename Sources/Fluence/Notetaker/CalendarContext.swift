@@ -1,4 +1,5 @@
 import EventKit
+import FluenceMeetingCore
 import Foundation
 
 /// The calendar event the user is in right now, when it is a call: its title and the
@@ -51,22 +52,27 @@ final class CalendarContext {
     }
 
     /// The call happening around `now`: an event that has started (or starts within five
-    /// minutes), has not ended, and carries a conferencing link. The latest-starting one
-    /// wins when several overlap.
-    func currentMeeting(now: Date = Date()) -> CalendarMeeting? {
+    /// minutes), has not ended, and carries a conferencing link. When the call's service is
+    /// known (`service`, « Zoom », « Google Meet »…) only an event pointing to it qualifies;
+    /// the latest-starting one wins when several do (`CalendarMatch`, FLU-33).
+    func currentMeeting(now: Date = Date(), service: String? = nil) -> CalendarMeeting? {
         guard NotetakerSettings.shared.useCalendar, hasAccess else { return nil }
         let predicate = store.predicateForEvents(
             withStart: now.addingTimeInterval(-12 * 3600),
             end: now.addingTimeInterval(15 * 60),
             calendars: nil
         )
-        let candidates = store.events(matching: predicate).filter { event in
-            !event.isAllDay
-                && event.startDate <= now.addingTimeInterval(5 * 60)
-                && event.endDate > now
-                && Self.service(of: event) != nil
+        let events = store.events(matching: predicate)
+        let candidates = events.map { event in
+            CalendarCandidate(start: event.startDate, end: event.endDate, isAllDay: event.isAllDay, service: Self.service(of: event))
         }
-        guard let event = candidates.max(by: { $0.startDate < $1.startDate }) else { return nil }
+        guard let index = CalendarMatch.current(candidates, now: now, detectedService: service) else {
+            if service != nil, CalendarMatch.current(candidates, now: now, detectedService: nil) != nil {
+                Log.app.info("calendar: an event is on now, but not on the detected app; none used")
+            }
+            return nil
+        }
+        let event = events[index]
 
         let participants = event.attendees ?? []
         let user = participants.first(where: \.isCurrentUser).flatMap(Self.name)

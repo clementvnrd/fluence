@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Behavioural contract for the Notetaker's platform-neutral logic: token normalisation, mic/system merge with the echo backstop, word-to-speaker assignment, segment attribution and speaker naming. FluenceMeetingCore runs every case. The rules are documented in Sources/FluenceMeetingCore (TextTokens, TranscriptMerger, SpeakerAssignment, SpeakerNaming). Times are seconds from the meeting start.",
+  "about": "Behavioural contract for the Notetaker's platform-neutral logic: token normalisation, mic/system merge with the echo backstop, word-to-speaker assignment, segment attribution and speaker naming. FluenceMeetingCore runs every case. The rules are documented in Sources/FluenceMeetingCore (TextTokens, TranscriptMerger, SpeakerAssignment, SpeakerNaming). Times are seconds from the meeting start. In `naming`, `windowComplete` (false when absent) says the meeting window's list looked complete (FLU-33, ParticipantRoster); only then may a window name be given by elimination. An `attribution` case may set `labelPrefix` (S when absent; R for the people in the room on a diarized mic channel, FLU-33).",
   "normalization": [
     { "name": "punctuation and apostrophes split words, accents fold", "input": "Bonjour, l'équipe !", "tokens": ["bonjour", "l", "equipe"] },
     { "name": "uppercase, digits and a dash", "input": "Q3 RÉSULTATS—OK?", "tokens": ["q3", "resultats", "ok"] },
@@ -180,6 +180,18 @@
         { "speakerID": "S1", "start": 0.0, "end": 2.0, "text": "Bonjour." }
       ],
       "labels": { "b": "S1" }
+    },
+    {
+      "name": "the mic channel, diarized (FLU-33): the user stays me, someone in the room becomes R1",
+      "fallbackID": "me",
+      "labelPrefix": "R",
+      "turns": [ { "speaker": "me", "start": 0, "end": 4 }, { "speaker": "spk_1", "start": 4, "end": 6 } ],
+      "segments": [
+        { "source": "microphone", "speakerID": "me", "start": 0, "end": 6, "text": "on y va oui",
+          "words": [ { "text": "on", "start": 0.5, "end": 1 }, { "text": "y", "start": 1, "end": 1.5 }, { "text": "va", "start": 1.5, "end": 2 }, { "text": "oui", "start": 4.5, "end": 5 } ] }
+      ],
+      "expected": [ { "speakerID": "me", "start": 0.5, "end": 2, "text": "on y va" }, { "speakerID": "R1", "start": 4.5, "end": 5, "text": "oui" } ],
+      "labels": { "spk_1": "R1" }
     }
   ],
   "naming": [
@@ -192,8 +204,32 @@
     {
       "name": "a name the user typed is never overwritten or reused; the window fills the last voice by elimination",
       "speakers": [ { "id": "me" }, { "id": "S1", "name": "Grace", "nameSource": "user" }, { "id": "S2" } ],
-      "windowParticipants": ["grace", "Alan Turing"], "attendees": [], "voicePrintSimilarity": {},
+      "windowParticipants": ["grace", "Alan Turing"], "windowComplete": true, "attendees": [], "voicePrintSimilarity": {},
       "expected": [ { "id": "me" }, { "id": "S1", "name": "Grace", "nameSource": "user" }, { "id": "S2", "name": "Alan Turing", "nameSource": "meetingWindow" } ]
+    },
+    {
+      "name": "a window list that may be partial never names a voice by elimination",
+      "speakers": [ { "id": "me" }, { "id": "S1", "name": "Grace", "nameSource": "user" }, { "id": "S2" } ],
+      "windowParticipants": ["grace", "Alan Turing"], "windowComplete": false, "attendees": [], "voicePrintSimilarity": {},
+      "expected": [ { "id": "me" }, { "id": "S1", "name": "Grace", "nameSource": "user" }, { "id": "S2" } ]
+    },
+    {
+      "name": "four voices and one name in the window: no voice gets it",
+      "speakers": [ { "id": "me" }, { "id": "S1" }, { "id": "S2" }, { "id": "S3" }, { "id": "S4" } ],
+      "windowParticipants": ["Ada Lovelace"], "attendees": [], "voicePrintSimilarity": {},
+      "expected": [ { "id": "me" }, { "id": "S1" }, { "id": "S2" }, { "id": "S3" }, { "id": "S4" } ]
+    },
+    {
+      "name": "two voices and the two names of a complete list, nothing else: who is who stays open",
+      "speakers": [ { "id": "me" }, { "id": "S1" }, { "id": "S2" } ],
+      "windowParticipants": ["Ada Lovelace", "Alan Turing"], "windowComplete": true, "attendees": [], "voicePrintSimilarity": {},
+      "expected": [ { "id": "me" }, { "id": "S1" }, { "id": "S2" } ]
+    },
+    {
+      "name": "someone in the room is never named from the call window or the calendar (FLU-33)",
+      "speakers": [ { "id": "me" }, { "id": "R1" }, { "id": "S1" } ],
+      "windowParticipants": ["Ada Lovelace"], "attendees": ["Ada Lovelace", "Bob"], "voicePrintSimilarity": {},
+      "expected": [ { "id": "me" }, { "id": "R1" }, { "id": "S1", "name": "Ada Lovelace", "nameSource": "meetingWindow" } ]
     },
     {
       "name": "voice prints use a global assignment, not greedy best-first",

@@ -224,7 +224,9 @@ final class MeetingController {
         }
 
         _ = await CalendarContext.shared.requestAccessIfNeeded()
-        let calendar = CalendarContext.shared.currentMeeting()
+        // FLU-33: the event on the app the call is in, not merely the latest one.
+        let service = detected.flatMap { MeetingApps.callService(app: $0.app, service: $0.service) }
+        let calendar = CalendarContext.shared.currentMeeting(service: service)
 
         var meeting = Meeting(
             title: calendar?.title ?? detected.map { "Appel \($0.service)" } ?? "Réunion",
@@ -401,8 +403,9 @@ final class MeetingController {
             let finalized = await Self.finalPass(
                 meeting,
                 spool: session.systemSpoolURL,
+                micSpool: MeetingAudioSpool.url(in: session.directory, source: .microphone),
                 key: session.key,
-                windowParticipants: session.participants
+                windowRoster: session.roster
             )
             let completion = Self.complete(finalized, directory: session.directory)
 
@@ -473,18 +476,24 @@ final class MeetingController {
     private static func finalPass(
         _ meeting: Meeting,
         spool: URL?,
+        micSpool: URL?,
         key: SymmetricKey?,
-        windowParticipants: [String]
+        windowRoster: ParticipantRoster
     ) async -> (Meeting, [String: [Float]]) {
+        // FLU-33: the mic is diarized only behind the hidden setting, and only if its spool is there.
+        let roomSpool = micSpool.flatMap { url in
+            NotetakerSettings.shared.diarizeMicrophone && FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
         let input = MeetingFinalizer.Input(
             meeting: meeting,
             systemSpool: spool,
             key: key,
             corrector: DictionaryStore.shared.corrector,
-            windowParticipantCount: windowParticipants.count
+            windowRoster: windowRoster,
+            roomSpool: roomSpool
         )
         let output = await Task.detached(priority: .utility) { await MeetingFinalizer.attribute(input) }.value
-        return (MeetingFinalizer.name(output, windowParticipants: windowParticipants), output.voices)
+        return (MeetingFinalizer.name(output, window: windowRoster), output.voices)
     }
 
     enum Completion {
@@ -607,8 +616,9 @@ final class MeetingController {
             let finalized = await Self.finalPass(
                 meeting,
                 spool: FileManager.default.fileExists(atPath: spool.path) ? spool : nil,
+                micSpool: MeetingAudioSpool.url(in: directory, source: .microphone),
                 key: key,
-                windowParticipants: []
+                windowRoster: ParticipantRoster()
             )
             if Self.complete(finalized, directory: directory) == .done {
                 Log.app.info("recovered an interrupted meeting")

@@ -5,22 +5,28 @@ import Foundation
 ///
 /// 1. **Meeting window** — display names read from Zoom / Teams / Meet. Only applied when
 ///    it cannot be wrong about *who is who*: exactly one remote voice and exactly one
-///    remote participant.
+///    remote participant. A name is never given to several voices: with more voices than
+///    one, the window names nobody by itself (FLU-33).
 /// 2. **Voice prints** (opt-in) — Hungarian assignment on cosine similarity, restricted by
 ///    the caller to the allowed names (calendar attendees). Pairs below
 ///    `minimumSimilarity` are left unnamed.
 /// 3. **Elimination** — when exactly one voice is still unnamed and exactly one candidate
-///    is still unused: first among the window participants (only when the window lists as
-///    many remote people as there are voices), then among the calendar attendees.
+///    is still unused: first among the window participants (only when the window's list
+///    looked complete, FLU-33, and lists as many remote people as there are voices), then
+///    among the calendar attendees.
 ///
 /// A speaker whose name came from the user (`.user`) is never touched, and their name is
-/// never handed to another voice. Names are compared case- and diacritic-insensitively.
+/// never handed to another voice. Someone in the room (`Speaker.isInRoom`, FLU-33) is never
+/// named here: the window and the calendar list the call, not the room. Names are compared
+/// case- and diacritic-insensitively.
 public enum SpeakerNaming {
     public static let minimumSimilarity = 0.55
 
     public struct Candidates: Sendable {
         /// Remote display names read from the meeting window, the user excluded.
         public var windowParticipants: [String]
+        /// The window's list looked complete (`ParticipantRoster.isComplete`, FLU-33).
+        public var windowListComplete: Bool
         /// Calendar attendees, the user excluded.
         public var attendees: [String]
         /// Speaker id → candidate name → cosine similarity of the voice to the enrolled
@@ -29,10 +35,12 @@ public enum SpeakerNaming {
 
         public init(
             windowParticipants: [String] = [],
+            windowListComplete: Bool = false,
             attendees: [String] = [],
             voicePrintSimilarity: [String: [String: Double]] = [:]
         ) {
             self.windowParticipants = windowParticipants
+            self.windowListComplete = windowListComplete
             self.attendees = attendees
             self.voicePrintSimilarity = voicePrintSimilarity
         }
@@ -42,7 +50,9 @@ public enum SpeakerNaming {
     /// already-named speakers are returned unchanged.
     public static func name(_ speakers: [Speaker], candidates: Candidates) -> [Speaker] {
         var result = speakers
-        let remote = result.indices.filter { !result[$0].isMe && result[$0].id != Speaker.othersID }
+        let remote = result.indices.filter {
+            !result[$0].isMe && result[$0].id != Speaker.othersID && !result[$0].isInRoom
+        }
 
         var taken = Set(result.compactMap { speaker in speaker.name.map(key) })
         func isUnnamed(_ index: Int) -> Bool { (result[index].name ?? "").isEmpty }
@@ -80,7 +90,7 @@ public enum SpeakerNaming {
         if stillUnnamed.count == 1 {
             let unusedWindow = window.filter { !taken.contains(key($0)) }
             let unusedAttendees = attendees.filter { !taken.contains(key($0)) }
-            if window.count == remote.count, unusedWindow.count == 1 {
+            if candidates.windowListComplete, window.count == remote.count, unusedWindow.count == 1 {
                 give(unusedWindow[0], to: stillUnnamed[0], source: .meetingWindow)
             } else if unusedAttendees.count == 1 {
                 give(unusedAttendees[0], to: stillUnnamed[0], source: .calendar)

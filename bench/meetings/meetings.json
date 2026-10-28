@@ -1,0 +1,84 @@
+{
+  "meetings": [
+    {
+      "id": "ES2011a",
+      "split": "dev",
+      "speakers": 4,
+      "audioSeconds": 1113.8,
+      "wavSHA256": "130bc4218891a5b4cdbedcd716c94cd062f6ea13b2c19b77fe9d82e4023e1c78",
+      "rttmSHA256": "2372b3775e1093a128cc30852f2119affacb2f44c7e815413bd3a84df2bb414b"
+    },
+    {
+      "id": "ES2011c",
+      "split": "dev",
+      "speakers": 4,
+      "audioSeconds": 1616.1,
+      "wavSHA256": "8c2d75e76817ab770ccab71e48e1d41e62729992e6f928bf2a6a8a4bd381e111",
+      "rttmSHA256": "b3285d23d2207d5681950636ffffdf5aede55053ca89ffaaaabf292f1b0ee461"
+    },
+    {
+      "id": "IB4001",
+      "split": "dev",
+      "speakers": 4,
+      "audioSeconds": 1780.7,
+      "wavSHA256": "11e395326e9d8922801c736822a91477aa8bb2a65ce353585e3b19724e294c5d",
+      "rttmSHA256": "6bb16b067661c7a6b2c9d7ceb54917a647bccec7b7ef4fb1479e3fd5e49f08bb"
+    },
+    {
+      "id": "IS1008b",
+      "split": "dev",
+      "speakers": 4,
+      "audioSeconds": 1768.5,
+      "wavSHA256": "0d992a210480c6e9652b317ed7f66261e80a1aa86f7e5c3dffd10e81b8e30de2",
+      "rttmSHA256": "b9cd1936acb8f34ce07757bb7f5fc6940ba11b52052c00ecdd2a8577c9c7f17d"
+    },
+    {
+      "id": "TS3004c",
+      "split": "dev",
+      "speakers": 4,
+      "audioSeconds": 2970.0,
+      "wavSHA256": "4fea0b90a24164511a902f9bc148322ee9dea236195690af081bc0033db640ea",
+      "rttmSHA256": "0acfe1365d5d1ca38ec2cb1abbfde54195373205d8bca903274f486f18e0f2d7"
+    },
+    {
+      "id": "IB4010",
+      "split": "dev",
+      "speakers": 4,
+      "audioSeconds": 2960.6,
+      "wavSHA256": "996c2f77648eb34adc9221a08d1cf4a4d7a4c1daddbe2b25cd9bff4e6495b3e0",
+      "rttmSHA256": "a948797cd5121c89c6571c9dce9c21f9d357cae93c982e572188e8d3d4413514"
+    },
+    {
+      "id": "EN2002c",
+      "split": "test",
+      "speakers": 3,
+      "audioSeconds": 2972.3,
+      "wavSHA256": "a057708b3adb553f709fcde97d2af8e0455076bc3f88c250975227433d6e0270",
+      "rttmSHA256": "e595fa5953a923cbd62ffc881bd9725df98a6587bc14730dd279937773953bca"
+    },
+    {
+      "id": "EN2002a",
+      "split": "test",
+      "speakers": 4,
+      "audioSeconds": 2142.7,
+      "wavSHA256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+      "rttmSHA256": "a93919ae5f18e476614b7e5a2713c4dc6bba23e95149fba18dbe68602b13ee40"
+    },
+    {
+      "id": "ES2004b",
+      "split": "test",
+      "speakers": 4,
+      "audioSeconds": 2345.5,
+      "wavSHA256": "ad0cf07c42b1694ccf7bea8f1a37348d9cfab194787abc7d050b29ba56e365c8",
+      "rttmSHA256": "97a04fa14a37249b09581969939e5024324bbe3fc9c7a77e19976af41147ad7d"
+    },
+    {
+      "id": "IS1009a",
+      "split": "test",
+      "speakers": 4,
+      "audioSeconds": 838.9,
+      "wavSHA256": "6eb5a0ede0d9e72794f976ce7bea5b78133eae969f99b4c5418b43c2468d25b1",
+      "rttmSHA256": "ba38d35ca567f3f1e061d90fdc33579ce60d2060fc8664eaeb77d2e0fcd88b01"
+    }
+  ]
+}
