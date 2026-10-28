@@ -12,15 +12,17 @@ struct StylesView: View {
                 ContentTitle(title: "Styles")
                     .padding(.bottom, DS.Space.snug)
 
-                if settings.cleanupLevel != .high {
+                if !settings.cleanupLevel.rewrites(in: settings.dictationLanguage) {
                     HStack(spacing: DS.Space.base) {
                         Image(systemName: "pause.circle").foregroundStyle(DS.Color.accent)
-                        Text("Inactifs au niveau \(settings.cleanupLevel.title)")
+                        Text(settings.cleanupLevel == .high ? "Inactifs en français" : "Inactifs au niveau \(settings.cleanupLevel.title)")
                             .font(DS.Font.label)
                             .foregroundStyle(DS.Color.ink)
-                        InfoButton(text: "Les styles réécrivent le texte : ils ne s'appliquent qu'au niveau de nettoyage Élevé.")
+                        InfoButton(text: "Les styles réécrivent le texte : ils ne s'appliquent qu'au niveau de nettoyage Élevé, hors français.")
                         Spacer()
-                        CapButton(title: "Activer", height: 26) { settings.cleanupLevel = .high }
+                        if settings.cleanupLevel != .high {
+                            CapButton(title: "Activer", height: 26) { settings.cleanupLevel = .high }
+                        }
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)

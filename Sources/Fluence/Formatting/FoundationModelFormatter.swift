@@ -14,8 +14,8 @@ import FoundationModels
 ///   of cleaning it — the classic failure when dictation reads as an instruction — or if it
 ///   dropped too much of what was said. See `CleanupGuard`.
 ///
-/// Level High (FLU-5; Medium fixes names instead, see `NameFixerFormatter`, FLU-91). The
-/// rules run first — they turn spoken commands into
+/// Level High outside French (FLU-5; Medium and French High fix names instead, see
+/// `NameFixerFormatter`, FLU-91). The rules run first — they turn spoken commands into
 /// marks the model would otherwise read as words — and the model works on their output, so
 /// a rejected or failed model pass costs nothing but the model's own improvements.
 struct FoundationModelFormatter: TextFormatter {

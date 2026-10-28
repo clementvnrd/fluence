@@ -8,7 +8,8 @@ import FluenceDictionary
 ///    trigger inside a dictation is swapped for a placeholder (⟦1⟧) so nothing below can
 ///    change the expansion.
 /// 2. **Language.** The chosen language, or in Auto the one detected in this transcript.
-/// 3. **Cleanup** at the chosen level: none, rules, rules + name fixer, rules + model + style.
+/// 3. **Cleanup** at the chosen level: none, rules, rules + name fixer, and at High outside
+///    French rules + model + style.
 /// 4. **Dictionary**, always — it is the guaranteed half of the dictionary and must not be
 ///    something a level can switch off.
 /// 5. **Expansions** go back in, verbatim.
@@ -59,7 +60,7 @@ enum DictationPipeline {
                 // tested rules.
                 cleaned = LightCleanup.apply(shielded, language: language, developer: developer)
             case .medium, .high:
-                if level == .high {
+                if level.rewrites(in: language) {
                     cleaned = await FoundationModelFormatter(
                         language: language,
                         style: CleanupPrompt.Style(style: settings.style(for: category), category: category),

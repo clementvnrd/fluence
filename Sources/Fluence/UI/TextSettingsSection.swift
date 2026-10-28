@@ -30,7 +30,8 @@ struct TextSettingsSection: View {
             SettingsRow(
                 systemImage: "textformat",
                 title: "Styles par app",
-                subtitle: settings.cleanupLevel == .high ? nil : "Inactifs sous le niveau Élevé"
+                subtitle: settings.cleanupLevel.rewrites(in: settings.dictationLanguage) ? nil
+                    : settings.cleanupLevel == .high ? "Inactifs en français" : "Inactifs sous le niveau Élevé"
             ) {
                 CapButton(title: "Ouvrir", systemImage: "chevron.right", height: 28) {
                     MainNavigation.shared.show(.styles, openWindow: openWindow)
@@ -149,10 +150,10 @@ extension CleanupLevel {
     /// One dictated sentence at this level (mock-up 08) — an illustration, not a promise.
     var example: String {
         switch self {
-        case .none: "euh donc on se voit jeudi, enfin non, vendredi vers 14\u{00A0}h quoi"
-        case .light: "Donc on se voit jeudi, enfin non, vendredi vers 14\u{00A0}h."
-        case .medium: "On se voit vendredi vers 14\u{00A0}h."
-        case .high: "Rendez-vous vendredi à 14\u{00A0}h."
+        case .none: "euh donc je pousse sur guit hub jeudi, enfin non, vendredi quoi"
+        case .light: "Donc je pousse sur guit hub jeudi, enfin non, vendredi."
+        // High in French fixes names like Medium (FLU-91); its style rewrite is for other languages.
+        case .medium, .high: "Donc je pousse sur GitHub jeudi, enfin non, vendredi."
         }
     }
 
@@ -161,9 +162,8 @@ extension CleanupLevel {
         case .none: "Ce que le moteur a entendu, tel quel."
         case .light: "Retire les hésitations, bégaiements et répétitions, transforme la ponctuation dictée, "
             + "corrige espaces et majuscules. Instantané."
-        case .medium: "Léger, puis le modèle sur votre Mac : applique vos auto-corrections (« 17 h, non, 18 h »), "
-            + "met en forme les listes, écrit les nombres en chiffres."
-        case .high: "Moyen, puis réécrit dans le style choisi pour le type d'app où vous écrivez."
+        case .medium: "Léger, puis le modèle sur votre Mac corrige les noms mal entendus de votre dictionnaire."
+        case .high: "En français, comme Moyen. Dans les autres langues, réécrit dans le style choisi pour l'app."
         }
     }
 }

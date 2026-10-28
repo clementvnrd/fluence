@@ -344,7 +344,7 @@ final class DictationController {
 
         // The name fixer's model loads while the user speaks (FLU-92).
         let level = Settings.shared.effectiveCleanupLevel
-        if !command, level == .medium {
+        if !command, level.usesModel, !level.rewrites(in: Settings.shared.dictationLanguage) {
             NameFixerFormatter.prewarm(terms: DictionaryStore.shared.biasPhrases, language: Settings.shared.dictationLanguage)
         }
 
