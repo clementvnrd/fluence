@@ -327,6 +327,10 @@ enum LastTranscriptAction: Sendable {
 /// `PushToTalkGesture` in FluenceCore; this class only feeds it events.
 @MainActor
 final class HotkeyMonitor {
+    /// FLU-93: when a key last reached an app (`systemUptime`), which may have moved the caret
+    /// or sent a message. When only, never which key.
+    private(set) var lastKeyAt: TimeInterval = 0
+
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
@@ -526,7 +530,9 @@ final class HotkeyMonitor {
         case .flagsChanged:
             return handleFlags(flags: flags)
         case .keyDown:
-            return handleKeyDown(keyCode: keyCode, flags: flags, isRepeat: isRepeat)
+            let swallow = handleKeyDown(keyCode: keyCode, flags: flags, isRepeat: isRepeat)
+            if !swallow { lastKeyAt = ProcessInfo.processInfo.systemUptime }
+            return swallow
         case .keyUp:
             if swallowed.remove(keyCode) != nil { return true }
             return handleKeyUp(keyCode: keyCode)

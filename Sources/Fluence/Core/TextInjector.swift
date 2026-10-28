@@ -93,6 +93,51 @@ enum TextInjector {
         putOnPasteboard(text)
     }
 
+    /// FLU-93: a few characters on each side of the caret (or the selection) in the focused
+    /// field, for `InsertionContext`: read once, never kept or logged. Nil in a password field
+    /// and where the app exposes no text (most Electron apps, many terminals).
+    static func caretContext(reach: Int = 4) -> (before: String, after: String)? {
+        guard !typesIntoOwnField else { return nil }
+        // Shorter than the insert's budget: this only refines the text, it must not delay it.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.1)
+        defer { AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), axTimeout) }
+        guard let element = AXRead.focusedElement(), !isSecure(element),
+              let selection = AXRead.range(element, kAXSelectedTextRangeAttribute),
+              let count = AXRead.copy(element, kAXNumberOfCharactersAttribute) as? Int,
+              selection.location >= 0, selection.location + selection.length <= count
+        else { return nil }
+        let start = max(0, selection.location - reach)
+        let end = selection.location + selection.length
+        guard let before = string(of: element, in: CFRange(location: start, length: selection.location - start)),
+              let after = string(of: element, in: CFRange(location: end, length: min(count, end + reach) - end))
+        else { return nil }
+        return (before, after)
+    }
+
+    /// FLU-93: a password field has the focus; nothing is read from it or fitted to it.
+    static var focusIsSecure: Bool {
+        AXRead.focusedElement().map(isSecure) ?? false
+    }
+
+    private static func isSecure(_ element: AXUIElement) -> Bool {
+        AXRead.string(element, kAXSubroleAttribute) == (kAXSecureTextFieldSubrole as String)
+            || AXRead.string(element, kAXRoleAttribute) == "AXSecureTextField"
+    }
+
+    private static func string(of element: AXUIElement, in range: CFRange) -> String? {
+        guard range.length > 0 else { return "" }
+        var range = range
+        guard let value = AXValueCreate(.cfRange, &range) else { return nil }
+        var result: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXStringForRangeParameterizedAttribute as CFString,
+            value,
+            &result
+        ) == .success else { return nil }
+        return result as? String
+    }
+
     private enum AccessibilityResult {
         case verified
         case unverified(String)
