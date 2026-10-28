@@ -1,15 +1,17 @@
 import AppKit
+import FluenceCore
 import FluenceDictionary
 import SwiftUI
 
-/// Fenêtre flottante élégante pour corriger rapidement la dernière dictée
-/// et apprendre automatiquement les nouveaux mots ou corrections dans le dictionnaire.
+/// Fenêtre flottante pour corriger la dernière dictée et ajouter au dictionnaire les noms
+/// corrigés, cochés un par un (FLU-89).
 struct CorrectionQuickSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var originalText: String
     @State private var editedText: String
-    @State private var learnedEntries: [DictionaryEntry] = []
+    /// Proposals the user unticked; everything else listed is saved.
+    @State private var unchecked: Set<EditLearner.Proposal.ID> = []
     @State private var hasSaved = false
 
     init(initialText: String? = nil) {
@@ -30,7 +32,7 @@ struct CorrectionQuickSheet: View {
                     Text("Auto-Apprentissage & Correction")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(DS.Color.ink)
-                    Text("Modifiez le texte : les mots corrigés seront automatiquement mémorisés.")
+                    Text("Corrigez les noms mal écrits.")
                         .font(DS.Font.caption)
                         .foregroundStyle(DS.Color.inkSecondary)
                 }
@@ -57,36 +59,23 @@ struct CorrectionQuickSheet: View {
                     )
             }
 
-            // Live detected corrections badge
-            if !detectedCorrections.isEmpty {
+            // FLU-89: what will be saved, each with a checkbox. The same list is saved, and it
+            // comes from EditLearner, so fixing « est » → « et » no longer rewrites every « est ».
+            if !proposals.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 10))
-                            .foregroundStyle(DS.Color.meterAmber)
-                        Text("Règles qui seront ajoutées au dictionnaire :")
-                            .font(DS.Font.caption)
-                            .foregroundStyle(DS.Color.inkSecondary)
-                    }
-
-                    HStack(spacing: 8) {
-                        ForEach(detectedCorrections, id: \.hear) { pair in
-                            HStack(spacing: 5) {
-                                Text(pair.hear)
-                                    .strikethrough()
-                                    .foregroundStyle(DS.Color.inkSecondary)
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: 8))
-                                    .foregroundStyle(DS.Color.inkSecondary)
-                                Text(pair.write)
-                                    .bold()
-                                    .foregroundStyle(DS.Color.accent)
-                            }
-                            .font(.system(size: 11))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(DS.Color.meterAmber.opacity(0.12), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    Text("À ajouter au dictionnaire :")
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Color.inkSecondary)
+                    ForEach(proposals) { proposal in
+                        Toggle(isOn: Binding(
+                            get: { !unchecked.contains(proposal.id) },
+                            set: { isOn in if isOn { unchecked.remove(proposal.id) } else { unchecked.insert(proposal.id) } }
+                        )) {
+                            Text(proposal.isCorrection ? "\(proposal.heard) → \(proposal.written)" : proposal.written)
+                                .font(DS.Font.label)
+                                .foregroundStyle(DS.Color.ink)
                         }
+                        .toggleStyle(.checkbox)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -122,34 +111,26 @@ struct CorrectionQuickSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.plain)
-                .disabled(editedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(chosen.isEmpty && !hasSaved)
             }
         }
         .padding(20)
-        .frame(width: 480, height: 320)
+        .frame(width: 480)
+        .frame(minHeight: 320)
         .background(DS.Color.chassis)
     }
 
-    private var detectedCorrections: [AutoLearningEngine.LearnedPair] {
-        guard editedText != originalText else { return [] }
-        // Simple word-level scan for live preview
-        let origWords = originalText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
-        let editWords = editedText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
-
-        var pairs: [AutoLearningEngine.LearnedPair] = []
-        let minCount = min(origWords.count, editWords.count)
-        for i in 0..<minCount {
-            let o = origWords[i].trimmingCharacters(in: CharacterSet.punctuationCharacters)
-            let e = editWords[i].trimmingCharacters(in: CharacterSet.punctuationCharacters)
-            if o.caseInsensitiveCompare(e) != .orderedSame && !o.isEmpty && !e.isEmpty {
-                pairs.append(AutoLearningEngine.LearnedPair(hear: o, write: e))
-            }
-        }
-        return pairs
+    /// EditLearner's proposals for the edit, minus spellings the dictionary already has.
+    private var proposals: [EditLearner.Proposal] {
+        let known = Set(DictionaryStore.shared.entries.map { $0.write.lowercased() })
+        return EditLearner.proposals(inserted: originalText, edited: editedText)
+            .filter { !known.contains($0.written.lowercased()) }
     }
 
+    private var chosen: [EditLearner.Proposal] { proposals.filter { !unchecked.contains($0.id) } }
+
     private func saveAndLearn() {
-        _ = AutoLearningEngine.shared.learnCorrection(from: originalText, to: editedText)
+        for proposal in chosen { LearnedWords.shared.accept(proposal) }
         hasSaved = true
         NSSound(named: "Glass")?.play()
 
