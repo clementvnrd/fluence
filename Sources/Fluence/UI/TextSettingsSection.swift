@@ -72,7 +72,7 @@ struct TextSettingsSection: View {
             SettingsRow(
                 systemImage: "text.append",
                 title: "Apprendre les termes fréquents",
-                info: "Un nom propre, un sigle ou un terme technique dicté deux fois est ajouté au dictionnaire sans vous le demander."
+                info: "Un nom propre, un sigle ou un terme technique dicté trois fois, sur deux jours au moins, vous est proposé pour le dictionnaire."
             ) {
                 RowToggle(isOn: $settings.learnFrequentTerms)
             }

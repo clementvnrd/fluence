@@ -252,7 +252,7 @@ public enum EditLearner {
         comme comment dans de des deja demain donc du elle elles en encore est et etre fait faire \
         il ils je juste la le les leur lui ma mais me merci mes moi mon ne ni non nous on ou oui \
         par pas pour plus quand que quel quelle qui sa salut se ses si son sont sur ta te tes toi \
-        ton tous tout tres tu un une va vos votre vous lundi mardi mercredi jeudi vendredi samedi \
+        ton tous tout tres tu un une va vos votre vous y lundi mardi mercredi jeudi vendredi samedi \
         dimanche janvier fevrier mars avril mai juin juillet aout septembre octobre novembre \
         decembre aujourd'hui hier
         """

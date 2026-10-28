@@ -144,6 +144,19 @@ struct EditLearnerTests {
         #expect(EditLearner.proposals(inserted: "Mail me.", edited: "Mail me at bob@example.com.").isEmpty)
     }
 
+    /// FLU-89: the « Corriger » sheet saved « est -> et », which rewrote every later « est ».
+    @Test func aOneWordCommonFixMakesNoRule() {
+        #expect(EditLearner.proposals(inserted: "Je crois que c'est prêt est on verra.", edited: "Je crois que c'est prêt et on verra.").isEmpty)
+        #expect(EditLearner.proposals(inserted: "Il est la.", edited: "Il est là.").isEmpty)
+    }
+
+    /// FLU-89: the sheet previewed word by position (an inserted word shifted every pair after
+    /// it) and saved by alignment. It now shows and saves this one list.
+    @Test func anInsertedWordDoesNotShiftTheProposals() {
+        #expect(EditLearner.proposals(inserted: "On passe par cloud code demain.", edited: "On passe vraiment par Claude Code demain.")
+            == [EditLearner.Proposal(heard: "cloud code", written: "Claude Code")])
+    }
+
     @Test func aCaseFixMidSentenceIsProposedAsATerm() {
         let proposals = EditLearner.proposals(inserted: "I asked anthropic yesterday.", edited: "I asked Anthropic yesterday.")
         #expect(proposals.map(\.written) == ["Anthropic"])
