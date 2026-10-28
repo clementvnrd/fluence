@@ -18,9 +18,11 @@ protocol TextFormatter: Sendable {
 struct RuleBasedFormatter: TextFormatter {
     /// The transcript's language: fillers and spoken punctuation are language-specific.
     var language: DictationLanguage = .english
+    /// Going into a terminal or a code editor: no French typography (FLU-90).
+    var developer = false
 
     func format(_ raw: String) async -> String {
-        LightCleanup.apply(raw, language: language)
+        LightCleanup.apply(raw, language: language, developer: developer)
     }
 }
 

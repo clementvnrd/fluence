@@ -25,9 +25,11 @@ struct FoundationModelFormatter: TextFormatter {
     /// How many snippet placeholders (⟦1⟧…) the text carries. The model must hand every one
     /// back exactly once, or its output is not used.
     var placeholderCount = 0
+    /// Going into a terminal or a code editor: no French typography (FLU-90).
+    var developer = false
 
     /// The deterministic answer, whenever the model is unavailable, too slow, failing or rejected.
-    private var fallback: RuleBasedFormatter { RuleBasedFormatter(language: language) }
+    private var fallback: RuleBasedFormatter { RuleBasedFormatter(language: language, developer: developer) }
 
     /// Past this, the rules' text is worth more than the wait.
     private static let timeout: Duration = .seconds(4)
@@ -103,7 +105,7 @@ struct FoundationModelFormatter: TextFormatter {
                 return trimmed
             }
             // Typography is deterministic and idempotent: the model's spacing is not trusted.
-            if language == .french { cleaned = FrenchTypography.apply(to: cleaned) }
+            if language == .french, !developer { cleaned = FrenchTypography.apply(to: cleaned) }
             return cleaned
         } catch {
             Log.speech.info("Foundation model cleanup failed (\(Self.describe(error), privacy: .public)) — using rule-based cleanup")
