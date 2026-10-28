@@ -10,8 +10,9 @@ import Foundation
 /// 1. Writing the focused element's `kAXSelectedTextAttribute`: instant, and the pasteboard
 ///    is never touched.
 /// 2. Pasting with a synthetic ⌘V, the route that reaches Electron and any app with a flaky
-///    AX implementation. The item is marked transient and concealed and kept off Universal
-///    Clipboard, and the previous contents (or an empty pasteboard) come back afterwards.
+///    AX implementation. The pasteboard is only lent (`PasteboardLoan`, FLU-120): the item is
+///    transient, concealed and kept off Universal Clipboard, and the user's contents come back
+///    type for type as soon as the paste is seen. A dictation never changes the clipboard.
 ///
 /// The first route counts only once the caret is seen to move. A `.success` from the write
 /// means little: Chrome, Electron apps (VS Code, Cursor, Slack, Discord) and most terminals
@@ -31,9 +32,10 @@ enum TextInjector {
         /// Typed into the focused field, or pasted there — known only once the paste was
         /// actually sent, never before (FLU-29: the success sound used to play ~40 ms early).
         case inserted
-        /// Only put on the clipboard, for the user's own ⌘V: without the Accessibility grant
-        /// no paste can land, or the app in front is not the one the text was meant for.
-        case onClipboard(CapsuleMessage.CopyReason)
+        /// Not typed, and not put on the clipboard either (FLU-120): without the Accessibility
+        /// grant no paste can land, or the app in front is not the one the text was meant for.
+        /// The text stays the last dictation, for ⌃⌘V and the history.
+        case notTyped(CapsuleMessage.NotTypedReason)
         /// Something else wrote to the clipboard just before the paste: nothing was pasted,
         /// and the clipboard holds that other content, not the dictation.
         case pasteSkipped
@@ -61,12 +63,10 @@ enum TextInjector {
             return .inserted
         case .unverified(let reason):
             guard AXIsProcessTrusted() else {
-                // A posted ⌘V would be dropped: the dictation stays on the pasteboard (still
-                // concealed and transient) for the user's own ⌘V.
-                Log.inject.error("no Accessibility grant — transcript left on the pasteboard")
+                // A posted ⌘V would be dropped, and the clipboard is the user's (FLU-120).
+                Log.inject.error("no Accessibility grant — transcript not typed")
                 Diagnostics.error("inject.noAccessibility")
-                putOnPasteboard(text)
-                return .onClipboard(.noAccessibility)
+                return .notTyped(.noAccessibility)
             }
             Log.inject.info("AX insert not verified (\(reason, privacy: .public)) — pasting instead")
             return await insertViaPasteboard(text)
@@ -84,13 +84,6 @@ enum TextInjector {
               view.isEditable
         else { return nil }
         return view
-    }
-
-    /// FLU-29: the text is not typed (the app in front changed) but left on the clipboard for
-    /// the user's own ⌘V — transient, concealed and this Mac only, like the paste route.
-    static func copyForManualPaste(_ text: String) {
-        guard !text.isEmpty else { return }
-        putOnPasteboard(text)
     }
 
     /// FLU-93: a few characters on each side of the caret (or the selection) in the focused
@@ -208,53 +201,26 @@ enum TextInjector {
 
     // MARK: - Paste
 
-    /// Markers from nspasteboard.org that clipboard managers (Maccy, Paste, Raycast, Alfred,
-    /// 1Password's own clipboard handling…) honour: transient and concealed items are not
-    /// added to their history, so a dictation pasted this way doesn't end up in a searchable
-    /// archive of everything you've said.
-    private static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
-    private static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
-    private static let sourceType = NSPasteboard.PasteboardType("org.nspasteboard.source")
+    /// The loan still out, if any. A dictation pasted before the previous one is given back
+    /// takes over its snapshot — the user's contents — and its restore.
+    private static var loan: PasteboardLoan?
 
     /// Upper bound on how long the pasteboard holds the dictation before the user's previous
     /// contents come back. Usually far less: the wait ends as soon as the paste is seen to land.
     private static let pasteWindow: Duration = .seconds(1)
     private static let pastePoll: Duration = .milliseconds(50)
 
-    /// Writes the dictation to the pasteboard, marked transient and concealed, this Mac only.
-    ///
-    /// - Returns: what the pasteboard held before, and the generation of our write.
-    @discardableResult
-    private static func putOnPasteboard(_ text: String) -> (saved: [[NSPasteboard.PasteboardType: Data]], generation: Int) {
-        let pasteboard = NSPasteboard.general
-        let saved: [[NSPasteboard.PasteboardType: Data]] = pasteboard.pasteboardItems?.map { item in
-            var entry: [NSPasteboard.PasteboardType: Data] = [:]
-            for type in item.types {
-                if let data = item.data(forType: type) { entry[type] = data }
-            }
-            return entry
-        } ?? []
-
-        let item = NSPasteboardItem()
-        item.setString(text, forType: .string)
-        item.setData(Data(), forType: transientType)
-        item.setData(Data(), forType: concealedType)
-        if let bundleID = Bundle.main.bundleIdentifier {
-            item.setString(bundleID, forType: sourceType)
-        }
-
-        // `.currentHostOnly` keeps it out of Universal Clipboard, which would otherwise hand
-        // the dictation to every device signed in to the same account.
-        pasteboard.prepareForNewContents(with: .currentHostOnly)
-        pasteboard.writeObjects([item])
-        return (saved, pasteboard.changeCount)
-    }
-
     /// Pastes with ⌘V and returns once the paste was sent and, where the caret can be read,
     /// seen to land; restoring the user's clipboard carries on afterwards.
     private static func insertViaPasteboard(_ text: String) async -> Outcome {
         let pasteboard = NSPasteboard.general
-        let (saved, ours) = putOnPasteboard(text)
+        let lent = PasteboardLoan(lending: text, on: pasteboard, source: Bundle.main.bundleIdentifier, after: loan)
+        loan = lent
+        if lent.snapshot.unreadableTypes > 0 {
+            // A promise its owner did not keep: that type cannot come back. A count, no content.
+            Log.inject.error("clipboard: \(lent.snapshot.unreadableTypes, privacy: .public) type(s) could not be saved")
+            Diagnostics.error("inject.clipboardTypeUnreadable", code: lent.snapshot.unreadableTypes)
+        }
         let caretBefore = focusedSelection()
 
         // A ⌘V sent at once can reach the app before it notices our write, and paste the old
@@ -263,31 +229,32 @@ enum TextInjector {
 
         // Something else wrote to the pasteboard in those 40 ms. Pasting now would paste
         // *its* contents — possibly a password — into the user's document.
-        guard pasteboard.changeCount == ours else {
+        guard lent.isOut(on: pasteboard) else {
+            // The newer content wins and stays; there is nothing of ours left to give back.
+            if loan?.generation == lent.generation { loan = nil }
             Log.inject.error("pasteboard changed before ⌘V — paste skipped")
             Diagnostics.error("inject.pasteboardChanged")
             return .pasteSkipped
         }
         guard postCommandV() else {
-            // No paste is possible, so the dictation stays on the pasteboard (still
-            // concealed and transient) for the user's own ⌘V instead of being restored away.
-            Log.inject.error("no Accessibility grant — transcript left on the pasteboard")
+            giveBack(lent, to: pasteboard)
+            Log.inject.error("no Accessibility grant — transcript not typed")
             Diagnostics.error("inject.noAccessibility")
-            return .onClipboard(.noAccessibility)
+            return .notTyped(.noAccessibility)
         }
         Log.inject.info("pasted (\(text.count) chars)")
 
         // The caller's « done » waits for the caret to move, or for `landedWindow` where it
         // cannot be read (most Electron apps): the ⌘V has reached the app by then.
-        let landed = await waitForPaste(on: pasteboard, generation: ours, caretBefore: caretBefore, upTo: landedWindow)
+        let landed = await waitForPaste(of: lent, on: pasteboard, caretBefore: caretBefore, upTo: landedWindow)
         if landed {
-            restore(saved, to: pasteboard, ifStill: ours)
+            giveBack(lent, to: pasteboard)
         } else {
             Log.inject.info("paste sent; the caret could not confirm it yet")
             Task { @MainActor in
                 // The rest of the window before the clipboard comes back: the app may read it late.
-                await waitForPaste(on: pasteboard, generation: ours, caretBefore: caretBefore, upTo: pasteWindow - landedWindow)
-                restore(saved, to: pasteboard, ifStill: ours)
+                await waitForPaste(of: lent, on: pasteboard, caretBefore: caretBefore, upTo: pasteWindow - landedWindow)
+                giveBack(lent, to: pasteboard)
             }
         }
         return .inserted
@@ -306,15 +273,16 @@ enum TextInjector {
     /// - Returns: whether the paste was seen: the caret moved, or someone took the pasteboard.
     @discardableResult
     private static func waitForPaste(
+        of lent: PasteboardLoan,
         on pasteboard: NSPasteboard,
-        generation: Int,
         caretBefore: CFRange?,
         upTo window: Duration
     ) async -> Bool {
         let deadline = ContinuousClock.now + window
         while ContinuousClock.now < deadline {
             try? await Task.sleep(for: pastePoll)
-            if pasteboard.changeCount != generation { return true }
+            // A rewrite of the dictation itself (a clipboard manager) is no sign of the paste.
+            if !lent.isOut(on: pasteboard) { return true }
             if let caretBefore, let caret = focusedSelection(),
                caret.location != caretBefore.location || caret.length != caretBefore.length {
                 // One more poll's grace: some apps read a second, richer type after the first.
@@ -325,28 +293,14 @@ enum TextInjector {
         return false
     }
 
-    /// Puts back what the user had — or leaves the pasteboard empty if it was empty — but only
-    /// while the pasteboard still holds our item. If anything else wrote to it meanwhile (the
-    /// user copied something, a password manager filled), that newer content wins.
-    private static func restore(
-        _ saved: [[NSPasteboard.PasteboardType: Data]],
-        to pasteboard: NSPasteboard,
-        ifStill generation: Int
-    ) {
-        guard pasteboard.changeCount == generation else {
+    /// Puts back what the user had (or an empty pasteboard), unless someone else wrote
+    /// meanwhile — that newer content wins — or a later dictation took the loan over.
+    private static func giveBack(_ lent: PasteboardLoan, to pasteboard: NSPasteboard) {
+        guard loan?.generation == lent.generation else { return }
+        loan = nil
+        if !lent.giveBack(to: pasteboard) {
             Log.inject.info("pasteboard changed since the paste — left as is")
-            return
         }
-        pasteboard.clearContents()
-        guard !saved.isEmpty else { return }
-        // Items read from a pasteboard die with the next clear, so each one is rebuilt from
-        // its saved types.
-        let rebuilt = saved.map { types in
-            let item = NSPasteboardItem()
-            for (type, data) in types { item.setData(data, forType: type) }
-            return item
-        }
-        pasteboard.writeObjects(rebuilt)
     }
 
     /// The focused element's selection, used only to notice that a paste moved the caret.

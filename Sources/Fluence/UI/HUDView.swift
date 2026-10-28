@@ -191,8 +191,8 @@ struct HUDView: View {
                 Image(systemName: "xmark.circle").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.inkSecondary)
             case .nothingHeard:
                 Image(systemName: "waveform.slash").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.inkSecondary)
-            case .copied:
-                Image(systemName: "doc.on.clipboard").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.accent)
+            case .notTyped:
+                Image(systemName: "text.insert").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Color.accent)
             case .warning:
                 // Amber on the error glyph only: never red on the capsule (red = a meeting).
                 Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12)).foregroundStyle(DS.Color.meterAmber)
@@ -367,7 +367,7 @@ private struct ProgressDots: View {
 /// - `preparingModel` (« Préparation du modèle… 42 % », `…_PROGRESS` = 0.42 by default),
 ///   `preparingEngine` (« Préparation de Parakeet… »);
 /// - `nothingHeard` (`…_MIC` names the microphone, « MacBook Pro » by default);
-/// - `copied` (Accessibilité non autorisée + Réglages), `copiedAppChanged`;
+/// - `notTyped` (Accessibilité non autorisée + Réglages), `notTypedAppChanged` (⌃⌘V);
 /// - `errorRetry` (« La transcription a échoué » + Réessayer, `…_ENGINE` = apple, parakeet or
 ///   whisper), `errorMicrophone` (« Micro indisponible » + Réglages);
 /// - `failure` with `…_FAILURE` naming any `DictationFailure.kind` (`microphoneLost`,
@@ -396,8 +396,8 @@ struct HUDPreview {
             return HUDPreview(content: .listen(text: text, preparation: .loading(SpeechEngineChoice(engine).shortName), showsLanguage: engine != .parakeet))
         case "cancelled": return HUDPreview(content: .message(.cancelled))
         case "nothingHeard": return HUDPreview(content: .message(.nothingHeard(microphone: env["FLUENCE_PREVIEW_HUD_MIC"] ?? "MacBook Pro")))
-        case "copied": return HUDPreview(content: .message(.copied(.noAccessibility)))
-        case "copiedAppChanged": return HUDPreview(content: .message(.copied(.appChanged)))
+        case "notTyped": return HUDPreview(content: .message(.notTyped(.noAccessibility, canPasteLast: false)))
+        case "notTypedAppChanged": return HUDPreview(content: .message(.notTyped(.appChanged, canPasteLast: true)))
         case "errorRetry": return HUDPreview(content: .message(.failure(.engineFailed(engine, canRetry: true))))
         case "errorMicrophone": return HUDPreview(content: .message(.failure(.microphoneDenied)))
         case "failure":

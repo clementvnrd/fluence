@@ -14,8 +14,8 @@ public struct CapsuleMessage: Equatable, Sendable {
         case cancelled
         /// Nothing rose above room tone: grey crossed-out waveform.
         case nothingHeard
-        /// The text waits on the clipboard: accent clipboard.
-        case copied
+        /// The text was not typed; it waits in the history and behind ⌃⌘V: accent text cursor.
+        case notTyped
         /// Something failed: the amber triangle, the only amber on the capsule.
         case warning
     }
@@ -39,7 +39,7 @@ public struct CapsuleMessage: Equatable, Sendable {
         }
 
         /// Blue for the way out of an error; grey for the help offered beside a result that
-        /// still worked (the text is on the clipboard).
+        /// still worked (the text is kept).
         public var isPrimary: Bool { self != .accessibilitySettings }
     }
 
@@ -64,10 +64,10 @@ public struct CapsuleMessage: Equatable, Sendable {
 
 // MARK: - The messages
 
-/// The system paste shortcut, through `ShortcutLabel` like every shortcut on screen. It is not
-/// configurable: the injector types whichever key gives « v » with ⌘ on the current layout.
-public enum PasteShortcut {
-    public static var label: String { ShortcutLabel.display("⌘V") }
+/// The shortcut that pastes the last dictation, through `ShortcutLabel` like every shortcut on
+/// screen. It is not configurable: `HotkeyMonitor` takes whichever key gives « v » on the layout.
+public enum PasteLastShortcut {
+    public static var label: String { ShortcutLabel.display("⌃⌘V") }
 }
 
 extension CapsuleMessage {
@@ -87,21 +87,25 @@ extension CapsuleMessage {
         return CapsuleMessage(icon: .nothingHeard, title: "Rien entendu", detail: name.isEmpty ? nil : "Micro\u{00A0}: " + name)
     }
 
-    /// Why the text went to the clipboard instead of being typed.
-    public enum CopyReason: Equatable, Sendable, CaseIterable {
+    /// Why the text was not typed. It never goes to the clipboard (FLU-120): it stays the last
+    /// dictation, in Transcriptions and behind ⌃⌘V.
+    public enum NotTypedReason: Equatable, Sendable, CaseIterable {
         /// No Accessibility grant: no paste can be sent.
         case noAccessibility
         /// The app in front is not the one the key was released in (`InsertTargetPolicy`).
         case appChanged
     }
 
-    public static func copied(_ reason: CopyReason) -> CapsuleMessage {
-        let title = "Copié — collez avec " + PasteShortcut.label
+    /// - Parameter canPasteLast: ⌃⌘V is switched on and armed. It needs the Accessibility grant
+    ///   too, so without the grant the capsule points to the history instead.
+    public static func notTyped(_ reason: NotTypedReason, canPasteLast: Bool) -> CapsuleMessage {
+        let history = "Non collé — voir Transcriptions"
         switch reason {
         case .noAccessibility:
-            return CapsuleMessage(icon: .copied, title: title, detail: "Accessibilité non autorisée", action: .accessibilitySettings)
+            return CapsuleMessage(icon: .notTyped, title: history, detail: "Accessibilité non autorisée", action: .accessibilitySettings)
         case .appChanged:
-            return CapsuleMessage(icon: .copied, title: title, detail: "Vous avez changé d'app")
+            let title = canPasteLast ? "Non collé — collez avec " + PasteLastShortcut.label : history
+            return CapsuleMessage(icon: .notTyped, title: title, detail: "Vous avez changé d'app")
         }
     }
 
@@ -298,8 +302,8 @@ public struct CapsuleTimeline: Equatable, Sendable {
 // MARK: - Where the text goes
 
 /// Text is typed only into the app that was in front when the key came up (FLU-29). Anything
-/// else — the user switched apps while the engine worked — gets the text on the clipboard, and
-/// the capsule says so, instead of typing into whatever has focus by then.
+/// else — the user switched apps while the engine worked — keeps the text for ⌃⌘V (never on
+/// the clipboard, FLU-120), and the capsule says so, instead of typing into whatever has focus.
 public enum InsertTargetPolicy {
     /// An app, by process: two windows of one app are one target, a relaunched app is not.
     public struct App: Equatable, Sendable {
@@ -314,7 +318,7 @@ public enum InsertTargetPolicy {
 
     public enum Decision: Equatable, Sendable {
         case insert
-        case copy(CapsuleMessage.CopyReason)
+        case keep(CapsuleMessage.NotTypedReason)
     }
 
     /// - Parameters:
@@ -323,11 +327,11 @@ public enum InsertTargetPolicy {
     ///   - frontmost: the app in front now, just before typing.
     public static func decide(target: App?, frontmost: App?, hasAccessibility: Bool) -> Decision {
         // Without the grant no paste can land anywhere: that is the thing to fix first.
-        guard hasAccessibility else { return .copy(.noAccessibility) }
+        guard hasAccessibility else { return .keep(.noAccessibility) }
         // Nothing was in front at release (the login window, a space switch): nothing to
         // compare with, so the text goes where it always went.
         guard let target else { return .insert }
-        guard let frontmost, frontmost.processID == target.processID else { return .copy(.appChanged) }
+        guard let frontmost, frontmost.processID == target.processID else { return .keep(.appChanged) }
         return .insert
     }
 }
