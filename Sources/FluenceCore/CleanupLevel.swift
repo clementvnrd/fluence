@@ -25,7 +25,14 @@ public enum CleanupLevel: String, CaseIterable, Sendable, Codable {
     /// Whether the model may rewrite the text in the app's style: High, except in French, where
     /// that free rewrite answered or reworded dictations (FLU-91) and High fixes names instead.
     public func rewrites(in language: DictationLanguage) -> Bool {
-        self == .high && language != .french
+        self == .high && !fixesNames(in: language)
+    }
+
+    /// Whether the model only swaps misheard names for the dictionary's spelling (`NameFixer`):
+    /// Medium and High in French, and in Auto, which is French for most users (FLU-91/92).
+    /// Other languages keep the model's cleanup, never measured as harmful there.
+    public func fixesNames(in language: DictationLanguage) -> Bool {
+        usesModel && (language == .french || language == .auto)
     }
 
     /// Where the level comes from when nothing is stored under the level's own key.

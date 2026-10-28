@@ -157,5 +157,8 @@ struct NameFixerTests {
         #expect(!CleanupLevel.high.rewrites(in: .french))
         #expect(!CleanupLevel.medium.rewrites(in: .english))
         #expect(!CleanupLevel.light.rewrites(in: .english))
+        #expect(!CleanupLevel.high.rewrites(in: .auto))
+        #expect(CleanupLevel.medium.fixesNames(in: .french) && CleanupLevel.high.fixesNames(in: .auto))
+        #expect(!CleanupLevel.medium.fixesNames(in: .english) && !CleanupLevel.light.fixesNames(in: .french))
     }
 }

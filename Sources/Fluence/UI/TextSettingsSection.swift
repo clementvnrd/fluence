@@ -162,7 +162,8 @@ extension CleanupLevel {
         case .none: "Ce que le moteur a entendu, tel quel."
         case .light: "Retire les hésitations, bégaiements et répétitions, transforme la ponctuation dictée, "
             + "corrige espaces et majuscules. Instantané."
-        case .medium: "Léger, puis le modèle sur votre Mac corrige les noms mal entendus de votre dictionnaire."
+        case .medium: "Léger, puis le modèle sur votre Mac. En français, il corrige seulement les noms mal "
+            + "entendus de votre dictionnaire ; dans les autres langues, il applique aussi vos auto-corrections."
         case .high: "En français, comme Moyen. Dans les autres langues, réécrit dans le style choisi pour l'app."
         }
     }

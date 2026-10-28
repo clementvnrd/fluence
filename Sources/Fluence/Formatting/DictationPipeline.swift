@@ -60,20 +60,23 @@ enum DictationPipeline {
                 // tested rules.
                 cleaned = LightCleanup.apply(shielded, language: language, developer: developer)
             case .medium, .high:
-                if level.rewrites(in: language) {
-                    cleaned = await FoundationModelFormatter(
-                        language: language,
-                        style: CleanupPrompt.Style(style: settings.style(for: category), category: category),
-                        placeholderCount: expansions.count,
-                        developer: developer
-                    ).format(shielded)
-                } else {
+                if level.fixesNames(in: language) {
                     let terms = DictionaryStore.shared.biasPhrases
                     cleaned = await NameFixerFormatter(
                         language: language,
                         developer: developer,
                         terms: terms,
                         session: NameFixerFormatter.takeSession(terms: terms, language: language)
+                    ).format(shielded)
+                } else {
+                    let style = level.appliesStyle
+                        ? CleanupPrompt.Style(style: settings.style(for: category), category: category)
+                        : nil
+                    cleaned = await FoundationModelFormatter(
+                        language: language,
+                        style: style,
+                        placeholderCount: expansions.count,
+                        developer: developer
                     ).format(shielded)
                 }
             }
