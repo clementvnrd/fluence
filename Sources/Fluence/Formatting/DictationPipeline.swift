@@ -8,7 +8,8 @@ import FluenceDictionary
 ///    trigger inside a dictation is swapped for a placeholder (⟦1⟧) so nothing below can
 ///    change the expansion.
 /// 2. **Language.** The chosen language, or in Auto the one detected in this transcript.
-/// 3. **Cleanup** at the chosen level: none, rules, rules + model, rules + model + style.
+/// 3. **Cleanup** at the chosen level: none, rules, rules + name fixer, and at High outside
+///    French rules + model + style.
 /// 4. **Dictionary**, always — it is the guaranteed half of the dictionary and must not be
 ///    something a level can switch off.
 /// 5. **Expansions** go back in, verbatim.
@@ -59,15 +60,25 @@ enum DictationPipeline {
                 // tested rules.
                 cleaned = LightCleanup.apply(shielded, language: language, developer: developer)
             case .medium, .high:
-                let style = level.appliesStyle
-                    ? CleanupPrompt.Style(style: settings.style(for: category), category: category)
-                    : nil
-                cleaned = await FoundationModelFormatter(
-                    language: language,
-                    style: style,
-                    placeholderCount: expansions.count,
-                    developer: developer
-                ).format(shielded)
+                if level.fixesNames(in: language) {
+                    let terms = DictionaryStore.shared.biasPhrases
+                    cleaned = await NameFixerFormatter(
+                        language: language,
+                        developer: developer,
+                        terms: terms,
+                        session: NameFixerFormatter.takeSession(terms: terms, language: language)
+                    ).format(shielded)
+                } else {
+                    let style = level.appliesStyle
+                        ? CleanupPrompt.Style(style: settings.style(for: category), category: category)
+                        : nil
+                    cleaned = await FoundationModelFormatter(
+                        language: language,
+                        style: style,
+                        placeholderCount: expansions.count,
+                        developer: developer
+                    ).format(shielded)
+                }
             }
         }
 

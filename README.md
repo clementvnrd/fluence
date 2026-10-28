@@ -120,10 +120,13 @@ Clement's repairs — "scratch that" / "efface tout", self-corrections ("mardi, 
 mercredi"), stutters and repeated words, spoken lists ("premièrement…", "tiret") — removes
 fillers, turns spoken punctuation into marks ("new line", "open paren"; in French "à la
 ligne", "virgule", "point d'interrogation", "ouvrez les guillemets"…) and fixes spacing and
-capitals — deterministic, instant. *Medium* adds Apple's on-device model: self-corrections
-("5 pm, no actually 6 pm" → "6 pm"), lists, numbers as digits. *High* also rewrites in the
-style chosen for the kind of app. Every model pass is checked by `CleanupGuard` and falls
-back to Light when the model answers instead of cleaning, drops words, or times out. The
+capitals — deterministic, instant. *Medium* and *High* add Apple's on-device model. In French
+(and Auto) it is only a name fixer (`NameFixer`, FLU-92): when the text holds a near-miss of a
+dictionary term (« guit hub »), the model may only swap that span for the term; anything else
+it writes is dropped (the free rewrite answered or reworded French dictations, FLU-91). In other
+languages Medium applies self-corrections, lists and numbers, and High also rewrites in the
+style chosen for the kind of app, both checked by `CleanupGuard`. Every
+model pass falls back to Light when the model is unavailable, fails or times out. The
 old on/off and "smart cleanup" switches migrate to None / Light / Medium, and remain in
 Réglages ▸ IA & Formatage as two switches over the level. With **Whisper**, whose output is
 already punctuated, the model passes are skipped unless *Post-traitement LLM sur Whisper* is
@@ -221,7 +224,7 @@ Never sent: audio, transcripts, names, history, meeting notes.
                      └──► SpeechGate ──────────┘
                                                ▼
                      DictationPipeline: snippets → language → cleanup level
-                            (rules, + Foundation Models + CleanupGuard, + style)
+                     (rules, + name fixer, or at High outside French + model + CleanupGuard + style)
                                                ▼
                                 DictionaryCorrector (FluenceDictionary)
                                                ▼  (snippet expansions restored)

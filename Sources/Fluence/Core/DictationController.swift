@@ -342,6 +342,12 @@ final class DictationController {
         level = 0
         levelFollower.reset()
 
+        // The name fixer's model loads while the user speaks (FLU-92).
+        let level = Settings.shared.effectiveCleanupLevel
+        if !command, level.fixesNames(in: Settings.shared.dictationLanguage) {
+            NameFixerFormatter.prewarm(terms: DictionaryStore.shared.biasPhrases, language: Settings.shared.dictationLanguage)
+        }
+
         // Without a grant there's nothing to open yet; `prepare` asks first.
         if Permissions.hasMicrophone {
             guard startCapture(for: session) else { return }
