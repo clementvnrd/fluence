@@ -133,6 +133,10 @@ final class DictationController {
     /// main window's Dicter button is typed (Clement's focus restore).
     @ObservationIgnored private var lastExternalApp: NSRunningApplication?
 
+    /// FLU-93: where the last dictation was typed and how it ended, for apps whose field
+    /// cannot be read. In memory only.
+    @ObservationIgnored private var lastInsertion: InsertionContext.Memory?
+
     private let hotkey = HotkeyMonitor()
     private let capture = AudioCapture()
     private let makeEngine: @MainActor () -> any TranscriptionEngine
@@ -766,9 +770,13 @@ final class DictationController {
             // Not in Fluence's own field (FLU-37, « Essayer »): there is nothing to learn
             // there, and the watch reads the field through Accessibility, i.e. from itself.
             let watchesEdits = Settings.shared.learnFromEdits && !TextInjector.typesIntoOwnField
-            if watchesEdits { EditWatcher.shared.willInsert(output) }
-            outcome = await TextInjector.insert(output)
+            let typed = fitToCaret(output, session: session, hasSnippets: processed.snippetCount > 0)
+            if watchesEdits { EditWatcher.shared.willInsert(typed) }
+            outcome = await TextInjector.insert(typed)
             if watchesEdits, outcome == .inserted { EditWatcher.shared.didInsert() }
+            if outcome == .inserted, let bundleID = session.targetApp?.bundleID {
+                lastInsertion = .init(bundleID: bundleID, text: typed, at: ProcessInfo.processInfo.systemUptime)
+            }
         case .copy(let reason):
             let why = reason == .appChanged ? "the app in front changed" : "no Accessibility grant"
             Log.inject.info("not typed — \(why, privacy: .public); left on the clipboard")
@@ -793,6 +801,36 @@ final class DictationController {
         case .pasteSkipped: end(session, showing: .failure(.pasteSkipped))
         }
         recordRun(session, text: output, raw: raw, processSeconds: processSeconds, corrections: corrections, engineName: engineName)
+    }
+
+    /// FLU-93: the cleaned text fitted to the caret — a space after the previous word, no
+    /// capital mid-sentence, no forced full stop before more text or in a chat. Developer
+    /// tools and snippets get the spaces only, and no guess from memory in a developer tool
+    /// (a terminal's prompt line starts afresh after each Return).
+    private func fitToCaret(_ text: String, session: DictationSession, hasSnippets: Bool) -> String {
+        guard !TextInjector.typesIntoOwnField, !TextInjector.focusIsSecure else { return text }
+        let bundleID = session.targetApp?.bundleID
+        let developer = DeveloperTools.contains(bundleID: bundleID)
+        var caret = TextInjector.caretContext()
+        if caret == nil, !developer, let before = lastInsertion?.before(
+            bundleID: bundleID,
+            now: ProcessInfo.processInfo.systemUptime,
+            lastKeyAt: hotkey.lastKeyAt
+        ) {
+            caret = (before, "")
+        }
+        let category = session.target?.category ?? .other
+        let names = Set(DictionaryStore.shared.entries.filter(\.isEnabled).flatMap {
+            $0.write.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        })
+        return InsertionContext.adjust(
+            text,
+            before: caret?.before,
+            after: caret?.after,
+            chat: category == .personal || category == .work,
+            spacingOnly: developer || hasSnippets,
+            names: names
+        )
     }
 
     /// Drains the session's audio into the engine, in capture order, on its own task.
