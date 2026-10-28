@@ -16,6 +16,7 @@ struct DictionaryPanel: View {
     @State private var query = ""
     @State private var editing: DictionaryEntry?
     @State private var isAdding = false
+    @State private var isReviewingSuspects = false
 
     private var entries: [DictionaryEntry] { store.filtered(by: query) }
 
@@ -55,6 +56,31 @@ struct DictionaryPanel: View {
         }
     }
 
+    /// Terms the old « termes fréquents » most likely added by mistake (FLU-88): « prêt. », « Je ».
+    private var suspects: [DictionaryEntry] {
+        store.entries.filter { $0.kind == .term && FrequentTerms.isSuspect($0.write) }
+    }
+
+    /// One line while there are suspects; the user reviews them, nothing is removed for them.
+    @ViewBuilder private var suspectLine: some View {
+        let count = suspects.count
+        if count > 0 {
+            HStack(spacing: DS.Space.snug) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(DS.Color.meterAmber)
+                    .accessibilityHidden(true)
+                Text(FrenchFormat.count(count, "terme appris par erreur", "termes appris par erreur"))
+                    .font(DS.Font.label)
+                    .foregroundStyle(DS.Color.amberText)
+                Spacer()
+                CapButton(title: "Revoir", height: 24) { isReviewingSuspects = true }
+            }
+            .padding(.horizontal, DS.Space.panel)
+            .padding(.bottom, DS.Space.base)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             PageHeader(
@@ -75,6 +101,8 @@ struct DictionaryPanel: View {
             SearchWell(text: $query, placeholder: "Rechercher dans le dictionnaire…")
                 .padding(.horizontal, DS.Space.panel)
                 .padding(.bottom, DS.Space.base)
+
+            suspectLine
 
             if entries.isEmpty {
                 EmptyState(
@@ -123,6 +151,9 @@ struct DictionaryPanel: View {
             DictionaryEditor(entry: nil) { newEntry in
                 store.add(newEntry)
             }
+        }
+        .sheet(isPresented: $isReviewingSuspects) {
+            SuspectReview(entries: suspects) { store.delete(ids: $0) }
         }
         .sheet(item: $editing) { entry in
             DictionaryEditor(entry: entry) { edited in
@@ -202,6 +233,55 @@ private struct DictionaryRow: View {
 
     private func rowButton(_ title: String, action: @escaping () -> Void) -> some View {
         ChipButton(title: title, action: action)
+    }
+}
+
+// MARK: - Suspect review
+
+/// « Revoir »: the suspect terms with a checkbox each (ticked), removed on « Retirer » only (FLU-88).
+private struct SuspectReview: View {
+    let entries: [DictionaryEntry]
+    let onRemove: (Set<UUID>) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var kept: Set<UUID> = []
+
+    private var chosen: Set<UUID> { Set(entries.map(\.id)).subtracting(kept) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.roomy) {
+            Silkscreen(text: "Termes appris par erreur", large: true)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.snug) {
+                    ForEach(entries) { entry in
+                        Toggle(isOn: Binding(
+                            get: { !kept.contains(entry.id) },
+                            set: { isOn in if isOn { kept.remove(entry.id) } else { kept.insert(entry.id) } }
+                        )) {
+                            Text(entry.write).font(DS.Font.body).foregroundStyle(DS.Color.ink)
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 280)
+
+            HStack(spacing: DS.Space.snug) {
+                Spacer()
+                TransportKey(title: "Annuler") { dismiss() }
+                TransportKey(title: "Retirer", isEngaged: !chosen.isEmpty, engagedColor: DS.Color.ink) {
+                    guard !chosen.isEmpty else { return }
+                    onRemove(chosen)
+                    dismiss()
+                }
+                .disabled(chosen.isEmpty)
+            }
+        }
+        .padding(DS.Space.panel)
+        .frame(width: 360)
+        .background(BrushedPanel(radius: DS.Radius.window))
     }
 }
 

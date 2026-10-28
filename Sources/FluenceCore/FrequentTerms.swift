@@ -59,4 +59,12 @@ public struct FrequentTerms {
     static func isOrdinary(_ word: String) -> Bool {
         word.split(separator: "-").contains { EditLearner.isCommon(String($0)) }
     }
+
+    /// A dictionary term that was most likely learned by mistake (FLU-88): it ends a sentence
+    /// (« demain. »), or it is an everyday word or pronoun (« Merci », « Je », « peut-être »).
+    /// Only ever shown to the user, who decides.
+    public static func isSuspect(_ term: String) -> Bool {
+        guard let last = term.last else { return false }
+        return ".,;:!?…".contains(last) || isOrdinary(term)
+    }
 }

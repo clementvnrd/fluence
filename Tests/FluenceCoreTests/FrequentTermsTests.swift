@@ -40,4 +40,13 @@ struct FrequentTermsTests {
         #expect(terms.record("Avec Mistral.", at: tuesday, calendar: utc).isEmpty)
         #expect(terms.record("Avec Mistral.", at: tuesday, calendar: utc) == ["Mistral"])
     }
+
+    @Test func suspectEntries() {
+        for junk in ["prêt.", "demain.", "Vas-y.", "aujourd'hui.", "plus.", "Je", "On", "Merci", "peut-être", "Est-ce"] {
+            #expect(FrequentTerms.isSuspect(junk), "\(junk) looks learned by mistake")
+        }
+        for real in ["Claude", "SwiftUI", "Next.js", "CI/CD", "Jean-Luc", "API", "C#", "Wi-Fi"] {
+            #expect(!FrequentTerms.isSuspect(real), "\(real) is a real term")
+        }
+    }
 }
