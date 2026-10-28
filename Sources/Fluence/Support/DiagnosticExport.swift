@@ -106,6 +106,7 @@ enum DiagnosticExport {
             ("commandModeKey", settings.commandModeKey.rawValue),
             ("learnFrequentTerms", flag(settings.learnFrequentTerms)),
             ("sound", flag(settings.soundEnabled)),
+            ("pauseMedia", flag(settings.pauseMediaWhileDictating)),
             ("historyRetention", settings.historyRetention.rawValue),
             ("maxRecordingMinutes", String(settings.maxRecordingMinutes)),
             ("lastTranscriptShortcuts", flag(settings.lastTranscriptShortcuts)),

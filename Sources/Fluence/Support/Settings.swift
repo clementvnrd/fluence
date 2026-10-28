@@ -222,6 +222,11 @@ final class Settings {
         didSet { defaults.set(soundEnabled, forKey: Keys.soundEnabled) }
     }
 
+    /// FLU-119: pause the music while a dictation records (`MediaPause`). On by default.
+    var pauseMediaWhileDictating: Bool {
+        didSet { defaults.set(pauseMediaWhileDictating, forKey: Keys.pauseMediaWhileDictating) }
+    }
+
     /// How long finished dictations stay on disk. Applied at launch, after every run and
     /// whenever it changes.
     var historyRetention: HistoryRetention {
@@ -255,6 +260,7 @@ final class Settings {
         /// Legacy (before FLU-5): read once by the cleanup-level migration, never written.
         static let cleanupEnabled = "cleanupEnabled"
         static let soundEnabled = "soundEnabled"
+        static let pauseMediaWhileDictating = "pauseMediaWhileDictating"
         static let engine = "engine"
         static let whisperModel = "whisperModel"
         /// Legacy (before FLU-5), as above.
@@ -342,6 +348,7 @@ final class Settings {
 
         compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
+        pauseMediaWhileDictating = defaults.object(forKey: Keys.pauseMediaWhileDictating) as? Bool ?? true
         historyRetention = HistoryRetention(rawValue: defaults.string(forKey: Keys.historyRetention) ?? "")
             ?? .default
         // Bounded (R13): `limit * 60` trapped on a huge stored value, at every launch.
