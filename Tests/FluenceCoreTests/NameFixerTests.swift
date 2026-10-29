@@ -94,6 +94,24 @@ struct NameFixerTests {
         #expect(merge("sur le guit hub du projet", "sur GitHub") == "sur le guit hub du projet")
     }
 
+    /// A swap that drops words, or that picks a term another one sounds more like, is no name
+    /// fix (FLU-124: three words became « cron »; « fixe », said *fix*, became « hotfix »).
+    @Test func aSwapThatDropsWordsOrPicksAFartherTermIsDropped() {
+        let terms = ["cron", "build", "staging", "fix", "hotfix", "call"]
+        func merge(_ original: String, _ proposal: String) -> String {
+            NameFixer.merge(original: original, proposal: proposal, terms: terms)
+        }
+        #expect(merge("Le crone en pro a planté.", "Le cron a planté.") == "Le crone en pro a planté.")
+        #expect(merge("Il faut relancer le bilde ce soir.", "Il faut relancer le build.")
+                == "Il faut relancer le bilde ce soir.")
+        #expect(merge("On teste en stage hier soir.", "On teste en staging.") == "On teste en stage hier soir.")
+        #expect(merge("J'ai poussé le fixe.", "J'ai poussé le hotfix.") == "J'ai poussé le fixe.")
+        // The fixes next to them still happen.
+        #expect(merge("Le crone a planté.", "Le cron a planté.") == "Le cron a planté.")
+        #expect(merge("Le cal est à 15 h.", "Le call est à 15 h.") == "Le call est à 15 h.")
+        #expect(merge("J'ai poussé le fixe.", "J'ai poussé le fix.") == "J'ai poussé le fix.")
+    }
+
     @Test func nothingChangesWithoutTerms() {
         #expect(NameFixer.merge(original: "sur GHub", proposal: "sur GitHub", terms: []) == "sur GHub")
     }

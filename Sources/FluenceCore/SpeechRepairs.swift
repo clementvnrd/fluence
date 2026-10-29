@@ -12,7 +12,7 @@ public enum SpeechRepairs {
     public static func before(_ text: String, language: DictationLanguage) -> String {
         guard applies(to: language) else { return text }
         var result = text
-        result = backtrack(result)
+        result = backtrack(result, language: language)
         result = deduplicateConsecutiveWords(in: result)
         result = removeStutterPrefixes(in: result)
         result = grammaticalCorrections(result)
@@ -51,22 +51,23 @@ public enum SpeechRepairs {
 
     // MARK: - Cancellations and self-corrections
 
-    /// "… scratch that, …" keeps only what follows; "Tuesday, actually Wednesday" keeps the
-    /// revised word.
+    /// "… scratch that, …" keeps only what follows, in English; "Tuesday, actually Wednesday"
+    /// keeps the revised word.
     ///
-    /// The French cancels are ordinary French mid-sentence (« supprime ça et on recommence
-    /// demain », « annule tout le reste »), and deleting what came before them lost the
-    /// dictation (FLU-87). They are a command only as the whole dictation or at its very end
-    /// after a pause mark, where nothing follows them: the dictation is dropped.
-    static func backtrack(_ text: String) -> String {
+    /// The French cancels are ordinary French (« supprime ça et on recommence demain », « Si le
+    /// déploiement plante, annule tout. »), and deleting the dictation around them lost it
+    /// (FLU-87, FLU-124). They are a command only as the whole dictation, a filler and marks
+    /// aside: the dictation is dropped.
+    static func backtrack(_ text: String, language: DictationLanguage) -> String {
         if text.range(
-            of: #"(?i)(?:^|[,.;:!?…])\s*(?:efface tout|efface ça|annule tout|annule ça|supprime ça)[\s.!…]*$"#,
+            of: #"(?i)^[\s,.;:!?…]*(?:(?:euh|heu|hum)[\s,.]+)?(?:efface tout|efface ça|annule tout|annule ça|supprime ça|scratch that|delete that)[\s.!…]*$"#,
             options: .regularExpression
         ) != nil {
             return ""
         }
         var result = text
-        if let scratch = result.range(
+        // « Il faut delete that file » is franglais, not a command (FLU-124).
+        if language == .english, let scratch = result.range(
             of: #"(?i)\b(?:scratch that|delete that)\b"#,
             options: [.regularExpression, .backwards]
         ) {
@@ -100,9 +101,28 @@ public enum SpeechRepairs {
             guard let kind = RevisionKind(String(result[old]), startsSentence: startsSentence),
                   kind == RevisionKind(String(result[new]), startsSentence: false)
             else { continue }
+            // A question asks, it does not correct: « Slack ou plutôt Teams pour le client ? »
+            if result[whole.upperBound...].first(where: { ".!?\n".contains($0) }) == "?" { continue }
+            // A sentence goes on from a number or a name (« trois, en fait deux sont cassés »,
+            // « Paul, en fait Marie l'a vu »); a correction ends there, or with a unit (FLU-124).
+            if kind == .number || kind == .name, !endsCorrection(result[whole.upperBound...]) { continue }
             result.replaceSubrange(whole, with: String(result[new]))
         }
         return result
+    }
+
+    /// Units a corrected amount may carry: « 300 non attends 400 euros ».
+    static let units: Set<String> = [
+        "€", "euro", "euros", "$", "dollar", "dollars", "%", "h", "heure", "heures", "min", "minute",
+        "minutes", "jour", "jours", "semaine", "semaines", "mois", "an", "ans", "km", "mètres",
+        "kilos", "hours", "days", "weeks",
+    ]
+
+    /// Whether a corrected word ends the correction: the end, a mark, or a unit after it.
+    private static func endsCorrection(_ rest: Substring) -> Bool {
+        let rest = rest.drop(while: { $0 == " " })
+        guard let first = rest.first, !",.;:!?…\n".contains(first) else { return true }
+        return units.contains(rest.prefix { !$0.isWhitespace && !",.;:!?…".contains($0) }.lowercased())
     }
 
     /// What a word is, as far as a spoken self-correction cares.
@@ -153,8 +173,8 @@ public enum SpeechRepairs {
         // « si si », « oh là là », « allez allez » (FLU-90).
         "si", "là", "vite", "allez", "bon", "bien", "encore", "vraiment",
         "very", "too", "so", "really", "no", "yes",
-        // French reflexives: "nous nous sommes vus", "vous vous trompez".
-        "nous", "vous",
+        // French reflexives: "nous nous sommes vus", "vous vous trompez"; « en en parlant ».
+        "nous", "vous", "en",
     ]
 
     /// "c'est c'est" → "c'est", "il y a il y a" → "il y a", "the the" → "the".
@@ -225,6 +245,8 @@ public enum SpeechRepairs {
         "mail", "data", "app", "code", "file", "test", "web", "site", "page", "link", "text",
         "team", "chat", "note", "list", "user", "base", "bug", "log", "dev", "api", "tag", "push",
         "pull",
+        // FLU-124: « la branche main maintenant », « la doc Docker », « ce cas casse ».
+        "main", "doc", "type", "cas", "java", "git", "mac", "node", "plan", "port", "date", "lot",
     ]
 
     /// "pro problème" → "problème", "dél délétère" → "délétère", and a word cut off with a
@@ -289,11 +311,8 @@ public enum SpeechRepairs {
         // « En premier lieu », « en deuxième position »: a set phrase, not a list item (FLU-30).
         let notSetPhrase = #"(?!\s+(?:lieu|temps|plan|ressort|rang|position|choix|niveau|ligne)\b)"#
         let ordinals: [(String, String)] = [
-            ("premièrement|en premier\(notSetPhrase)", "1"),
-            ("deuxièmement|en deuxième\(notSetPhrase)", "2"),
-            ("troisièmement|en troisième\(notSetPhrase)", "3"),
-            ("quatrièmement|en quatrième\(notSetPhrase)", "4"),
-            ("cinquièmement|en cinquième\(notSetPhrase)", "5"),
+            ("premièrement", "1"), ("deuxièmement", "2"), ("troisièmement", "3"),
+            ("quatrièmement", "4"), ("cinquièmement", "5"),
             ("firstly|first of all", "1"),
             ("secondly|second of all", "2"),
             ("thirdly", "3"),
@@ -302,6 +321,15 @@ public enum SpeechRepairs {
             result = result.replacingOccurrences(
                 of: "(?i)(^|[,.;:!?\\n]\\s*)(?:donc\\s+)?(?:\(spoken))\\s*,?\\s*",
                 with: "\n\(number). ",
+                options: .regularExpression
+            )
+        }
+        // « en premier » opens an item only where a sentence starts: after a comma it is
+        // ordinary French (« Ce qu'il faut corriger, en premier, c'est le login. », FLU-124).
+        for (index, ordinal) in ["premier", "deuxième", "troisième", "quatrième", "cinquième"].enumerated() {
+            result = result.replacingOccurrences(
+                of: "(?i)(^|[.;:!?\\n]\\s*)(?:donc\\s+)?en \(ordinal)\(notSetPhrase)\\s*,?\\s*",
+                with: "\n\(index + 1). ",
                 options: .regularExpression
             )
         }

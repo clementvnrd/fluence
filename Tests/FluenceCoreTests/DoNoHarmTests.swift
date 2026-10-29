@@ -88,6 +88,40 @@ struct DoNoHarmTests {
         // A real short word before a longer one is not a stutter (FLU-90).
         "Je relis le mail mailing avant l'envoi.",
         "Le dossier data dataset est vide.",
+        // …nor at its end after a pause: an instruction, not a cancel (FLU-124).
+        "Si le déploiement plante, annule tout.",
+        "Ce paragraphe ne sert à rien, supprime ça.",
+        "Le vieux script, efface tout et repars de zéro.",
+        "Pour le compte de test, efface ça.",
+        "Pour la réunion, annule ça.",
+        "Le budget est validé, annule ça.",
+        "Envoie-le à Paul. Efface tout.",
+        // Line-break words used as nouns, or with nothing after them (FLU-124).
+        "Il faut ajouter une nouvelle ligne dans le tableau des coûts.",
+        "Je vais écrire un nouveau paragraphe sur la sécurité.",
+        "Mets chaque item à la ligne.",
+        "Chaque nouvelle ligne compte.",
+        "Ajoute une nouvelle ligne.",
+        // A number or a name that the sentence goes on from, and a question, are not
+        // self-corrections (FLU-124).
+        "J'ai vu Paul, en fait Marie l'a vu aussi.",
+        "Il y en a trois, en fait deux sont cassés.",
+        "On passe par Slack ou plutôt Teams pour le client ?",
+        "C'était simple, en fait c'est un bug du cache.",
+        // « deux points » closing a clause is a count (FLU-124).
+        "Pendant la réunion on a soulevé deux points.",
+        "La distance entre deux points, c'est une droite.",
+        // « en premier » after a comma is not a list item (FLU-124).
+        "Ce qu'il faut corriger, en premier, c'est le login.",
+        // Short tech words before a longer one, and « en en » (FLU-124).
+        "La branche main maintenant est à jour.",
+        "La doc Docker est obsolète.",
+        "Le type TypeScript de la fonction est faux.",
+        "Ce cas casse tout le parsing.",
+        "Je l'ai fait à la main maintenant ça passe.",
+        "Il s'en est sorti en en parlant à son chef.",
+        // « delete that » in French is franglais, not a command (FLU-124).
+        "Il faut delete that file avant le merge.",
     ]
 
     /// French typed into a terminal or an editor: Clement's prompts to Claude Code (FLU-30, F6).
@@ -136,15 +170,19 @@ struct DoNoHarmTests {
         // A real word cut off with a hyphen is still a stutter (FLU-90).
         ("le mail- mailing", .french, "Le mailing."),
         ("c'est c'est bien", .french, "C'est bien."),
-        // A French cancel is a command only as the whole dictation or after a pause at its
-        // end (FLU-87): the dictation is dropped.
+        // A French cancel is a command only as the whole dictation (FLU-87, FLU-124): the
+        // dictation is dropped.
         ("annule ça", .french, ""),
-        ("le budget est validé, annule ça.", .french, ""),
-        ("Envoie-le à Paul. Efface tout.", .french, ""),
+        ("Annule tout.", .french, ""),
+        ("euh, efface ça", .french, ""),
+        ("Supprime ça !", .french, ""),
         ("send it to Paul scratch that send it to Marie", .english, "Send it to Marie."),
         ("meet on Tuesday, actually Wednesday", .english, "Meet on Wednesday."),
         ("let's meet at three no wait four", .english, "Let's meet at four."),
         ("send it in May, actually June", .english, "Send it in June."),
+        ("le call est à 15h, en fait 16h", .french, "Le call est à 16 h."),
+        ("ça coûte 20 je voulais dire 30 euros par mois", .french, "Ça coûte 30 € par mois."),
+        ("scratch that", .french, ""),
     ])
     func intendedRepairsStillHappen(_ said: String, _ language: DictationLanguage, _ typed: String) {
         #expect(Self.words(Self.light(said, language)) == typed)
@@ -194,6 +232,13 @@ struct DoNoHarmTests {
         ("excellent point", "Excellent point."),
         ("j'ai deux points à voir", "J'ai deux points à voir."),
         ("un point d'interrogation sur le budget", "Un point d'interrogation sur le budget."),
+        // Line breaks still happen between two sentences (FLU-124).
+        ("salut à la ligne je te renvoie le fichier corrigé", "Salut\nJe te renvoie le fichier corrigé."),
+        ("je t'envoie le lien point nouvelle ligne merci", "Je t'envoie le lien.\nMerci."),
+        ("merci à la ligne à demain", "Merci\nÀ demain."),
+        ("intro nouveau paragraphe la suite", "Intro\n\nLa suite."),
+        ("voici les étapes suivantes deux points", "Voici les étapes suivantes :"),
+        ("procède comme suit deux points", "Procède comme suit :"),
     ])
     func punctuationCommandsStillWork(_ said: String, _ typed: String) {
         #expect(Self.words(Self.light(said, .french)) == typed)
