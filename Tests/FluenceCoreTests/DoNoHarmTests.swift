@@ -102,6 +102,12 @@ struct DoNoHarmTests {
         "Mets chaque item à la ligne.",
         "Chaque nouvelle ligne compte.",
         "Ajoute une nouvelle ligne.",
+        // A number or a name that the sentence goes on from, and a question, are not
+        // self-corrections (FLU-124).
+        "J'ai vu Paul, en fait Marie l'a vu aussi.",
+        "Il y en a trois, en fait deux sont cassés.",
+        "On passe par Slack ou plutôt Teams pour le client ?",
+        "C'était simple, en fait c'est un bug du cache.",
     ]
 
     /// French typed into a terminal or an editor: Clement's prompts to Claude Code (FLU-30, F6).
@@ -160,6 +166,8 @@ struct DoNoHarmTests {
         ("meet on Tuesday, actually Wednesday", .english, "Meet on Wednesday."),
         ("let's meet at three no wait four", .english, "Let's meet at four."),
         ("send it in May, actually June", .english, "Send it in June."),
+        ("le call est à 15h, en fait 16h", .french, "Le call est à 16 h."),
+        ("ça coûte 20 je voulais dire 30 euros par mois", .french, "Ça coûte 30 € par mois."),
     ])
     func intendedRepairsStillHappen(_ said: String, _ language: DictationLanguage, _ typed: String) {
         #expect(Self.words(Self.light(said, language)) == typed)

@@ -100,9 +100,28 @@ public enum SpeechRepairs {
             guard let kind = RevisionKind(String(result[old]), startsSentence: startsSentence),
                   kind == RevisionKind(String(result[new]), startsSentence: false)
             else { continue }
+            // A question asks, it does not correct: « Slack ou plutôt Teams pour le client ? »
+            if result[whole.upperBound...].first(where: { ".!?\n".contains($0) }) == "?" { continue }
+            // A sentence goes on from a number or a name (« trois, en fait deux sont cassés »,
+            // « Paul, en fait Marie l'a vu »); a correction ends there, or with a unit (FLU-124).
+            if kind == .number || kind == .name, !endsCorrection(result[whole.upperBound...]) { continue }
             result.replaceSubrange(whole, with: String(result[new]))
         }
         return result
+    }
+
+    /// Units a corrected amount may carry: « 300 non attends 400 euros ».
+    static let units: Set<String> = [
+        "€", "euro", "euros", "$", "dollar", "dollars", "%", "h", "heure", "heures", "min", "minute",
+        "minutes", "jour", "jours", "semaine", "semaines", "mois", "an", "ans", "km", "mètres",
+        "kilos", "hours", "days", "weeks",
+    ]
+
+    /// Whether a corrected word ends the correction: the end, a mark, or a unit after it.
+    private static func endsCorrection(_ rest: Substring) -> Bool {
+        let rest = rest.drop(while: { $0 == " " })
+        guard let first = rest.first, !",.;:!?…\n".contains(first) else { return true }
+        return units.contains(rest.prefix { !$0.isWhitespace && !",.;:!?…".contains($0) }.lowercased())
     }
 
     /// What a word is, as far as a spoken self-correction cares.
