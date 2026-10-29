@@ -308,11 +308,8 @@ public enum SpeechRepairs {
         // « En premier lieu », « en deuxième position »: a set phrase, not a list item (FLU-30).
         let notSetPhrase = #"(?!\s+(?:lieu|temps|plan|ressort|rang|position|choix|niveau|ligne)\b)"#
         let ordinals: [(String, String)] = [
-            ("premièrement|en premier\(notSetPhrase)", "1"),
-            ("deuxièmement|en deuxième\(notSetPhrase)", "2"),
-            ("troisièmement|en troisième\(notSetPhrase)", "3"),
-            ("quatrièmement|en quatrième\(notSetPhrase)", "4"),
-            ("cinquièmement|en cinquième\(notSetPhrase)", "5"),
+            ("premièrement", "1"), ("deuxièmement", "2"), ("troisièmement", "3"),
+            ("quatrièmement", "4"), ("cinquièmement", "5"),
             ("firstly|first of all", "1"),
             ("secondly|second of all", "2"),
             ("thirdly", "3"),
@@ -321,6 +318,15 @@ public enum SpeechRepairs {
             result = result.replacingOccurrences(
                 of: "(?i)(^|[,.;:!?\\n]\\s*)(?:donc\\s+)?(?:\(spoken))\\s*,?\\s*",
                 with: "\n\(number). ",
+                options: .regularExpression
+            )
+        }
+        // « en premier » opens an item only where a sentence starts: after a comma it is
+        // ordinary French (« Ce qu'il faut corriger, en premier, c'est le login. », FLU-124).
+        for (index, ordinal) in ["premier", "deuxième", "troisième", "quatrième", "cinquième"].enumerated() {
+            result = result.replacingOccurrences(
+                of: "(?i)(^|[.;:!?\\n]\\s*)(?:donc\\s+)?en \(ordinal)\(notSetPhrase)\\s*,?\\s*",
+                with: "\n\(index + 1). ",
                 options: .regularExpression
             )
         }

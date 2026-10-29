@@ -111,6 +111,8 @@ struct DoNoHarmTests {
         // « deux points » closing a clause is a count (FLU-124).
         "Pendant la réunion on a soulevé deux points.",
         "La distance entre deux points, c'est une droite.",
+        // « en premier » after a comma is not a list item (FLU-124).
+        "Ce qu'il faut corriger, en premier, c'est le login.",
     ]
 
     /// French typed into a terminal or an editor: Clement's prompts to Claude Code (FLU-30, F6).
