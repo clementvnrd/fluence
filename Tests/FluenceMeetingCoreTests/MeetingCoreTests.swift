@@ -167,6 +167,10 @@ struct MeetingAppsTests {
         #expect(MeetingApps.identify("com.google.Chrome.helper")?.isBrowser == true)
         #expect(MeetingApps.identify("com.apple.WebKit.GPU")?.name == "Safari")
         #expect(MeetingApps.identify("company.thebrowser.browser.helper")?.name == "Arc")
+        // FLU-123: Google Meet in Helium went unnoticed.
+        #expect(MeetingApps.identify("net.imput.helium.helper")?.mainBundleID == "net.imput.helium")
+        #expect(MeetingApps.identify("net.imput.helium.helper")?.isBrowser == true)
+        #expect(MeetingApps.identify("ai.perplexity.comet.helper")?.name == "Comet")
         #expect(MeetingApps.identify("com.apple.Music") == nil)
         #expect(MeetingApps.identify("com.google.Chromecast") == nil)
     }
