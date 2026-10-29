@@ -107,6 +107,27 @@ public enum TechLexicon {
         .correction(hear: "assap", write: "ASAP"),
         .correction(hear: "a s a p", write: "ASAP"),
 
+        // MARK: - Franglais (FLU-122)
+        // English work words said the French way, as Parakeet writes them. Only spellings that
+        // are no French word: « crawl », « fixe », « col », « remise » stay as heard.
+        .correction(hear: "crône", write: "cron"),
+        .correction(hear: "crone", write: "cron"),
+        .correction(hear: "cline", write: "clean"),
+        .correction(hear: "cliné", write: "cleané"),
+        .correction(hear: "cliner", write: "cleaner"),
+        .correction(hear: "cléané", write: "cleané"),
+        .correction(hear: "cléaner", write: "cleaner"),
+        .correction(hear: "liné", write: "leané"),
+        .correction(hear: "léané", write: "leané"),
+        .correction(hear: "féature", write: "feature"),
+        .correction(hear: "féatures", write: "features"),
+        .correction(hear: "réfacto", write: "refacto"),
+        .correction(hear: "réfecto", write: "refacto"),
+        .correction(hear: "backlow", write: "backlog"),
+        .correction(hear: "roadma", write: "roadmap"),
+        .correction(hear: "pûché", write: "pushé"),
+        .correction(hear: "chippé", write: "shippé"),
+
         // MARK: - Tech Tools & AI
         .term("Claude Code"),
         .term("Anthropic"),

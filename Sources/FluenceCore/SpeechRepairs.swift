@@ -272,6 +272,8 @@ public enum SpeechRepairs {
             with: "$1 à jour",
             options: .regularExpression
         )
+        // « soit » heard as « seit » before an English word (FLU-122); « seit » is no French word.
+        .replacingOccurrences(of: #"(?<![\p{L}0-9_])([sS])eit(?![\p{L}0-9_])"#, with: "$1oit", options: .regularExpression)
     }
 
     // MARK: - Lists

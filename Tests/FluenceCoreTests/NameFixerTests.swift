@@ -108,6 +108,24 @@ struct NameFixerTests {
         #expect(!NameFixer.shouldRun("Il a perdu sa place et il a baissé le son.", terms: Self.terms))
     }
 
+    /// A French verb ending on an English word is what was said, not a mishearing (FLU-122): on
+    /// the franglais bench the model turned « merger » into « merge », « updater » into « updaté ».
+    @Test func anotherFormOfTheSameWordIsNotASwap() {
+        let terms = ["merge", "build", "updaté", "cron"]
+        func merge(_ original: String, _ proposal: String) -> String {
+            NameFixer.merge(original: original, proposal: proposal, terms: terms)
+        }
+        #expect(merge("Il faut merger la branche.", "Il faut merge la branche.") == "Il faut merger la branche.")
+        #expect(merge("avant de builder l'app", "avant de build l'app") == "avant de builder l'app")
+        #expect(merge("il faudrait updater la doc", "il faudrait updaté la doc") == "il faudrait updater la doc")
+        #expect(merge("j'ai mergé ça", "j'ai merge ça") == "j'ai mergé ça")
+        // A misheard spelling of the word itself is still fixed.
+        #expect(merge("Le crône tourne.", "Le cron tourne.") == "Le cron tourne.")
+        #expect(merge("le mèrge passe", "le merge passe") == "le merge passe")
+        #expect(!NameFixer.shouldRun("mergé, builder, updater", terms: terms))
+        #expect(NameFixer.shouldRun("le crône", terms: terms))
+    }
+
     // MARK: - Trigger: only when a term may have been misheard
 
     @Test func triggerFiresOnNearMisses() {
