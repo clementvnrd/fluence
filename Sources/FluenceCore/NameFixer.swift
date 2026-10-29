@@ -53,8 +53,9 @@ public enum NameFixer {
     // MARK: - Acceptance
 
     /// The original, with only those edits of `proposal` that replace at most three words by
-    /// exactly a term (once folded) that looks like them. The term goes in as the dictionary
-    /// writes it, inside the original's own punctuation; every other change is dropped.
+    /// exactly a term (once folded) that looks like them, more than any other term does, and is
+    /// not much shorter. The term goes in as the dictionary writes it, inside the original's own
+    /// punctuation; every other change is dropped.
     public static func merge(original: String, proposal: String, terms: [String]) -> String {
         let byKey = termsByKey(terms)
         let old = original.split(whereSeparator: \.isWhitespace)
@@ -63,9 +64,14 @@ public enum NameFixer {
         for op in opcodes(old.map(String.init), new.map(String.init)) where op.replace {
             guard op.old.count <= longestSpan else { continue }
             let spoken = old[op.old].joined(separator: " ")
-            let newKey = key(new[op.new].joined(separator: " "))
-            guard let term = byKey[newKey], similarity(key(spoken), newKey) >= acceptedSimilarity,
-                  !isInflection(spoken, of: term) else { continue }
+            let spokenKey = key(spoken), newKey = key(new[op.new].joined(separator: " "))
+            let likeness = similarity(spokenKey, newKey)
+            guard let term = byKey[newKey], likeness >= acceptedSimilarity, !isInflection(spoken, of: term),
+                  // Three words for a short term drop two of them: « crone en pro » → « cron » (FLU-124).
+                  Double(spokenKey.count) <= 1.5 * Double(newKey.count) + 2,
+                  // « fixe » is « fix », not « hotfix ».
+                  !byKey.keys.contains(where: { similarity(spokenKey, $0) > likeness })
+            else { continue }
             let range = old[op.old.lowerBound].startIndex..<old[op.old.upperBound - 1].endIndex
             let lead = spoken.prefix { !$0.isLetter && !$0.isNumber }
             let trail = spoken.reversed().prefix { !$0.isLetter && !$0.isNumber }.reversed()
