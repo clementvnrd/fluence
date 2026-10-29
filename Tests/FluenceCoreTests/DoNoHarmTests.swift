@@ -286,4 +286,18 @@ struct DoNoHarmTests {
     func genreOutsideMettreStays(_ said: String, _ typed: String) {
         #expect(LightCleanup.apply(said, language: .french) == typed)
     }
+
+    // MARK: - FLU-122
+
+    /// Parakeet writes « soit » as « seit » before an English word (Clement, 2026-10-29).
+    /// « seit » is no French word; « soit » and words holding « seit » stay.
+    @Test(arguments: [
+        ("seit on clean la base, seit on repart", "Soit on clean la base, soit on repart."),
+        ("Seit le build passe", "Soit le build passe."),
+        ("soit on le fait, soit non", "Soit on le fait, soit non."),
+        ("le mot seitan reste", "Le mot seitan reste."),
+    ])
+    func seitBecomesSoit(_ said: String, _ typed: String) {
+        #expect(LightCleanup.apply(said, language: .french) == typed)
+    }
 }
