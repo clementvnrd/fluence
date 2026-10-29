@@ -1,0 +1,40 @@
+f01	Le cron tourne toutes les nuits à deux heures.	Le crone tourne toutes les nuits à deux heures.	cron
+f02	Il faut clean le code avant la release de vendredi.	Il faut cline le code avant la rilize de vendredi.	clean,release
+f03	J'ai cleané la branche et pushé le fix ce matin.	J'ai cliné la branche et pouché le fixe ce matin.	cleané,pushé,fix
+f04	On a leané le process d'onboarding pour les nouveaux.	On a liné le process d'onne-bording pour les nouveaux.	leané,onboarding
+f05	Le build a planté pendant le run de cette nuit.	Le bilde a planté pendant le reune de cette nuit.	build,run
+f06	Tu peux checker le backlog avant le meeting ?	Tu peux tchéquer le baque-logue avant le mitine ?	checker,backlog,meeting
+f07	La deadline du sprint tombe vendredi soir.	La dèdlaïne du sprinnte tombe vendredi soir.	deadline,sprint
+f08	Il faudrait merger la branche après la review.	Il faudrait meurdjer la branche après la rivioue.	merger,review
+f09	On deploy la nouvelle version en staging demain.	On diploïe la nouvelle version en stéidjine demain.	deploy,staging
+f10	Le prompt consomme beaucoup trop de tokens.	Le prompte consomme beaucoup trop de tokènes.	prompt,tokens
+f11	Je te fais un call rapide juste après le déjeuner.	Je te fais un côle rapide juste après le déjeuner.	call
+f12	Merci pour ton feedback sur la roadmap du trimestre.	Merci pour ton fidbaque sur la rodmape du trimestre.	feedback,roadmap
+f13	Le scope de la feature a encore changé ce matin.	Le scope de la fitcheur a encore changé ce matin.	scope,feature
+f14	J'ai updaté la doc et relancé le build.	J'ai eupdéité la doc et relancé le bilde.	updaté,build
+f15	On doit faire un gros refacto du module de paiement.	On doit faire un gros réfacto du module de paiement.	refacto
+f16	Il y a un bug bloquant sur la page de connexion.	Il y a un beug bloquant sur la page de connexion.	bug
+f17	Soit on clean la base, soit on repart de zéro.	Soit on cline la base, soit on repart de zéro.	clean
+f18	Le cron de sauvegarde n'a pas tourné depuis lundi.	Le crone de sauvegarde n'a pas tourné depuis lundi.	cron
+f19	J'ai checké les logs et le fix marche bien.	J'ai tchéqué les logs et le fixe marche bien.	checké,fix
+f20	Est-ce que tu as pushé ton commit sur la branche principale ?	Est-ce que tu as pouché ton commite sur la branche principale ?	pushé,commit
+f21	Il faut lean le process avant de recruter.	Il faut line le process avant de recruter.	lean
+f22	Peux-tu runner les tests avant de merger ?	Peux-tu reuner les tests avant de meurdjer ?	runner,merger
+f23	On a shippé la feature hier et le feedback est bon.	On a chipé la fitcheur hier et le fidbaque est bon.	shippé,feature,feedback
+f24	Le meeting de kick-off est décalé à jeudi.	Le mitine de kikof est décalé à jeudi.	meeting,kick-off
+f25	La release est prête, il reste juste un hotfix.	La rilize est prête, il reste juste un otfix.	release,hotfix
+f26	J'ai mergé la pull request de Julie ce matin.	J'ai meurdjé la poule riquouest de Julie ce matin.	mergé,pull request
+f27	On fait un point sur le backlog et les priorités du sprint.	On fait un point sur le baque-logue et les priorités du sprinnte.	backlog,sprint
+f28	Le token d'accès expire au bout d'une heure.	Le tokène d'accès expire au bout d'une heure.	token
+f29	Je vais cleaner le dossier avant de builder l'application.	Je vais cliner le dossier avant de bilder l'application.	cleaner,builder
+f30	Le rollback a pris dix minutes, c'était propre.	Le rolbaque a pris dix minutes, c'était propre.	rollback
+f31	Il faudrait updater la roadmap avant la deadline.	Il faudrait eupdéiter la rodmape avant la dèdlaïne.	updater,roadmap,deadline
+f32	On a fixé le bug du cron en prod.	On a fixé le beug du crone en prod.	fixé,bug,cron
+f33	Le dashboard affiche le nombre de runs par jour.	Le dache-borde affiche le nombre de reunes par jour.	dashboard,runs
+f34	J'ai écrit un prompt plus court pour le modèle.	J'ai écrit un prompte plus court pour le modèle.	prompt
+f35	Tu peux me faire un draft du mail avant le call ?	Tu peux me faire un drafte du mail avant le côle ?	draft,call
+f36	L'onboarding des clients prend trop de temps.	L'onne-bording des clients prend trop de temps.	onboarding
+f37	On a scopé le projet sur trois sprints.	On a scopé le projet sur trois sprinntes.	scopé,sprints
+f38	Le workflow de review est beaucoup trop lent.	Le weurkflo de rivioue est beaucoup trop lent.	workflow,review
+f39	On a leané les étapes et cleané le pipeline de déploiement.	On a liné les étapes et cliné le paillepe-laïne de déploiement.	leané,cleané,pipeline
+f40	Mets le script en cron et checke les logs demain.	Mets le script en crone et tchèque les logs demain.	cron,checke

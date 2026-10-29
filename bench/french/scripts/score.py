@@ -40,8 +40,12 @@ for line in open(f"{B}/tech.ref", encoding="utf-8"):
     i, t = line.rstrip("\n").split("\t")
     refs["tech/" + i] = t
     refs["tech-webcam/" + i] = t
+for line in open(f"{B}/franglais.ref", encoding="utf-8"):
+    i, t = line.rstrip("\n").split("\t")[:2]
+    for n in range(1, 5):
+        refs[f"franglais/{i}-{n}"] = refs[f"franglais-webcam/{i}-{n}"] = t
 
-sets = ["fleurs", "fleurs-webcam", "tech", "tech-webcam"]
+sets = ["fleurs", "fleurs-webcam", "tech", "tech-webcam", "franglais", "franglais-webcam"]
 rows = []
 for path in sorted(glob.glob(os.path.join(sys.argv[1], "*.tsv"))):
     name = os.path.basename(path)[:-4]
