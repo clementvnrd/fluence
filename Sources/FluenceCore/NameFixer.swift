@@ -35,14 +35,15 @@ public enum NameFixer {
                 else { continue }
                 let spanKey = key(span.joined(separator: " "))
                 guard let initial = spanKey.first else { continue }
+                let spoken = span.joined(separator: " ")
                 if let term = byKey[spanKey] {
-                    if bare(span.joined(separator: " ")) != term.lowercased() { return true }
+                    if bare(spoken) != term.lowercased(), !isInflection(spoken, of: term) { return true }
                     continue
                 }
                 // « Mac 2 » holds a term written right: it is not a misheard « macOS ».
                 if length > 1, containsTerm(span, byKey) { continue }
-                for termKey in byKey.keys where sound(termKey.first) == sound(initial) {
-                    if similarity(spanKey, termKey) >= triggerSimilarity { return true }
+                for (termKey, term) in byKey where sound(termKey.first) == sound(initial) {
+                    if similarity(spanKey, termKey) >= triggerSimilarity, !isInflection(spoken, of: term) { return true }
                 }
             }
         }
@@ -63,7 +64,8 @@ public enum NameFixer {
             guard op.old.count <= longestSpan else { continue }
             let spoken = old[op.old].joined(separator: " ")
             let newKey = key(new[op.new].joined(separator: " "))
-            guard let term = byKey[newKey], similarity(key(spoken), newKey) >= acceptedSimilarity else { continue }
+            guard let term = byKey[newKey], similarity(key(spoken), newKey) >= acceptedSimilarity,
+                  !isInflection(spoken, of: term) else { continue }
             let range = old[op.old.lowerBound].startIndex..<old[op.old.upperBound - 1].endIndex
             let lead = spoken.prefix { !$0.isLetter && !$0.isNumber }
             let trail = spoken.reversed().prefix { !$0.isLetter && !$0.isNumber }.reversed()
@@ -77,6 +79,20 @@ public enum NameFixer {
             cursor = swap.range.upperBound
         }
         return out + original[cursor...]
+    }
+
+    /// French verb endings put on an English word: « mergé », « builder », « updatez ».
+    private static let verbEndings = ["ées", "és", "ée", "é", "er", "ez"]
+
+    /// Whether `spoken` is the term with a French verb ending, or another form of the same verb
+    /// (« merger » / « merge », « updater » / « updaté »): what was said, not a mishearing, so
+    /// neither worth the model nor a swap (FLU-122). « crône » for « cron » is still a mishearing.
+    static func isInflection(_ spoken: String, of term: String) -> Bool {
+        func root(_ word: String, ending: String?) -> String { key(String(word.dropLast(ending?.count ?? 0))) }
+        let word = bare(spoken), termWord = term.lowercased()
+        guard let ending = verbEndings.first(where: { word.hasSuffix($0) }) else { return false }
+        let termEnding = verbEndings.first(where: { termWord.hasSuffix($0) }) ?? (termWord.hasSuffix("e") ? "e" : nil)
+        return root(word, ending: ending) == root(termWord, ending: termEnding)
     }
 
     // MARK: - Prompt
