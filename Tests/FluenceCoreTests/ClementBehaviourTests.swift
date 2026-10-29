@@ -6,16 +6,19 @@ import Testing
 /// Behaviour carried over from Clement's build (FLU-11).
 struct SpeechRepairsTests {
     @Test func scratchThatKeepsWhatFollows() {
-        #expect(SpeechRepairs.backtrack("send it to Paul scratch that send it to Marie") == "send it to Marie")
+        #expect(SpeechRepairs.backtrack("send it to Paul scratch that send it to Marie", language: .english) == "send it to Marie")
+        // Only in English: in French it is franglais, unless it is the whole dictation (FLU-124).
+        #expect(SpeechRepairs.backtrack("Il faut delete that file", language: .french) == "Il faut delete that file")
+        #expect(SpeechRepairs.backtrack("scratch that", language: .french) == "")
         // French cancels act only as the whole dictation (FLU-87, FLU-124).
-        #expect(SpeechRepairs.backtrack("bonjour efface tout, salut") == "bonjour efface tout, salut")
-        #expect(SpeechRepairs.backtrack("le budget est validé… supprime ça") == "le budget est validé… supprime ça")
-        #expect(SpeechRepairs.backtrack("supprime ça.") == "")
+        #expect(SpeechRepairs.backtrack("bonjour efface tout, salut", language: .french) == "bonjour efface tout, salut")
+        #expect(SpeechRepairs.backtrack("le budget est validé… supprime ça", language: .french) == "le budget est validé… supprime ça")
+        #expect(SpeechRepairs.backtrack("supprime ça.", language: .french) == "")
     }
 
     @Test func selfCorrectionKeepsTheRevisedWord() {
-        #expect(SpeechRepairs.backtrack("rendez-vous mardi, en fait mercredi") == "rendez-vous mercredi")
-        #expect(SpeechRepairs.backtrack("meet on Tuesday, actually Wednesday") == "meet on Wednesday")
+        #expect(SpeechRepairs.backtrack("rendez-vous mardi, en fait mercredi", language: .french) == "rendez-vous mercredi")
+        #expect(SpeechRepairs.backtrack("meet on Tuesday, actually Wednesday", language: .english) == "meet on Wednesday")
     }
 
     @Test func repeatedWordsCollapse() {

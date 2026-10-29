@@ -12,7 +12,7 @@ public enum SpeechRepairs {
     public static func before(_ text: String, language: DictationLanguage) -> String {
         guard applies(to: language) else { return text }
         var result = text
-        result = backtrack(result)
+        result = backtrack(result, language: language)
         result = deduplicateConsecutiveWords(in: result)
         result = removeStutterPrefixes(in: result)
         result = grammaticalCorrections(result)
@@ -51,22 +51,23 @@ public enum SpeechRepairs {
 
     // MARK: - Cancellations and self-corrections
 
-    /// "… scratch that, …" keeps only what follows; "Tuesday, actually Wednesday" keeps the
-    /// revised word.
+    /// "… scratch that, …" keeps only what follows, in English; "Tuesday, actually Wednesday"
+    /// keeps the revised word.
     ///
     /// The French cancels are ordinary French (« supprime ça et on recommence demain », « Si le
     /// déploiement plante, annule tout. »), and deleting the dictation around them lost it
     /// (FLU-87, FLU-124). They are a command only as the whole dictation, a filler and marks
     /// aside: the dictation is dropped.
-    static func backtrack(_ text: String) -> String {
+    static func backtrack(_ text: String, language: DictationLanguage) -> String {
         if text.range(
-            of: #"(?i)^[\s,.;:!?…]*(?:(?:euh|heu|hum)[\s,.]+)?(?:efface tout|efface ça|annule tout|annule ça|supprime ça)[\s.!…]*$"#,
+            of: #"(?i)^[\s,.;:!?…]*(?:(?:euh|heu|hum)[\s,.]+)?(?:efface tout|efface ça|annule tout|annule ça|supprime ça|scratch that|delete that)[\s.!…]*$"#,
             options: .regularExpression
         ) != nil {
             return ""
         }
         var result = text
-        if let scratch = result.range(
+        // « Il faut delete that file » is franglais, not a command (FLU-124).
+        if language == .english, let scratch = result.range(
             of: #"(?i)\b(?:scratch that|delete that)\b"#,
             options: [.regularExpression, .backwards]
         ) {

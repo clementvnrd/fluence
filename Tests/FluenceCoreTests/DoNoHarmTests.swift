@@ -120,6 +120,8 @@ struct DoNoHarmTests {
         "Ce cas casse tout le parsing.",
         "Je l'ai fait à la main maintenant ça passe.",
         "Il s'en est sorti en en parlant à son chef.",
+        // « delete that » in French is franglais, not a command (FLU-124).
+        "Il faut delete that file avant le merge.",
     ]
 
     /// French typed into a terminal or an editor: Clement's prompts to Claude Code (FLU-30, F6).
@@ -180,6 +182,7 @@ struct DoNoHarmTests {
         ("send it in May, actually June", .english, "Send it in June."),
         ("le call est à 15h, en fait 16h", .french, "Le call est à 16 h."),
         ("ça coûte 20 je voulais dire 30 euros par mois", .french, "Ça coûte 30 € par mois."),
+        ("scratch that", .french, ""),
     ])
     func intendedRepairsStillHappen(_ said: String, _ language: DictationLanguage, _ typed: String) {
         #expect(Self.words(Self.light(said, language)) == typed)
