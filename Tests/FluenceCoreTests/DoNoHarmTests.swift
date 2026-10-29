@@ -108,6 +108,9 @@ struct DoNoHarmTests {
         "Il y en a trois, en fait deux sont cassés.",
         "On passe par Slack ou plutôt Teams pour le client ?",
         "C'était simple, en fait c'est un bug du cache.",
+        // « deux points » closing a clause is a count (FLU-124).
+        "Pendant la réunion on a soulevé deux points.",
+        "La distance entre deux points, c'est une droite.",
     ]
 
     /// French typed into a terminal or an editor: Clement's prompts to Claude Code (FLU-30, F6).
@@ -222,6 +225,8 @@ struct DoNoHarmTests {
         ("je t'envoie le lien point nouvelle ligne merci", "Je t'envoie le lien.\nMerci."),
         ("merci à la ligne à demain", "Merci\nÀ demain."),
         ("intro nouveau paragraphe la suite", "Intro\n\nLa suite."),
+        ("voici les étapes suivantes deux points", "Voici les étapes suivantes :"),
+        ("procède comme suit deux points", "Procède comme suit :"),
     ])
     func punctuationCommandsStillWork(_ said: String, _ typed: String) {
         #expect(Self.words(Self.light(said, .french)) == typed)

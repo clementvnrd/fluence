@@ -253,6 +253,9 @@ enum FrenchRules {
             if context.before == nil { return nil }
             if let previous = context.previous, quantityWords.contains(previous) { return nil }
             if context.isNoun { return nil }
+            // Closing a clause it is a count (« on a soulevé deux points. »), unless it
+            // introduces what comes next (FLU-124).
+            if context.atClauseEnd, !introducers.contains(context.previous ?? "") { return nil }
             return .mark(":")
         }
         // "virgule" between two digits is a decimal comma ("3 virgule 5" → "3,5"), and after a
@@ -445,9 +448,13 @@ enum FrenchRules {
         "positif", "positifs", "négatif", "négatifs", "majeur", "majeurs", "bloquant", "bloquants",
         "ouvert", "ouverts", "précis", "noir", "noirs",
     ]
+    /// Words after which « deux points » ends a clause as a colon: « voici la liste : ».
+    private static let introducers: Set<String> = [
+        "voici", "voilà", "voila", "liste", "suivant", "suivants", "suivante", "suivantes", "suit",
+    ]
     private static let quantityWords: Set<String> = determiners.union([
         "à", "avec", "sur", "en", "par", "marqué", "gagné", "perdu", "obtenu", "pris", "rendu",
-        "plus", "moins", "que", "seulement", "environ",
+        "plus", "moins", "que", "seulement", "environ", "entre",
         // Having or lacking two of something: « j'ai deux points à voir ».
         "ai", "as", "a", "avons", "avez", "ont", "avait", "avais", "aura", "auras", "reste",
         "restent", "manque", "manquent", "encore", "derniers", "premiers", "autres",
