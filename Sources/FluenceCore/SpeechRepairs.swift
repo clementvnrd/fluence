@@ -172,8 +172,8 @@ public enum SpeechRepairs {
         // « si si », « oh là là », « allez allez » (FLU-90).
         "si", "là", "vite", "allez", "bon", "bien", "encore", "vraiment",
         "very", "too", "so", "really", "no", "yes",
-        // French reflexives: "nous nous sommes vus", "vous vous trompez".
-        "nous", "vous",
+        // French reflexives: "nous nous sommes vus", "vous vous trompez"; « en en parlant ».
+        "nous", "vous", "en",
     ]
 
     /// "c'est c'est" → "c'est", "il y a il y a" → "il y a", "the the" → "the".
@@ -244,6 +244,8 @@ public enum SpeechRepairs {
         "mail", "data", "app", "code", "file", "test", "web", "site", "page", "link", "text",
         "team", "chat", "note", "list", "user", "base", "bug", "log", "dev", "api", "tag", "push",
         "pull",
+        // FLU-124: « la branche main maintenant », « la doc Docker », « ce cas casse ».
+        "main", "doc", "type", "cas", "java", "git", "mac", "node", "plan", "port", "date", "lot",
     ]
 
     /// "pro problème" → "problème", "dél délétère" → "délétère", and a word cut off with a

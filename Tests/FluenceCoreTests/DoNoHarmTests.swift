@@ -113,6 +113,13 @@ struct DoNoHarmTests {
         "La distance entre deux points, c'est une droite.",
         // « en premier » after a comma is not a list item (FLU-124).
         "Ce qu'il faut corriger, en premier, c'est le login.",
+        // Short tech words before a longer one, and « en en » (FLU-124).
+        "La branche main maintenant est à jour.",
+        "La doc Docker est obsolète.",
+        "Le type TypeScript de la fonction est faux.",
+        "Ce cas casse tout le parsing.",
+        "Je l'ai fait à la main maintenant ça passe.",
+        "Il s'en est sorti en en parlant à son chef.",
     ]
 
     /// French typed into a terminal or an editor: Clement's prompts to Claude Code (FLU-30, F6).
