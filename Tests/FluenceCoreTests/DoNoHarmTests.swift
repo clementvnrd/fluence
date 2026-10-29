@@ -96,6 +96,12 @@ struct DoNoHarmTests {
         "Pour la réunion, annule ça.",
         "Le budget est validé, annule ça.",
         "Envoie-le à Paul. Efface tout.",
+        // Line-break words used as nouns, or with nothing after them (FLU-124).
+        "Il faut ajouter une nouvelle ligne dans le tableau des coûts.",
+        "Je vais écrire un nouveau paragraphe sur la sécurité.",
+        "Mets chaque item à la ligne.",
+        "Chaque nouvelle ligne compte.",
+        "Ajoute une nouvelle ligne.",
     ]
 
     /// French typed into a terminal or an editor: Clement's prompts to Claude Code (FLU-30, F6).
@@ -203,6 +209,11 @@ struct DoNoHarmTests {
         ("excellent point", "Excellent point."),
         ("j'ai deux points à voir", "J'ai deux points à voir."),
         ("un point d'interrogation sur le budget", "Un point d'interrogation sur le budget."),
+        // Line breaks still happen between two sentences (FLU-124).
+        ("salut à la ligne je te renvoie le fichier corrigé", "Salut\nJe te renvoie le fichier corrigé."),
+        ("je t'envoie le lien point nouvelle ligne merci", "Je t'envoie le lien.\nMerci."),
+        ("merci à la ligne à demain", "Merci\nÀ demain."),
+        ("intro nouveau paragraphe la suite", "Intro\n\nLa suite."),
     ])
     func punctuationCommandsStillWork(_ said: String, _ typed: String) {
         #expect(Self.words(Self.light(said, .french)) == typed)

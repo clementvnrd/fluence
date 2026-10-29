@@ -200,12 +200,22 @@ enum FrenchRules {
         var result = text
         let open = "(?:ouvrez|ouvre|ouvrir|ouvrons)"
         let close = "(?:fermez|ferme|fermer|fermons)"
-        // Layout commands: nobody says these words in a sentence about something else.
-        let layout: [(String, String)] = [
+        // Line breaks are nouns too (FLU-124): « une nouvelle ligne dans le tableau », « un
+        // nouveau paragraphe sur la sécurité »; and with nothing after them a break types
+        // nothing (« Mets chaque item à la ligne. »). « …à la ligne à demain » is a break.
+        let breaks: [(String, String)] = [
             ("(?:nouveau|nouvel) paragraphe", "\n\n"),
             ("(?:retour [àa] la ligne|nouvelle ligne)", "\n"),
             // Not "à la ligne 3" or "à la ligne suivante": that is someone talking about a line.
-            ("[àa] la ligne(?!\\s*(?:\\d|de\(end)|d\(apostrophe)|du\(end)|des\(end)|suivante|précédente))", "\n"),
+            ("[àa] la ligne(?!\\s*(?:\\d|suivante|précédente))", "\n"),
+        ]
+        for (phrase, mark) in breaks {
+            result = rewrite(result, phrase: phrase) { context in
+                (context.isNoun && context.next != "à") || context.atTextEnd ? nil : .mark(mark)
+            }
+        }
+        // Layout commands: nobody says these words in a sentence about something else.
+        let layout: [(String, String)] = [
             ("\(open) la parenth[èe]se", " ("),
             ("\(close) la parenth[èe]se", ") "),
             ("\(open) les guillemets", " « "),
@@ -283,6 +293,8 @@ enum FrenchRules {
         let next: String?
         /// The character right before the phrase, spaces skipped.
         let before: Character?
+        /// Only spaces and marks come after the phrase.
+        let atTextEnd: Bool
 
         /// The phrase reads as a noun: after a determiner, an adjective or a number, or
         /// before what completes a noun.
@@ -330,7 +342,8 @@ enum FrenchRules {
             let context = Context(
                 previous: previousWord(in: result, before: range.lowerBound),
                 next: nextWord(in: result, after: range.upperBound),
-                before: result[..<range.lowerBound].last(where: { $0 != " " && $0 != "\t" })
+                before: result[..<range.lowerBound].last(where: { $0 != " " && $0 != "\t" }),
+                atTextEnd: result[range.upperBound...].allSatisfy { $0.isWhitespace || pauses.contains(String($0)) }
             )
             guard let action = decide(context) else { continue }
             var lower = range.lowerBound
