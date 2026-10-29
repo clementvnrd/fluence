@@ -49,6 +49,9 @@ public enum MeetingApps {
         browser("Firefox", "org.mozilla.firefox", ["org.mozilla.firefox", "org.mozilla.plugincontainer", "org.mozilla.firefoxdeveloperedition", "org.mozilla.nightly"]),
         browser("Vivaldi", "com.vivaldi.Vivaldi", ["com.vivaldi.Vivaldi"]),
         browser("Opera", "com.operasoftware.Opera", ["com.operasoftware.Opera"]),
+        browser("Helium", "net.imput.helium", ["net.imput.helium"]),
+        browser("Comet", "ai.perplexity.comet", ["ai.perplexity.comet"]),
+        browser("Zen", "app.zen-browser.zen", ["app.zen-browser.zen"]),
     ]
 
     /// The meeting app or browser a process belongs to, if any.
