@@ -152,6 +152,7 @@ final class DictationController {
         // gesture machine and the hands-free / command flags can never outlive it.
         didSet {
             guard session == nil else { return }
+            MediaPause.shared.dictationEnded()
             isHandsFree = false
             isCommand = false
             isPreparingEngine = false
@@ -334,6 +335,7 @@ final class DictationController {
             engineKind: kind
         )
         self.session = session
+        MediaPause.shared.dictationBegan()
         sessionEngine = isComparing ? nil : kind
         isCommand = command
         timeline.handle(.dictationStarted, at: Self.uptime)

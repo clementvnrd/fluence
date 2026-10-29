@@ -163,6 +163,14 @@ struct DictationSettingsSection: View {
             SettingsRow(systemImage: "speaker.wave.2", title: "Son", info: "Un léger signal au début et à la fin de la dictée.") {
                 RowToggle(isOn: $settings.soundEnabled)
             }
+            RowDivider()
+            SettingsRow(
+                systemImage: "pause.circle",
+                title: "Mettre la musique en pause pendant la dictée",
+                info: "Elle reprend à la fin. Rien n'est mis en pause pendant un appel."
+            ) {
+                RowToggle(isOn: $settings.pauseMediaWhileDictating)
+            }
         }
 
         LaunchAtLoginCard()
