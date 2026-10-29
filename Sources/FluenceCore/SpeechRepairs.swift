@@ -54,13 +54,13 @@ public enum SpeechRepairs {
     /// "… scratch that, …" keeps only what follows; "Tuesday, actually Wednesday" keeps the
     /// revised word.
     ///
-    /// The French cancels are ordinary French mid-sentence (« supprime ça et on recommence
-    /// demain », « annule tout le reste »), and deleting what came before them lost the
-    /// dictation (FLU-87). They are a command only as the whole dictation or at its very end
-    /// after a pause mark, where nothing follows them: the dictation is dropped.
+    /// The French cancels are ordinary French (« supprime ça et on recommence demain », « Si le
+    /// déploiement plante, annule tout. »), and deleting the dictation around them lost it
+    /// (FLU-87, FLU-124). They are a command only as the whole dictation, a filler and marks
+    /// aside: the dictation is dropped.
     static func backtrack(_ text: String) -> String {
         if text.range(
-            of: #"(?i)(?:^|[,.;:!?…])\s*(?:efface tout|efface ça|annule tout|annule ça|supprime ça)[\s.!…]*$"#,
+            of: #"(?i)^[\s,.;:!?…]*(?:(?:euh|heu|hum)[\s,.]+)?(?:efface tout|efface ça|annule tout|annule ça|supprime ça)[\s.!…]*$"#,
             options: .regularExpression
         ) != nil {
             return ""

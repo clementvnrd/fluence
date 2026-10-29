@@ -88,6 +88,14 @@ struct DoNoHarmTests {
         // A real short word before a longer one is not a stutter (FLU-90).
         "Je relis le mail mailing avant l'envoi.",
         "Le dossier data dataset est vide.",
+        // …nor at its end after a pause: an instruction, not a cancel (FLU-124).
+        "Si le déploiement plante, annule tout.",
+        "Ce paragraphe ne sert à rien, supprime ça.",
+        "Le vieux script, efface tout et repars de zéro.",
+        "Pour le compte de test, efface ça.",
+        "Pour la réunion, annule ça.",
+        "Le budget est validé, annule ça.",
+        "Envoie-le à Paul. Efface tout.",
     ]
 
     /// French typed into a terminal or an editor: Clement's prompts to Claude Code (FLU-30, F6).
@@ -136,11 +144,12 @@ struct DoNoHarmTests {
         // A real word cut off with a hyphen is still a stutter (FLU-90).
         ("le mail- mailing", .french, "Le mailing."),
         ("c'est c'est bien", .french, "C'est bien."),
-        // A French cancel is a command only as the whole dictation or after a pause at its
-        // end (FLU-87): the dictation is dropped.
+        // A French cancel is a command only as the whole dictation (FLU-87, FLU-124): the
+        // dictation is dropped.
         ("annule ça", .french, ""),
-        ("le budget est validé, annule ça.", .french, ""),
-        ("Envoie-le à Paul. Efface tout.", .french, ""),
+        ("Annule tout.", .french, ""),
+        ("euh, efface ça", .french, ""),
+        ("Supprime ça !", .french, ""),
         ("send it to Paul scratch that send it to Marie", .english, "Send it to Marie."),
         ("meet on Tuesday, actually Wednesday", .english, "Meet on Wednesday."),
         ("let's meet at three no wait four", .english, "Let's meet at four."),
