@@ -17,6 +17,8 @@ as an error for every engine alike):
 | `fleurs-webcam` | The same through a simulated distant webcam: room reflections, 150–5500 Hz band, pink noise ~19 dB below the speech | 16.8 min |
 | `tech` | 16 synthetic dictations full of English tech words ("pull request sur GitHub", "Node.js", "Vercel", "la CI"), four macOS French voices, plus one 44 s dictation | 3.6 min |
 | `tech-webcam` | The same through the webcam | 3.6 min |
+| `franglais` | 40 synthetic dictations with English work words, many with French verb endings (« j'ai cleané la branche », « le cron »), each by the four voices: Thomas reads them as written, the others a French respelling of how a French speaker says them (FLU-122) | 160 clips |
+| `franglais-webcam` | The same through the webcam | 160 clips |
 
 No one's recordings are used. Synthetic voices are cleaner than people; they are there for the
 vocabulary, the FLEURS sets for real voices.
@@ -79,3 +81,36 @@ A distant mic costs every engine (compare `fleurs` and `fleurs-webcam`): a third
 errors for Parakeet Ultra, half again for Apple and v3, nearly double for Whisper Small. A
 closer mic (the MacBook's own, or a headset) is worth trying before blaming a model; the bench
 cannot measure a real room, so this one is for Clement to try.
+
+## Franglais: English work words in French dictations (FLU-122)
+
+`scripts/franglais.py` scores **English-word recall** (the 75 English words of `franglais.ref`,
+written exactly, « cleané » is not « cleaner ») and **false terms** (those words appearing in
+FLEURS or tech outputs whose reference lacks them). Parakeet Ultra, then the app's chain with a
+fresh install's dictionary (the tech lexicon); « + terms » adds 36 of these words to it as
+terms. MacBook Air M2, 2026-10-29.
+
+| Level | recall franglais | recall franglais-webcam | WER franglais / webcam | fleurs / fleurs-webcam | tech / tech-webcam | false terms |
+|---|---:|---:|---:|---:|---:|---:|
+| Parakeet raw | 50 % | 30 % | 20.7 / 33.9 % | 6.7 / 9.2 % | 9.7 / 11.5 % | 0 |
+| Light, before | 50 % | 30 % | 20.7 / 33.8 % | 6.7 / 9.2 % | 9.2 / 11.3 % | 0 |
+| **Light, after** | **57 %** | **35 %** | 19.2 / 33.0 % | 6.7 / 9.2 % | 8.9 / 11.0 % | 0 |
+| Medium, before | 48 % | 30 % | 21.0 / 33.9 % | 6.7 / 9.2 % | 8.9–9.2 / 11.3 % | 0 |
+| **Medium, after** | **57 %** | **35 %** | 19.3 / 32.8 % | 6.7 / 9.2 % | 9.2 / 11.0 % | 0 |
+| Medium + terms, before | 52 % | 31 % | 20.3 / 33.7 % | 6.7 / 9.2 % | 8.9 / 11.0 % | 0 |
+| **Medium + terms, after** | **59 %** | **35 %** | 18.8 / 32.9 % | 6.7 / 9.2 % | 8.6 / 11.0 % | 0 |
+
+The fix: 17 lexicon corrections for spellings Parakeet writes that are no French word (« crône »,
+« cline », « liné », « cléané », « backlow »…), « seit » → « soit » at Light, and the name fixer
+no longer swapping a French verb form for the bare word (it turned « merger » into « merge »,
+« updater » into « updaté », which is why Medium was below Light before). The rules were chosen
+on the odd sentences only; on the even ones Light recall goes 50 → 54 % (webcam 32 → 34 %). No
+FLEURS output changed, and none of the 4158 FLEURS French sentences (dev, test, train) holds a
+trigger. Tech Medium moves between 8.9 and 9.2 % from one run of Apple's model to the next.
+
+What stays wrong is out of reach of rules: look-alikes that are French words (« fixe »,
+« remise » for release, « col » for call, « croc » / « crawl » for cron, « réunion » for review,
+« chipé » for shippé), and through the webcam whole phrases the synthetic voices garble. Telling
+« le fixe » from « le fix » takes context, i.e. another engine (Qwen3-ASR with hotwords had
++14–21 points of tech-term recall in the FLU-86 audit) or a cloud one. Synthetic voices are not
+Clement's: a few of his real recordings would tell how much of this carries over.
