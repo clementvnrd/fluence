@@ -54,6 +54,9 @@
 	<false/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<!-- FLU-121: Spotify and Music get their own AppleScript Pause / Play during a dictation. -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Fluence met Spotify ou Musique en pause pendant que vous dictez.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Fluence écoute lorsque vous maintenez le raccourci pour transformer votre voix en texte.</string>
 	<!-- Notetaker (capture): the calendar gives a call its title and the attendees' names.

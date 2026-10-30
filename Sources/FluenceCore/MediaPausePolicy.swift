@@ -1,10 +1,8 @@
-/// FLU-119: which players a dictation pauses, and when it may play them again.
+/// FLU-119: which players a dictation pauses, and how it gives them back.
 ///
 /// Since macOS 15.4 a third-party app can no longer ask what is playing (MediaRemote's reads
 /// answer nothing), so the only signal is CoreAudio's list of processes sending sound to an
-/// output. Pause and Play reach the system's Now Playing app, which Fluence cannot name: Pause
-/// is sent only while a known player is audible, and Play only once that player went quiet,
-/// so nothing that was not playing is ever started.
+/// output.
 public enum MediaPausePolicy {
     /// One process in CoreAudio's list, by bundle ID: is it playing sound, recording sound.
     public struct AudioProcess: Equatable, Sendable {
@@ -46,10 +44,67 @@ public enum MediaPausePolicy {
         return Set(others.filter { $0.isOutput && matches($0.bundleID, players) }.map(\.bundleID))
     }
 
-    /// Play once every paused player is quiet. One still playing means the pause reached another
-    /// app or the user pressed play themselves: Play would then start something.
-    public static func shouldResume(paused: Set<String>, processes: [AudioProcess], meetingRecording: Bool) -> Bool {
-        !paused.isEmpty && !meetingRecording && !processes.contains { $0.isOutput && paused.contains($0.bundleID) }
+    /// Players with their own AppleScript Pause and Play, by the bundle ID `tell application id` needs.
+    static let scriptable = ["com.spotify.client": "com.spotify.client", "com.apple.music": "com.apple.Music"]
+
+    /// FLU-121: one system-wide Pause reaches only macOS's Now Playing app (YouTube in front,
+    /// Spotify behind kept playing). Spotify and Music get their own script; every other player
+    /// is muted by a process tap, and only when System Audio Recording was already asked.
+    public static func split(_ players: Set<String>, canMute: Bool) -> (script: Set<String>, mute: Set<String>) {
+        var script: Set<String> = []
+        var mute: Set<String> = []
+        for player in players {
+            if let app = scriptable.first(where: { matches(player, [$0.key]) })?.value {
+                script.insert(app)
+            } else if canMute {
+                mute.insert(player)
+            }
+        }
+        return (script, mute)
+    }
+
+    /// What Fluence holds while dictating: the apps it paused by script, the taps muting the others.
+    public struct Hold: Equatable, Sendable {
+        public var scripted: Set<String>
+        public var taps: [UInt32]
+
+        public init(scripted: Set<String> = [], taps: [UInt32] = []) {
+            self.scripted = scripted
+            self.taps = taps
+        }
+
+        var isEmpty: Bool { scripted.isEmpty && taps.isEmpty }
+    }
+
+    /// The hold across dictations. The lookup runs after key-down and can finish after the key
+    /// is up, or after the next dictation began: it then belongs to whichever is current.
+    public struct State: Sendable {
+        private var held = Hold()
+        private var dictating = false
+
+        public init() {}
+
+        /// Key-down: true when players must be looked up, false while a hold carries over.
+        public mutating func began() -> Bool {
+            dictating = true
+            return held.isEmpty
+        }
+
+        /// The lookup paused or muted `more`; returns what to undo now if no dictation runs.
+        public mutating func took(_ more: Hold, meetingRecording: Bool) -> Hold? {
+            held.scripted.formUnion(more.scripted)
+            held.taps += more.taps
+            return dictating ? nil : ended(meetingRecording: meetingRecording)
+        }
+
+        /// Key-up, cancel or failure: what to undo. Taps always go, so nothing stays muted; no
+        /// Play while a meeting records.
+        public mutating func ended(meetingRecording: Bool) -> Hold? {
+            dictating = false
+            guard !held.isEmpty else { return nil }
+            defer { held = Hold() }
+            return Hold(scripted: meetingRecording ? [] : held.scripted, taps: held.taps)
+        }
     }
 
     /// The ID itself or one of its helpers (`com.google.Chrome.helper`), never a look-alike.

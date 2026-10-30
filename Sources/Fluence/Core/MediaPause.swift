@@ -1,115 +1,130 @@
+import AppKit
 import CoreAudio
 import FluenceCore
 import Foundation
 
-/// FLU-119: pauses the music while a dictation records and plays it again afterwards.
+/// FLU-119/121: silences the music while a dictation records and brings it back afterwards.
 /// What is playing comes from CoreAudio (public, no permission); the decision is
-/// `MediaPausePolicy`. Logs name players by bundle ID only, never a title.
+/// `MediaPausePolicy`. Spotify and Music get their own AppleScript Pause and Play; every other
+/// player (browsers, Podcasts, VLC…) is muted by a process tap for the dictation. Logs name
+/// players by bundle ID only, never a title.
 @MainActor
 final class MediaPause {
     static let shared = MediaPause()
 
-    /// Players this pause stopped; nil while Fluence holds none.
-    private var paused: Set<String>?
-    /// Bumped at each dictation start and end: work begun for an older one stands down.
-    private var generation = 0
+    private var state = MediaPausePolicy.State()
 
     func dictationBegan() {
-        generation += 1
-        // A pause still held from the dictation just before carries over to this one.
-        guard paused == nil, Settings.shared.pauseMediaWhileDictating else { return }
-        let current = generation
+        // A hold from the dictation just before carries over to this one.
+        guard state.began(), Settings.shared.pauseMediaWhileDictating else { return }
         let own = Bundle.main.bundleIdentifier ?? ""
+        let meeting = MeetingController.shared.isRecording
+        // Never ask for System Audio Recording mid-dictation: mute only once a meeting tap asked it.
+        let canMute = UserDefaults.standard.bool(forKey: MeetingPreparation.systemAudioAskedKey)
         Task {
-            let processes = await Self.audioProcesses()
+            let processes = await Self.processes()
             let players = MediaPausePolicy.playersToPause(
-                processes,
+                processes.map { MediaPausePolicy.AudioProcess(bundleID: $0.bundleID, isOutput: $0.isRunningOutput, isInput: $0.isRunningInput) },
                 ownBundleID: own,
-                meetingRecording: MeetingController.shared.isRecording,
-                enabled: Settings.shared.pauseMediaWhileDictating
+                meetingRecording: meeting,
+                enabled: true
             )
-            guard !players.isEmpty, current == generation, paused == nil, Self.send(.pause) else { return }
-            paused = players
-            Log.audio.info("media paused · \(players.sorted().joined(separator: ", "), privacy: .public)")
+            guard !players.isEmpty else { return }
+            let split = MediaPausePolicy.split(players, canMute: canMute)
+            if !canMute, players.count > split.script.count {
+                Log.audio.info("media mute skipped — system audio not asked · \(players.count - split.script.count, privacy: .public) player(s)")
+            }
+            let tap = await Self.mute(processes.filter { split.mute.contains($0.bundleID) }.map(\.objectID))
+            let scripted = await PlayerScript.run(.pause, split.script)
+            Log.audio.info("media paused · \(scripted.sorted().joined(separator: ", "), privacy: .public) · muted \(tap == nil ? 0 : split.mute.count, privacy: .public): \(split.mute.sorted().joined(separator: ", "), privacy: .public)")
+            let hold = MediaPausePolicy.Hold(scripted: scripted, taps: tap.map { [$0] } ?? [])
+            // The dictation ended while this ran: undo at once.
+            if let release = state.took(hold, meetingRecording: MeetingController.shared.isRecording) { Self.release(release) }
         }
     }
 
     func dictationEnded() {
-        generation += 1
-        guard let players = paused else { return }
-        let current = generation
-        Task {
-            // A paused player can take a moment to close its audio stream: up to 1.5 s.
-            for _ in 0..<15 {
-                let processes = await Self.audioProcesses()
-                // A new dictation began meanwhile: it keeps the pause.
-                guard current == generation else { return }
-                if MediaPausePolicy.shouldResume(paused: players, processes: processes, meetingRecording: MeetingController.shared.isRecording) {
-                    paused = nil
-                    _ = Self.send(.play)
-                    Log.audio.info("media resumed · \(players.count, privacy: .public) player(s)")
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(100))
-                guard current == generation else { return }
-            }
-            paused = nil
-            Log.audio.info("media not resumed — a paused player is still playing")
-        }
+        guard let release = state.ended(meetingRecording: MeetingController.shared.isRecording) else { return }
+        Self.release(release)
     }
 
     // MARK: - System
 
-    private enum Command: Int32 { case play = 0, pause = 1 }
-
-    /// shortcut: MediaRemote is a private framework; sending still works for third-party apps
-    /// on macOS 15.4+ (only its reads were closed). If Apple closes sending too, the pause
-    /// silently does nothing — then weigh the media key (a toggle, needs Accessibility).
-    private static let sendCommand: (@convention(c) (Int32, CFDictionary?) -> DarwinBoolean)? = {
-        guard let handle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY),
-              let symbol = dlsym(handle, "MRMediaRemoteSendCommand")
-        else { return nil }
-        return unsafeBitCast(symbol, to: (@convention(c) (Int32, CFDictionary?) -> DarwinBoolean).self)
-    }()
-
-    private static func send(_ command: Command) -> Bool {
-        sendCommand?(command.rawValue, nil).boolValue ?? false
-    }
-
-    /// Every process CoreAudio knows, with whether it plays or records sound right now. Off the
-    /// main actor: the whole list takes ~60 ms to read.
-    private nonisolated static func audioProcesses() async -> [MediaPausePolicy.AudioProcess] {
-        let system = AudioObjectID(kAudioObjectSystemObject)
-        var address = Self.address(kAudioHardwarePropertyProcessObjectList)
-        var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return [] }
-        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
-        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &ids) == noErr else { return [] }
-        return ids.map { id in
-            MediaPausePolicy.AudioProcess(
-                bundleID: bundleID(of: id),
-                isOutput: flag(kAudioProcessPropertyIsRunningOutput, of: id),
-                isInput: flag(kAudioProcessPropertyIsRunningInput, of: id)
-            )
+    private static func release(_ hold: MediaPausePolicy.Hold) {
+        Task {
+            await unmute(hold.taps)
+            let played = await PlayerScript.run(.play, hold.scripted)
+            Log.audio.info("media resumed · \(played.count, privacy: .public)/\(hold.scripted.count, privacy: .public) scripted, \(hold.taps.count, privacy: .public) tap(s) removed")
         }
     }
 
-    private nonisolated static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
-        AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+    /// Off the main actor: the whole list takes ~60 ms to read.
+    private nonisolated static func processes() async -> [CoreAudioObjects.Process] {
+        CoreAudioObjects.processes()
     }
 
-    private nonisolated static func flag(_ selector: AudioObjectPropertySelector, of id: AudioObjectID) -> Bool {
-        var address = address(selector)
-        var value: UInt32 = 0
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        return AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr && value != 0
+    /// `.muted`: "no audio is sent from the process to the audio hardware" (CATapDescription.h).
+    /// Nothing reads the tap (no aggregate device, no IOProc), so no audio is ever captured.
+    private nonisolated static func mute(_ processes: [AudioObjectID]) async -> AudioObjectID? {
+        guard !processes.isEmpty else { return nil }
+        let description = CATapDescription(stereoMixdownOfProcesses: processes)
+        description.name = "Fluence media pause"
+        description.uuid = UUID()
+        description.isPrivate = true
+        description.muteBehavior = .muted
+        var tap = AudioObjectID(kAudioObjectUnknown)
+        let status = AudioHardwareCreateProcessTap(description, &tap)
+        guard status == noErr, tap != kAudioObjectUnknown else {
+            Log.audio.error("media mute failed: \(status)")
+            return nil
+        }
+        return tap
     }
 
-    private nonisolated static func bundleID(of id: AudioObjectID) -> String {
-        var address = address(kAudioProcessPropertyBundleID)
-        var value: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr else { return "" }
-        return value?.takeRetainedValue() as String? ?? ""
+    private nonisolated static func unmute(_ taps: [UInt32]) async {
+        for tap in taps { AudioHardwareDestroyProcessTap(tap) }
+    }
+}
+
+/// Spotify's and Music's own AppleScript Pause and Play. `NSAppleScript` is not thread-safe, so
+/// every script runs on one serial queue: the main actor never waits, and a Play always follows
+/// its Pause. ~1 ms once AppleScript is loaded (143 ms the first time), plus the app's reply.
+private enum PlayerScript {
+    enum Command {
+        case pause, play
+
+        /// Acts only from the expected state, so Play never starts what the user paused themselves.
+        var body: String {
+            switch self {
+            case .pause: "if player state is playing then\npause\nreturn true\nend if"
+            case .play: "if player state is paused then\nplay\nreturn true\nend if"
+            }
+        }
+    }
+
+    private static let queue = DispatchQueue(label: "fluence.media.script", qos: .userInitiated)
+
+    /// The apps the command reached in the expected state.
+    static func run(_ command: Command, _ apps: Set<String>) async -> Set<String> {
+        guard !apps.isEmpty else { return [] }
+        let body = command.body
+        return await withCheckedContinuation { continuation in
+            queue.async {
+                var done: Set<String> = []
+                // `tell application` would launch a closed app: only those running get a script.
+                for app in apps where !NSRunningApplication.runningApplications(withBundleIdentifier: app).isEmpty {
+                    // The timeout bounds a hung app: the queue moves on after 2 s.
+                    let source = "with timeout of 2 seconds\ntell application id \"\(app)\"\n\(body)\nend tell\nend timeout\nreturn false"
+                    var error: NSDictionary?
+                    if NSAppleScript(source: source)?.executeAndReturnError(&error).booleanValue == true {
+                        done.insert(app)
+                    } else if let error {
+                        // -1743: Automation refused in System Settings.
+                        Log.audio.error("media script \(app, privacy: .public) failed: \(error[NSAppleScript.errorNumber] as? Int ?? 0, privacy: .public)")
+                    }
+                }
+                continuation.resume(returning: done)
+            }
+        }
     }
 }
