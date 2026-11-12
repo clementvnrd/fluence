@@ -145,6 +145,25 @@ public enum CloudFallback {
         /// The local text; `because` is what the capsule says, nil to say nothing.
         case local(String, because: CloudError?)
         case failed(CloudError)
+
+        /// FLU-129: who wrote the text, for the capsule's badge; nil when there is none.
+        public var writer: Writer? {
+            switch self {
+            case .cloud: .cloud
+            case .local: .mac
+            case .failed: nil
+            }
+        }
+    }
+
+    /// FLU-129: who wrote a dictation's text.
+    public enum Writer: Equatable, Sendable { case cloud, mac }
+
+    /// FLU-129: how much longer than before the capsule stays once the text is typed, so the
+    /// badge is seen (Clement: 0.4 s). None when a message follows, which shows for its own
+    /// time, nor without a badge (cloud off).
+    public static func badgeHold(writer: Writer?, messageFollows: Bool) -> Double {
+        writer == nil || messageFollows ? 0 : 0.4
     }
 
     /// - Parameters:
@@ -267,3 +286,4 @@ public final class CloudKeys: @unchecked Sendable {
         }
     }
 }
+

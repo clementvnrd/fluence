@@ -114,6 +114,24 @@ struct CloudSpeechTests {
         #expect(CloudFallback.notice(.rateLimited, local: "Parakeet") == "Cloud indisponible\(nbsp): Parakeet")
     }
 
+    // MARK: - FLU-129: who wrote the text
+
+    @Test func theBadgeNamesWhoWroteTheText() {
+        #expect(CloudFallback.Choice.cloud("nuage").writer == .cloud)
+        #expect(CloudFallback.Choice.local("local", because: .network).writer == .mac)
+        #expect(CloudFallback.Choice.local("local", because: nil).writer == .mac)
+        #expect(CloudFallback.Choice.failed(.timedOut).writer == nil)
+    }
+
+    @Test func theCapsuleStaysLongerOnlyForABadgeAlone() {
+        #expect(CloudFallback.badgeHold(writer: .cloud, messageFollows: false) == 0.4)
+        #expect(CloudFallback.badgeHold(writer: .mac, messageFollows: false) == 0.4)
+        // The fallback's notice shows the badge for its own 3 s.
+        #expect(CloudFallback.badgeHold(writer: .mac, messageFollows: true) == 0)
+        // Privé mode: no badge, today's timing.
+        #expect(CloudFallback.badgeHold(writer: nil, messageFollows: false) == 0)
+    }
+
     // MARK: - Audio
 
     @Test func wavIsSixteenBitMonoWithItsHeader() {

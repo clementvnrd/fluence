@@ -113,6 +113,12 @@ final class DictationController {
     /// The engine the dictation in progress runs on, for the capsule (« Préparation de
     /// Parakeet… », the language pill only for engines that use it).
     private(set) var sessionEngine: SpeechEngineChoice?
+    /// FLU-129: the cloud the dictation's text is expected from (cloud on), for the capsule.
+    private(set) var sessionCloud: CloudProvider?
+    /// FLU-129: who wrote the text of the dictation ending now, once known; the capsule's badge.
+    private(set) var writtenBy: CloudFallback.Writer?
+    /// FLU-129: how much longer the capsule stays on the typed text (`CloudFallback.badgeHold`).
+    @ObservationIgnored private var badgeHold: Double = 0
 
     // MARK: FLU-29 — the capsule's messages and the kept recording
 
@@ -341,6 +347,10 @@ final class DictationController {
         self.session = session
         MediaPause.shared.dictationBegan()
         sessionEngine = isComparing ? nil : kind
+        // The same rule as `engineForCurrentSetting`.
+        sessionCloud = isComparing ? nil : Settings.shared.cloudProvider
+        writtenBy = nil
+        badgeHold = 0
         isCommand = command
         timeline.handle(.dictationStarted, at: Self.uptime)
         state = .starting
@@ -636,13 +646,17 @@ final class DictationController {
             let cloud = session.engine as? CloudEngine
             let producedBy = await cloud?.producedBy
             let fallback = await cloud?.fallback
+            let writer = await cloud?.writer
             guard self.session === session else { return }
+            // FLU-129: no badge over a Command Mode instruction: the rewrite writes that text.
+            writtenBy = isCommand ? nil : writer
+            badgeHold = CloudFallback.badgeHold(writer: writtenBy, messageFollows: stoppedEarly || fallback != nil)
             await deliver(raw, session: session, engineSeconds: engineSeconds, engineName: producedBy)
             // Only over a clean finish: a « Non collé » message says more than this one.
             if stoppedEarly, self.session == nil, state == .idle {
                 fail(.stoppedEarly(session.engineKind.compared))
             } else if let fallback, self.session == nil, state == .idle {
-                show(.notice(CloudFallback.notice(fallback, local: session.engineKind.compared.displayName)))
+                show(.notice(CloudFallback.notice(fallback, local: session.engineKind.compared.displayName)), badge: writtenBy)
             }
             return
         }
@@ -678,6 +692,7 @@ final class DictationController {
         ) {
             Log.speech.info("dictation · retrying once on \(retry.rawValue, privacy: .public) after \(String(describing: trigger), privacy: .public)")
             Diagnostics.recovery("dictation.retry.automatic")
+            sessionCloud = nil
             transcript = ""
             let result = await replay(chunks, on: SpeechEngineChoice(retry))
             guard self.session === session else { return }
@@ -984,6 +999,20 @@ final class DictationController {
         guard self.session === session else { return }
         self.session = nil
         if finalState == .idle { timeline.handle(.dictationEnded, at: Self.uptime) }
+        if finalState == .idle, badgeHold > 0 {
+            // FLU-129: the capsule stays on the typed text and its badge a moment longer. A new
+            // dictation may start meanwhile: it takes the capsule over.
+            let hold = badgeHold
+            badgeHold = 0
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(hold))
+                // shortcut: a dictation started and ended within the hold would lose its own; add a token if holds grow.
+                guard let self, self.session == nil, self.state == .finishing else { return }
+                self.state = .idle
+                self.transcript = ""
+            }
+            return
+        }
         state = finalState
         transcript = ""
     }
@@ -1177,7 +1206,9 @@ final class DictationController {
     fileprivate static var uptime: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
     /// Puts a message on the capsule, as a new one (its own identity), and arms its timer.
-    fileprivate func show(_ message: CapsuleMessage) {
+    /// FLU-129: `badge` only on the cloud fallback's notice; any other message drops it.
+    fileprivate func show(_ message: CapsuleMessage, badge: CloudFallback.Writer? = nil) {
+        writtenBy = badge
         timeline.handle(.show(message), at: Self.uptime)
         guard let id = timeline.messageID else { return }
         state = .message(message, id: id)
@@ -1271,6 +1302,9 @@ final class DictationController {
         session.targetApp = kept.targetApp
         self.session = session
         sessionEngine = kind
+        sessionCloud = nil
+        writtenBy = nil
+        badgeHold = 0
         timeline.handle(.dictationStarted, at: Self.uptime)
         state = .finishing
         transcript = ""
