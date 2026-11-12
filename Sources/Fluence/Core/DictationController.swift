@@ -16,7 +16,11 @@ import OSLog
 func engineForCurrentSetting() -> any TranscriptionEngine {
     // The disk is read again at each key-down: a download that just finished counts at once.
     ParakeetDownload.shared.refresh()
-    return newEngine(Settings.shared.activeEngine)
+    let local = newEngine(Settings.shared.activeEngine)
+    // FLU-113: the cloud on top of the local engine, which stays the fallback. Never in compare
+    // mode, which runs its own engines on the recording.
+    guard let provider = Settings.shared.cloudProvider, !Settings.shared.compareMode else { return local }
+    return CloudEngine(provider: provider, local: local)
 }
 
 /// A new engine of one kind. Parakeet only once its model is on disk (FLU-29): its `start()`
@@ -628,10 +632,17 @@ final class DictationController {
             // Text arrived, but the engine also failed partway and nothing was kept to run
             // again (a very long recording): type what there is, and say so.
             let stoppedEarly = session.engineError != nil
-            await deliver(raw, session: session, engineSeconds: engineSeconds)
+            // FLU-113: the cloud's text is filed under its provider; a fallback is said.
+            let cloud = session.engine as? CloudEngine
+            let producedBy = await cloud?.producedBy
+            let fallback = await cloud?.fallback
+            guard self.session === session else { return }
+            await deliver(raw, session: session, engineSeconds: engineSeconds, engineName: producedBy)
             // Only over a clean finish: a « Non collé » message says more than this one.
             if stoppedEarly, self.session == nil, state == .idle {
                 fail(.stoppedEarly(session.engineKind.compared))
+            } else if let fallback, self.session == nil, state == .idle {
+                show(.notice(CloudFallback.notice(fallback, local: session.engineKind.compared.displayName)))
             }
             return
         }

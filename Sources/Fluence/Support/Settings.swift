@@ -130,6 +130,19 @@ final class Settings {
         didSet { defaults.set(compareMode, forKey: Keys.compareMode) }
     }
 
+    /// FLU-113: the cloud engine's provider, nil while it is off (the default). On, each
+    /// dictation's audio goes to it with the user's key; the local engine still runs, as the
+    /// fallback (`CloudEngine`).
+    var cloudProvider: CloudProvider? {
+        didSet { defaults.set(cloudProvider?.rawValue, forKey: Keys.cloudProvider) }
+    }
+
+    /// FLU-113: Medium and High cleaned by Mistral Small while the cloud engine is on and a
+    /// Mistral key is saved (`CloudCleanup`). On by default.
+    var cloudCleanup: Bool {
+        didSet { defaults.set(cloudCleanup, forKey: Keys.cloudCleanup) }
+    }
+
     // MARK: FLU-5 text
 
     /// How much cleanup runs between the engine and the text field. Replaces the old
@@ -266,6 +279,8 @@ final class Settings {
         /// Legacy (before FLU-5), as above.
         static let smartCleanup = "smartCleanup"
         static let compareMode = "compareMode"
+        static let cloudProvider = "cloudProvider"
+        static let cloudCleanup = "cloudCleanup"
         static let historyRetention = "historyRetention"
         static let maxRecordingMinutes = "maxRecordingMinutes"
         static let selectedMicrophoneUID = "selectedMicrophoneUID"
@@ -347,6 +362,8 @@ final class Settings {
         learnFrequentTerms = defaults.object(forKey: Keys.learnFrequentTerms) as? Bool ?? false
 
         compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
+        cloudProvider = CloudProvider(rawValue: defaults.string(forKey: Keys.cloudProvider) ?? "")
+        cloudCleanup = defaults.object(forKey: Keys.cloudCleanup) as? Bool ?? true
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         pauseMediaWhileDictating = defaults.object(forKey: Keys.pauseMediaWhileDictating) as? Bool ?? true
         historyRetention = HistoryRetention(rawValue: defaults.string(forKey: Keys.historyRetention) ?? "")
