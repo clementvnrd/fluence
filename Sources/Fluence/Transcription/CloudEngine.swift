@@ -102,7 +102,7 @@ actor CloudEngine: TranscriptionEngine {
         let started = ContinuousClock.now
         if let key {
             let request = CloudRequest.transcription(
-                provider: provider, key: key, wav: WAV.encode(samples, sampleRate: Int(rate)),
+                key: key, wav: WAV.encode(samples, sampleRate: Int(rate)),
                 language: language, terms: terms
             )
             cloud = Task { try await CloudClient.transcript(request) }
@@ -160,7 +160,7 @@ actor CloudEngine: TranscriptionEngine {
     }
 }
 
-/// The requests to the providers. An ephemeral session: no cache, cookie or credential of
+/// The requests to ElevenLabs. An ephemeral session: no cache, cookie or credential of
 /// these requests ever reaches the disk. Only status codes and timings are logged; a body
 /// holds dictated text either way.
 enum CloudClient {
@@ -189,11 +189,6 @@ enum CloudClient {
         return try CloudResponse.transcript(status: status, body: body)
     }
 
-    static func cleanup(_ request: URLRequest) async throws -> String {
-        let (status, body) = try await send(request)
-        return try CloudResponse.cleanup(status: status, body: body)
-    }
-
     /// The task's answer, or nil once `seconds` have passed, when it is cancelled. Nil
     /// `seconds`: as long as the request itself lasts.
     static func outcome(of task: Task<String, Error>, within seconds: Double?) async -> CloudFallback.Outcome? {
@@ -216,7 +211,7 @@ enum CloudClient {
     static func test(_ provider: CloudProvider) async -> CloudError? {
         guard let key = try? CloudKeys.shared.key(for: provider) else { return .noKey }
         let silence = WAV.encode([Float](repeating: 0, count: 16_000), sampleRate: 16_000)
-        let request = CloudRequest.transcription(provider: provider, key: key, wav: silence, language: nil, terms: [])
+        let request = CloudRequest.transcription(key: key, wav: silence, language: nil, terms: [])
         do {
             _ = try await transcript(request)
             return nil

@@ -5,7 +5,7 @@ lands in whatever text field has focus. The macOS app is in French, in Clement's
 light canvas, rounded white cards, an aqua-blue accent and the Aqua orb (see the design
 system in [`AGENTS.md`](AGENTS.md)). A Wispr Flow-shaped app, built native and **on-device by
 default**: speech, cleanup and storage stay on the machine unless you turn on the optional
-cloud engine (Mistral or ElevenLabs, with your own API key).
+cloud engine (ElevenLabs, with your own API key).
 
 **Status (October 2026).** Dictation works end to end and was in daily use under the app's
 previous name. The October 2026 hardening (encrypted history, no transcript text in logs,
@@ -207,11 +207,9 @@ Network — every outgoing connection, and nothing else:
   sent (`SUEnableSystemProfiling` off); like any HTTP request it carries a User-Agent with the
   app and Sparkle versions. Réglages › À propos turns it off. See `docs/RELEASING.md`.
 * **Cloud engine, only when turned on** (Réglages › Transcription › Moteur cloud, off by
-  default, FLU-113): each dictation's audio, its language and the dictionary's terms (at most 40) go to
-  the chosen provider — `api.mistral.ai` (Voxtral Mini Transcribe 3) or `api.elevenlabs.io`
-  (Scribe v3) — with your own key, kept in the Keychain. With « Nettoyage dans le cloud » and a
-  Mistral key, the transcript goes to Mistral Small for cleanup at levels Medium and High. The
-  local engine transcribes the same audio meanwhile and its text is used when the cloud is
+  default, FLU-113): each dictation's audio, its language and the dictionary's terms (at most 100) go to
+  `api.elevenlabs.io` (Scribe v3) with your own key, kept in the Keychain. Cleanup stays on the
+  Mac. The local engine transcribes the same audio meanwhile and its text is used when the cloud is
   slow or unreachable. Only status codes and timings are logged; no cache is kept.
 
 Never sent otherwise: audio, transcripts, names, history, meeting notes.

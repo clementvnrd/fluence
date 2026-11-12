@@ -11,8 +11,8 @@ but is meant, and steps that look harmless but do real damage.
 **Fluence** — push-to-talk dictation, and (in progress) local meeting notes. Hold a key,
 talk, release, and cleaned-up text is typed into whatever had focus. Everything runs
 on-device by default; an opt-in cloud engine (FLU-113, off by default) sends the audio to
-Mistral or ElevenLabs with the user's own key (Keychain), and its text to Mistral for
-cleanup, with the local engine as the automatic fallback. A macOS app in Swift 6 and
+ElevenLabs (Scribe v3) with the user's own key (Keychain); cleanup stays on the Mac and the
+local engine is the automatic fallback. A macOS app in Swift 6 and
 SwiftUI, at the repo root; speech by Apple `SpeechAnalyzer`, Whisper via WhisperKit, or
 Parakeet Ultra via FluidAudio.
 

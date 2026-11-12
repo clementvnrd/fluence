@@ -1,23 +1,15 @@
 import FluenceCore
 import SwiftUI
 
-/// FLU-113: the opt-in cloud engine in Réglages › Transcription — off, Mistral or ElevenLabs,
-/// a key per provider pasted once into the Keychain, and cleanup by Mistral Small. What leaves
-/// the Mac is said in one amber line, never only behind the ⓘ.
+/// FLU-113: the opt-in cloud engine in Réglages › Transcription — off or ElevenLabs, its key
+/// pasted once into the Keychain. What leaves the Mac is said in one amber line, never only
+/// behind the ⓘ.
 struct CloudSettingsCard: View {
     @State private var settings = Settings.shared
-    /// Bumped when a key is saved or removed: the Keychain is not observable.
-    @State private var keysChanged = 0
 
     private static let choices: [CloudProvider?] = [nil] + CloudProvider.allCases
 
-    private static let info = "Mistral (Voxtral Mini Transcribe 3) ou ElevenLabs (Scribe v3), avec votre propre clé. Le moteur local écoute en même temps : si le cloud est lent ou injoignable, sa transcription est collée. Les mots du dictionnaire guident la transcription."
-    private static let cleanupInfo = "Aux niveaux Moyen et Élevé, Mistral Small nettoie le texte à la place du modèle local. S'il est lent ou refusé, le nettoyage se fait sur le Mac."
-
-    private var hasMistralKey: Bool {
-        _ = keysChanged
-        return CloudKeys.shared.has(.mistral)
-    }
+    private static let info = "ElevenLabs (Scribe v3), avec votre propre clé. Le moteur local écoute en même temps : si le cloud est lent ou injoignable, sa transcription est collée. Les mots du dictionnaire guident la transcription."
 
     var body: some View {
         SectionCard {
@@ -30,33 +22,20 @@ struct CloudSettingsCard: View {
                 ) { settings.cloudProvider = $0 }
             }
             if let provider = settings.cloudProvider {
-                RowNote(text: privacyNote(provider), color: DS.Color.amberText)
-                ForEach(CloudProvider.allCases, id: \.self) { keyProvider in
-                    RowDivider()
-                    CloudKeyRow(provider: keyProvider, changed: $keysChanged)
-                }
+                RowNote(text: "L'audio de vos dictées est envoyé à \(provider.displayName).", color: DS.Color.amberText)
                 RowDivider()
-                SettingsRow(systemImage: "sparkles", title: "Nettoyage dans le cloud (Mistral)", info: Self.cleanupInfo) {
-                    RowToggle(
-                        isOn: Binding(get: { settings.cloudCleanup && hasMistralKey }, set: { settings.cloudCleanup = $0 }),
-                        isEnabled: hasMistralKey
-                    )
-                }
+                CloudKeyRow(provider: provider)
             }
         }
     }
-
-    private func privacyNote(_ provider: CloudProvider) -> String {
-        let textToMistral = provider != .mistral && settings.cloudCleanup && hasMistralKey
-        return "L'audio de vos dictées est envoyé à \(provider.displayName)" + (textToMistral ? ", le texte à Mistral." : ".")
-    }
 }
 
-/// One provider's key: a secure field until it is saved, then « •••• enregistrée » with
+/// The provider's key: a secure field until it is saved, then « •••• enregistrée » with
 /// *Tester* and *Supprimer*. The key goes from the field to the Keychain, nowhere else.
 private struct CloudKeyRow: View {
     let provider: CloudProvider
-    @Binding var changed: Int
+    /// Bumped when the key is saved or removed: the Keychain is not observable.
+    @State private var changed = 0
     @State private var draft = ""
     @State private var status: String?
     @State private var testing = false

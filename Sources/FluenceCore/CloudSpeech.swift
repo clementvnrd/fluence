@@ -1,23 +1,16 @@
 import Foundation
 
 // FLU-113: the opt-in cloud engine. Off by default; on, the audio of each dictation goes to
-// the provider the user chose, with their own key. Everything here builds or reads bytes;
+// ElevenLabs (Scribe v3), with the user's own key. Everything here builds or reads bytes;
 // nothing here touches the network, the Keychain or a log.
 
-/// Where the audio goes.
+/// Where the audio goes. A stored value of a removed provider (« mistral », dev builds) reads as off.
 public enum CloudProvider: String, CaseIterable, Sendable {
-    case mistral
     case elevenLabs = "elevenlabs"
 
-    public var displayName: String {
-        switch self {
-        case .mistral: "Mistral"
-        case .elevenLabs: "ElevenLabs"
-        }
-    }
+    public var displayName: String { "ElevenLabs" }
 
-    /// Both document a list of terms; past 100 ElevenLabs bills 20 s minimum per request, and
-    /// Mistral's entries share the model's context with the audio.
+    /// Past 100 terms ElevenLabs bills 20 s minimum per request.
     static let termLimit = 100
 }
 
@@ -55,81 +48,45 @@ public enum CloudError: Error, Equatable, Sendable {
 }
 
 public enum CloudRequest {
-    /// Pinned model IDs, so a provider's « latest » alias never changes behaviour under us.
-    static let mistralTranscriptionModel = "voxtral-mini-transcribe-3-0"
+    /// Pinned, so a « latest » alias never changes behaviour under us.
     static let elevenLabsModel = "scribe_v3"
-    static let cleanupModel = "mistral-small-2603"
 
-    /// One dictation's audio for the provider's batch endpoint.
+    /// One dictation's audio for ElevenLabs' batch endpoint.
     /// - Parameters:
     ///   - language: ISO 639-1 (`DictationLanguage.code`); nil lets the provider detect it.
     ///   - terms: the dictionary's spellings, the user's own first (`biasPhrases`).
     public static func transcription(
-        provider: CloudProvider,
         key: String,
         wav: Data,
         language: String?,
         terms: [String],
         boundary: String = "fluence-" + UUID().uuidString
     ) -> URLRequest {
-        var fields: [(String, String)] = []
-        var request: URLRequest
-        switch provider {
-        case .mistral:
-            request = URLRequest(url: URL(string: "https://api.mistral.ai/v1/audio/transcriptions")!)
-            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            fields.append(("model", mistralTranscriptionModel))
-            if let language { fields.append(("language", language)) }
-            fields += Self.terms(terms, for: provider).map { ("context_bias", $0) }
-        case .elevenLabs:
-            request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!)
-            request.setValue(key, forHTTPHeaderField: "xi-api-key")
-            fields.append(("model_id", elevenLabsModel))
-            if let language { fields.append(("language_code", language)) }
-            // « (rires) » has no place in typed text.
-            fields.append(("tag_audio_events", "false"))
-            fields += Self.terms(terms, for: provider).map { ("keyterms", $0) }
-        }
+        var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!)
+        request.setValue(key, forHTTPHeaderField: "xi-api-key")
+        var fields = [("model_id", elevenLabsModel)]
+        if let language { fields.append(("language_code", language)) }
+        // « (rires) » has no place in typed text.
+        fields.append(("tag_audio_events", "false"))
+        fields += Self.terms(terms).map { ("keyterms", $0) }
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = multipart(fields, wav: wav, boundary: boundary)
         return request
     }
 
-    /// The terms a provider accepts, in order, at most `termLimit`. ElevenLabs refuses the
-    /// whole request (422) for one term over 50 characters, over five words or with `<>{}[]\`.
-    public static func terms(_ terms: [String], for provider: CloudProvider) -> [String] {
+    /// The terms ElevenLabs accepts, in order, at most `termLimit`. It refuses the whole
+    /// request (422) for one term over 50 characters, over five words or with `<>{}[]\`.
+    public static func terms(_ terms: [String]) -> [String] {
         let refused = CharacterSet(charactersIn: "<>{}[]\\")
         let kept = terms.filter { term in
             let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return false }
-            guard provider == .elevenLabs else { return true }
-            return trimmed.count <= 50
+            return !trimmed.isEmpty
+                && trimmed.count <= 50
                 && trimmed.split(whereSeparator: \.isWhitespace).count <= 5
                 && trimmed.rangeOfCharacter(from: refused) == nil
         }
         return Array(kept.prefix(CloudProvider.termLimit))
-    }
-
-    /// Cleanup by Mistral Small: the same instructions and prompt as the on-device model
-    /// (`CleanupPrompt`), near-deterministic, no reasoning pass (it only adds latency here).
-    public static func cleanup(key: String, instructions: String, prompt: String) -> URLRequest {
-        var request = URLRequest(url: URL(string: "https://api.mistral.ai/v1/chat/completions")!)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = [
-            "model": cleanupModel,
-            "temperature": 0.1,
-            "max_tokens": 1200,
-            "reasoning_effort": "none",
-            "messages": [
-                ["role": "system", "content": instructions],
-                ["role": "user", "content": prompt],
-            ],
-        ]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        return request
     }
 
     private static func multipart(_ fields: [(String, String)], wav: Data, boundary: String) -> Data {
@@ -145,28 +102,12 @@ public enum CloudRequest {
 }
 
 public enum CloudResponse {
-    /// The transcript of a transcription answer: both providers put it in `text`.
+    /// The transcript of a transcription answer, in `text`.
     public static func transcript(status: Int, body: Data) throws -> String {
         try check(status)
         guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               let text = json["text"] as? String
         else { throw CloudError.malformed }
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// The cleaned text of a chat answer: `choices[0].message.content`, a string or, from a
-    /// reasoning model, a list of chunks of which only the `text` ones count.
-    public static func cleanup(status: Int, body: Data) throws -> String {
-        try check(status)
-        guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-              let choices = json["choices"] as? [[String: Any]],
-              let message = choices.first?["message"] as? [String: Any]
-        else { throw CloudError.malformed }
-        if let text = message["content"] as? String {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        guard let chunks = message["content"] as? [[String: Any]] else { throw CloudError.malformed }
-        let text = chunks.filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }.joined()
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -243,7 +184,7 @@ public enum CloudFallback {
     }
 }
 
-/// 16-bit PCM WAV, mono, in memory: the one format both providers take without a codec.
+/// 16-bit PCM WAV, mono, in memory: a format ElevenLabs takes without a codec.
 public enum WAV {
     public static func encode(_ samples: [Float], sampleRate: Int) -> Data {
         let dataSize = UInt32(samples.count * 2)

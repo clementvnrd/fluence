@@ -3,8 +3,8 @@ import Testing
 
 @testable import FluenceCore
 
-/// FLU-113: the opt-in cloud engine — the requests sent, the answers read (sample bodies from
-/// the providers' docs), the fallback to the local engine, the audio file and the key store.
+/// FLU-113: the opt-in cloud engine — the request sent, the answers read (sample bodies from
+/// ElevenLabs' docs), the fallback to the local engine, the audio file and the key store.
 struct CloudSpeechTests {
     private func field(_ name: String, _ value: String) -> String {
         "--B\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n"
@@ -16,29 +16,9 @@ struct CloudSpeechTests {
 
     // MARK: - Requests
 
-    @Test func mistralTranscriptionRequest() throws {
-        let request = CloudRequest.transcription(
-            provider: .mistral, key: "k-123", wav: Data("RIFF".utf8), language: "fr",
-            terms: ["Fluence", "Clément Dupont"], boundary: "B"
-        )
-        #expect(request.url?.absoluteString == "https://api.mistral.ai/v1/audio/transcriptions")
-        #expect(request.httpMethod == "POST")
-        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer k-123")
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "multipart/form-data; boundary=B")
-        let text = try body(request)
-        #expect(text.contains(field("model", "voxtral-mini-transcribe-3-0")))
-        #expect(text.contains(field("language", "fr")))
-        #expect(text.contains(field("context_bias", "Fluence")))
-        #expect(text.contains(field("context_bias", "Clément Dupont")))
-        #expect(text.contains("--B\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\nRIFF\r\n"))
-        #expect(text.hasSuffix("--B--\r\n"))
-        // The key goes in the header only.
-        #expect(!text.contains("k-123"))
-    }
-
     @Test func elevenLabsTranscriptionRequest() throws {
         let request = CloudRequest.transcription(
-            provider: .elevenLabs, key: "xi-9", wav: Data("RIFF".utf8), language: "fr",
+            key: "xi-9", wav: Data("RIFF".utf8), language: "fr",
             terms: ["Fluence"], boundary: "B"
         )
         #expect(request.url?.absoluteString == "https://api.elevenlabs.io/v1/speech-to-text")
@@ -54,49 +34,22 @@ struct CloudSpeechTests {
     }
 
     @Test func autoLanguageLetsTheProviderDetect() throws {
-        for provider in CloudProvider.allCases {
-            let text = try body(CloudRequest.transcription(provider: provider, key: "k", wav: Data(), language: nil, terms: [], boundary: "B"))
-            #expect(!text.contains("name=\"language"))
-            #expect(!text.contains("name=\"context_bias\""))
-            #expect(!text.contains("name=\"keyterms\""))
-        }
+        let text = try body(CloudRequest.transcription(key: "k", wav: Data(), language: nil, terms: [], boundary: "B"))
+        #expect(!text.contains("name=\"language"))
+        #expect(!text.contains("name=\"keyterms\""))
     }
 
     @Test func termsTheProviderWouldRefuseAreLeftOut() {
         let terms = ["Fluence", "a<b", "x[1]", "back\\slash", String(repeating: "x", count: 51), "un deux trois quatre cinq six", "  ", "un deux trois quatre cinq"]
-        #expect(CloudRequest.terms(terms, for: .elevenLabs) == ["Fluence", "un deux trois quatre cinq"])
-        // Mistral documents no such rule: only blanks go.
-        #expect(CloudRequest.terms(terms, for: .mistral).count == terms.count - 1)
+        #expect(CloudRequest.terms(terms) == ["Fluence", "un deux trois quatre cinq"])
     }
 
     @Test func termsAreCappedAtTheProviderLimit() {
         let many = (0..<150).map { "terme\($0)" }
-        for provider in CloudProvider.allCases {
-            #expect(CloudRequest.terms(many, for: provider) == Array(many.prefix(100)))
-        }
-    }
-
-    @Test func cleanupRequest() throws {
-        let request = CloudRequest.cleanup(key: "k-1", instructions: "Règles", prompt: "Nettoie : texte")
-        #expect(request.url?.absoluteString == "https://api.mistral.ai/v1/chat/completions")
-        #expect(request.httpMethod == "POST")
-        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer k-1")
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
-        let data = try #require(request.httpBody)
-        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(json["model"] as? String == "mistral-small-2603")
-        #expect(json["temperature"] as? Double == 0.1)
-        #expect(json["reasoning_effort"] as? String == "none")
-        let messages = try #require(json["messages"] as? [[String: String]])
-        #expect(messages == [["role": "system", "content": "Règles"], ["role": "user", "content": "Nettoie : texte"]])
+        #expect(CloudRequest.terms(many) == Array(many.prefix(100)))
     }
 
     // MARK: - Answers
-
-    @Test func mistralTranscript() throws {
-        let sample = #"{"model":"voxtral-mini-transcribe-3","text":"Thanks for calling Northwind Support.","language":null,"segments":[],"usage":{"prompt_audio_seconds":34}}"#
-        #expect(try CloudResponse.transcript(status: 200, body: Data(sample.utf8)) == "Thanks for calling Northwind Support.")
-    }
 
     @Test func elevenLabsTranscript() throws {
         let sample = #"{"language_code":"en","language_probability":0.98,"text":"Hello world!","words":[{"end":0.5,"logprob":-0.124,"start":0,"text":"Hello","type":"word"}]}"#
@@ -110,21 +63,11 @@ struct CloudSpeechTests {
         #expect(throws: CloudError.rateLimited) { try CloudResponse.transcript(status: 429, body: body) }
         #expect(throws: CloudError.server(503)) { try CloudResponse.transcript(status: 503, body: body) }
         #expect(throws: CloudError.rejected(422)) { try CloudResponse.transcript(status: 422, body: body) }
-        #expect(throws: CloudError.badKey) { try CloudResponse.cleanup(status: 401, body: body) }
     }
 
     @Test func aSuccessWithoutTextIsMalformed() {
         #expect(throws: CloudError.malformed) { try CloudResponse.transcript(status: 200, body: Data("{}".utf8)) }
         #expect(throws: CloudError.malformed) { try CloudResponse.transcript(status: 200, body: Data("<html>".utf8)) }
-        #expect(throws: CloudError.malformed) { try CloudResponse.cleanup(status: 200, body: Data(#"{"choices":[]}"#.utf8)) }
-    }
-
-    @Test func cleanupAnswer() throws {
-        let plain = #"{"id":"cmpl-1","object":"chat.completion","model":"mistral-small-2603","choices":[{"index":0,"message":{"role":"assistant","content":"  Bonjour.\n"},"finish_reason":"stop"}]}"#
-        #expect(try CloudResponse.cleanup(status: 200, body: Data(plain.utf8)) == "Bonjour.")
-        // Reasoning models may answer with chunks: only the text ones count.
-        let chunks = #"{"choices":[{"index":0,"message":{"role":"assistant","content":[{"type":"thinking","thinking":[{"type":"text","text":"hmm"}]},{"type":"text","text":"Bonjour."}]},"finish_reason":"stop"}]}"#
-        #expect(try CloudResponse.cleanup(status: 200, body: Data(chunks.utf8)) == "Bonjour.")
     }
 
     @Test func errorKindsAreFixedWords() {
@@ -199,18 +142,23 @@ struct CloudSpeechTests {
     @Test func keysAreTrimmedStoredAndForgotten() throws {
         let store = InMemorySecretStore()
         let keys = CloudKeys(store: store)
-        #expect(!keys.has(.mistral))
-        try keys.save("  sk-1\n", for: .mistral)
-        #expect(try keys.key(for: .mistral) == "sk-1")
-        #expect(try store.read("mistral") == "sk-1")
-        #expect(keys.has(.mistral))
         #expect(!keys.has(.elevenLabs))
-        try keys.save("sk-2", for: .mistral)
-        #expect(try keys.key(for: .mistral) == "sk-2")
+        try keys.save("  xi-1\n", for: .elevenLabs)
+        #expect(try keys.key(for: .elevenLabs) == "xi-1")
+        #expect(try store.read("elevenlabs") == "xi-1")
+        #expect(keys.has(.elevenLabs))
+        try keys.save("xi-2", for: .elevenLabs)
+        #expect(try keys.key(for: .elevenLabs) == "xi-2")
         #expect(throws: CloudKeys.Failure.empty) { try keys.save(" \n", for: .elevenLabs) }
-        try keys.remove(.mistral)
-        #expect(try keys.key(for: .mistral) == nil)
-        #expect(try store.read("mistral") == nil)
+        try keys.remove(.elevenLabs)
+        #expect(try keys.key(for: .elevenLabs) == nil)
+        #expect(try store.read("elevenlabs") == nil)
+    }
+
+    @Test func aRemovedProviderReadsAsOff() {
+        // « mistral » may be stored by a dev build: the setting then reads as off.
+        #expect(CloudProvider(rawValue: "mistral") == nil)
+        #expect(CloudProvider(rawValue: "elevenlabs") == .elevenLabs)
     }
 
     @Test func aKeyIsReadFromTheStoreOnce() throws {
