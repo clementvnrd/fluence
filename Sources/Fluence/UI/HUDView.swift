@@ -130,11 +130,17 @@ struct HUDView: View {
                     .truncationMode(isMessage(content) ? .tail : .head)
                     .animation(DS.Motion.readout, value: controller.transcript)
                 if let caption = caption(content) {
-                    Text(caption)
-                        .font(.system(size: 10))
-                        .foregroundStyle(DS.Color.inkSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    HStack(spacing: 3) {
+                        if awaitedCloud(content) != nil {
+                            Image(systemName: "cloud.fill").foregroundStyle(DS.Color.accent)
+                                .accessibilityLabel("Dans le cloud")
+                        }
+                        Text(caption)
+                            .foregroundStyle(DS.Color.inkSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .font(.system(size: 10))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -237,7 +243,9 @@ struct HUDView: View {
         case .command:
             "Dites la consigne, ex. \(FrenchFormat.quoted("plus court et poli"))"
         case .transcribing:
-            "Sur ce Mac · \((controller.sessionEngine ?? settings.activeEngine).shortName)"
+            // FLU-129: once the text is back the badge says who wrote it; until then, who should.
+            controller.writtenBy != nil ? nil
+                : awaitedCloud(content)?.displayName ?? "Sur ce Mac · \((controller.sessionEngine ?? settings.activeEngine).shortName)"
         case .message(let message):
             message.detail
         case .learn(let proposal):
@@ -247,6 +255,12 @@ struct HUDView: View {
         default:
             nil
         }
+    }
+
+    /// FLU-129: the cloud a dictation with the cloud on waits on, while it transcribes.
+    private func awaitedCloud(_ content: Content) -> CloudProvider? {
+        guard case .transcribing = content, controller.writtenBy == nil else { return nil }
+        return controller.sessionCloud
     }
 
     @ViewBuilder
@@ -274,7 +288,11 @@ struct HUDView: View {
         case .command:
             KeyCap(text: ShortcutLabel.display(settings.commandModeKey.shortName))
         case .transcribing:
-            ProgressDots()
+            if let writer = controller.writtenBy {
+                EngineBadge(writer: writer, cloud: controller.sessionCloud)
+            } else {
+                ProgressDots()
+            }
         case .message(let message):
             // One button at most: blue for the way out of an error, grey beside a copy.
             if let action = message.action {
@@ -282,6 +300,8 @@ struct HUDView: View {
                     guard preview == nil else { return }
                     controller.performCapsuleAction()
                 }
+            } else if let writer = controller.writtenBy {
+                EngineBadge(writer: writer, cloud: controller.sessionCloud)
             }
         case .learn(let proposal):
             HStack(spacing: 6) {
@@ -340,6 +360,21 @@ private struct SmallPill: View {
         .buttonStyle(.plain)
         // Never squeezed by a long message: the message is cut, the button is not.
         .fixedSize()
+    }
+}
+
+/// FLU-129 (Clement's choice A): who wrote the dictation, in place of the dots — the cloud in
+/// the accent blue, the Mac in grey.
+private struct EngineBadge: View {
+    let writer: CloudFallback.Writer
+    let cloud: CloudProvider?
+
+    var body: some View {
+        Image(systemName: writer == .cloud ? "cloud.fill" : "laptopcomputer")
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(writer == .cloud ? DS.Color.accent : DS.Color.inkSecondary)
+            .frame(width: 18)
+            .accessibilityLabel(writer == .cloud ? "Écrit par \(cloud?.displayName ?? "le cloud")" : "Écrit sur ce Mac")
     }
 }
 

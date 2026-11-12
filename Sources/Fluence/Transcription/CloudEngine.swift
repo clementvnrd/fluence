@@ -31,6 +31,8 @@ actor CloudEngine: TranscriptionEngine {
     private(set) var producedBy: String?
     /// After `finish()`: why the local text was used instead, for the capsule.
     private(set) var fallback: CloudError?
+    /// After `finish()`: who wrote the text, for the capsule's badge (FLU-129).
+    private(set) var writer: CloudFallback.Writer?
 
     init(provider: CloudProvider, local: any TranscriptionEngine) {
         self.provider = provider
@@ -124,7 +126,9 @@ actor CloudEngine: TranscriptionEngine {
         }
         let elapsed = Self.seconds(since: started)
 
-        switch CloudFallback.choose(cloud: outcome, local: localText) {
+        let choice = CloudFallback.choose(cloud: outcome, local: localText)
+        writer = choice.writer
+        switch choice {
         case .cloud(let text):
             producedBy = "\(provider.displayName) (cloud)"
             let name = provider.rawValue
