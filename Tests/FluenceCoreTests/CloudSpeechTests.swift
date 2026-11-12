@@ -39,6 +39,55 @@ struct CloudSpeechTests {
         #expect(!text.contains("name=\"keyterms\""))
     }
 
+    // FLU-132: one channel of a finished meeting.
+    @Test func meetingChannelRequest() throws {
+        let pcm = Data([0x01, 0x00, 0xFF, 0x7F])
+        let (request, body) = CloudRequest.meeting(key: "xi-9", pcm: pcm, diarize: true, terms: ["Fluence", "a<b"], boundary: "B")
+        #expect(request.url?.absoluteString == "https://api.elevenlabs.io/v1/speech-to-text")
+        #expect(request.httpMethod == "POST")
+        #expect(request.value(forHTTPHeaderField: "xi-api-key") == "xi-9")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "multipart/form-data; boundary=B")
+        // Sent with `upload(for:from:)`: the body is not also held by the request.
+        #expect(request.httpBody == nil)
+        let text = String(decoding: body, as: UTF8.self)
+        #expect(text.contains(field("model_id", "scribe_v3")))
+        #expect(text.contains(field("diarize", "true")))
+        #expect(text.contains(field("timestamps_granularity", "word")))
+        #expect(text.contains(field("tag_audio_events", "false")))
+        // The spool's own samples, no codec: 16 kHz 16-bit mono little-endian PCM.
+        #expect(text.contains(field("file_format", "pcm_s16le_16")))
+        #expect(text.contains(field("keyterms", "Fluence")))
+        #expect(!text.contains("a<b"))
+        // A meeting is not always in the dictation's language, and the count of voices is not known.
+        #expect(!text.contains("name=\"language_code\""))
+        #expect(!text.contains("name=\"num_speakers\""))
+        #expect(!text.contains("xi-9"))
+        #expect(body.range(of: Data("filename=\"audio.pcm\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8) + pcm + Data("\r\n--B--\r\n".utf8)) != nil)
+    }
+
+    @Test func theMicrophoneChannelIsNotDiarized() {
+        let (_, body) = CloudRequest.meeting(key: "k", pcm: Data(), diarize: false, terms: [], boundary: "B")
+        let text = String(decoding: body, as: UTF8.self)
+        #expect(text.contains(field("diarize", "false")))
+        #expect(!text.contains("name=\"keyterms\""))
+    }
+
+    @Test func aMeetingWaitsLongerWithItsAudioUpToACap() {
+        #expect(CloudFallback.meetingDeadline(audioSeconds: 0) == 60)
+        #expect(CloudFallback.meetingDeadline(audioSeconds: 600) == 360)
+        #expect(CloudFallback.meetingDeadline(audioSeconds: 3 * 3600) == 1800)
+    }
+
+    @Test func onlyABusyOrFailingServerIsTriedAgain() {
+        #expect(CloudError.rateLimited.isTransient)
+        #expect(CloudError.server(503).isTransient)
+        #expect(!CloudError.badKey.isTransient)
+        #expect(!CloudError.rejected(422).isTransient)
+        #expect(!CloudError.network.isTransient)
+        #expect(!CloudError.timedOut.isTransient)
+        #expect(!CloudError.malformed.isTransient)
+    }
+
     @Test func termsTheProviderWouldRefuseAreLeftOut() {
         let terms = ["Fluence", "a<b", "x[1]", "back\\slash", String(repeating: "x", count: 51), "un deux trois quatre cinq six", "  ", "un deux trois quatre cinq"]
         #expect(CloudRequest.terms(terms) == ["Fluence", "un deux trois quatre cinq"])
