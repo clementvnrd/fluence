@@ -549,6 +549,8 @@ struct TranscriptionSettingsSection: View {
         .onChange(of: settings.parakeetVocabularyBoost) { models.reclassify() }
         .onChange(of: settings.compareMode) { models.reclassify() }
 
+        CloudSettingsCard()
+
         if !models.installed.isEmpty {
             modelsCard
         }
