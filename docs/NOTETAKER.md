@@ -2,7 +2,8 @@
 
 A local, bot-free meeting note-taker: detect the meeting, capture **my voice (mic)** and
 **everyone else (system audio)**, transcribe on-device, attribute every word to a named
-speaker, and produce notes. Nothing leaves the machine.
+speaker, and produce notes. Nothing leaves the machine, except the meeting's audio in
+*Précis* mode (§2.4.1, FLU-132).
 
 Status: **built for macOS (milestones 1–3), never run on a real call yet.** The pure logic
 (`FluenceMeetingCore`, `FluenceNotesCore`) is unit tested against the contracts in
@@ -193,6 +194,37 @@ On speakers, the mic hears the remote side → duplicated text attributed to "Me
   biasing Parakeet (also fixes the dictation gap).
 - Live transcript in a window that never takes focus; final pass replaces it.
 - Memory bounded: audio spooled to an encrypted temp file, never one growing `[Float]`.
+
+### 2.4.1 Précis mode: the meeting transcribed by ElevenLabs (FLU-132)
+Clement's decisions (2026-11-12, « 1 A / 2 A / 3 A / 4 A »): **after** the meeting, not live;
+**ElevenLabs separates the voices**; the **notes stay on the Mac**; **automatic** in Précis
+mode (Réglages › Transcription, `Settings.cloudProvider == .elevenLabs` and a key saved).
+In Privé nothing changes. Réglages › Réunions says it in one amber line.
+- What is sent (`MeetingCloud`, `CloudRequest.meeting`): each spool, decrypted **in memory**,
+  as 16 kHz 16-bit mono PCM (`file_format=pcm_s16le_16`, no codec, nothing written to disk),
+  uploaded from memory (`URLSession.upload(for:from:)`, ephemeral session) to
+  `api.elevenlabs.io/v1/speech-to-text` with `model_id=scribe_v3`,
+  `timestamps_granularity=word`, `tag_audio_events=false`, the dictionary's terms as
+  `keyterms` (at most 100, the dictation's list), and `diarize=true` on the call's channel
+  only (the mic is the user). No `language_code` (a meeting is not always in the dictation's
+  language) and no `num_speakers` (rarely known for sure; the window/calendar cap applies
+  afterwards in `SpeakerConsolidation`, as for the local diarizer). About 115 MB an hour
+  per channel (ElevenLabs takes up to 5 GB); the call's channel first, then the mic.
+- What comes back is read by `CloudTranscript` (FluenceMeetingCore, tested): words of type
+  `word` with `start`, `end`, `speaker_id`, cut into segments where `UtteranceSegmenter`
+  would cut (0.5 s pause, 14.5 s) and at each speaker change, one `SpeakerTurn` per
+  segment. These replace the live segments and the local diarizer's turns; consolidation
+  (by time: no embeddings, so no voice prints), `SpeakerAssignment`, the echo dedupe of
+  `TranscriptMerger`, naming and notes run unchanged. Spans the live pass missed
+  (`untranscribed`, FLU-54) are covered by the whole-spool transcript.
+- Waits: per channel `60 s + 0.5 × audio`, at most 30 min (`CloudFallback.meetingDeadline`),
+  upload included; one retry after 10 s on 429 / 5xx.
+- **Fallback**: no key, a refusal, the network, the deadline, a malformed answer, or no word
+  where the live pass heard some → that meeting's whole final pass runs on the Mac as before.
+  Logged as a kind and counted in Diagnostics (`meeting.cloud.fallback`); never a body.
+- **Survival**: the cloud step is part of the final pass, so a quit during the upload leaves
+  the marker and the next launch's recovery tries again (two attempts, `RecoveryPlan`),
+  falling back to the Mac the same way.
 
 ### 2.5 Speaker diarization and naming
 - **Mic = Me. Diarize the system channel only.** Fewer speakers to separate, and my own

@@ -211,6 +211,10 @@ Network — every outgoing connection, and nothing else:
   `api.elevenlabs.io` (Scribe v3) with your own key, kept in the Keychain. Cleanup stays on the
   Mac. The local engine transcribes the same audio meanwhile and its text is used when the cloud is
   slow or unreachable. Only status codes and timings are logged; no cache is kept.
+  In the same mode, once a meeting ends, its audio (your mic and the call's, every voice)
+  goes there too, decrypted in memory only, with the dictionary's terms, to be transcribed and
+  split by speaker (FLU-132); the notes are still written on the Mac. If that fails, the
+  meeting is transcribed on the Mac as before.
 
 Never sent otherwise: audio, transcripts, names, history, meeting notes.
 
