@@ -60,7 +60,15 @@ enum DictationPipeline {
                 // tested rules.
                 cleaned = LightCleanup.apply(shielded, language: language, developer: developer)
             case .medium, .high:
-                if level.fixesNames(in: language) {
+                let style = level.appliesStyle
+                    ? CleanupPrompt.Style(style: settings.style(for: category), category: category)
+                    : nil
+                // FLU-113: Mistral Small when the cloud is on; the Mac's own pass otherwise.
+                if CloudCleanup.isOn, let cloud = await CloudCleanup.format(
+                    shielded, language: language, style: style, placeholderCount: expansions.count, developer: developer
+                ) {
+                    cleaned = cloud
+                } else if level.fixesNames(in: language) {
                     let terms = DictionaryStore.shared.biasPhrases
                     cleaned = await NameFixerFormatter(
                         language: language,
@@ -69,9 +77,6 @@ enum DictationPipeline {
                         session: NameFixerFormatter.takeSession(terms: terms, language: language)
                     ).format(shielded)
                 } else {
-                    let style = level.appliesStyle
-                        ? CleanupPrompt.Style(style: settings.style(for: category), category: category)
-                        : nil
                     cleaned = await FoundationModelFormatter(
                         language: language,
                         style: style,
