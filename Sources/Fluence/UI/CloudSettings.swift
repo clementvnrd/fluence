@@ -1,31 +1,128 @@
 import FluenceCore
 import SwiftUI
 
-/// FLU-113: the opt-in cloud engine in Réglages › Transcription — off or ElevenLabs, its key
-/// pasted once into the Keychain. What leaves the Mac is said in one amber line, never only
-/// behind the ⓘ.
-struct CloudSettingsCard: View {
+/// FLU-128 (mock-up B): the two modes at the top of Réglages › Transcription, and one line
+/// saying where the voice and the text really go. « Précis » is the opt-in cloud engine
+/// (FLU-113): ElevenLabs with the user's key pasted once into the Keychain, the local engine
+/// as fallback. What leaves the Mac is said in one amber line, never only behind the ⓘ.
+struct TranscriptionModeCards: View {
     @State private var settings = Settings.shared
+    /// Bumped when the key is saved or removed: the Keychain is not observable.
+    @State private var keyChanged = 0
 
-    private static let choices: [CloudProvider?] = [nil] + CloudProvider.allCases
-
-    private static let info = "ElevenLabs (Scribe v3), avec votre propre clé. Le moteur local écoute en même temps : si le cloud est lent ou injoignable, sa transcription est collée. Les mots du dictionnaire guident la transcription."
+    private static let precise = CloudProvider.elevenLabs
 
     var body: some View {
+        let _ = keyChanged
+        let hasKey = CloudKeys.shared.has(Self.precise)
+        HStack(spacing: DS.Space.base) {
+            ModeCard(systemImage: "lock.shield", title: "Privé", detail: "Tout reste sur ce Mac", isSelected: settings.cloudProvider == nil) {
+                settings.cloudProvider = nil
+            }
+            // Without a key Précis could only fall back to the local engine: it cannot be chosen.
+            ModeCard(systemImage: "scope", title: "Précis", detail: hasKey ? "La voix part chez \(Self.precise.displayName)" : "Clé requise", isSelected: settings.cloudProvider != nil, isEnabled: hasKey) {
+                settings.cloudProvider = Self.precise
+            }
+        }
+        RouteSummary(parts: TranscriptionRoute.summary(
+            local: settings.activeEngine.compared,
+            cloud: settings.cloudProvider,
+            hasKey: hasKey,
+            compareMode: settings.compareMode,
+            cleanup: settings.cleanupLevel
+        ))
+        // In both modes: a key pasted in Privé stays visible, and can be removed there.
         SectionCard {
-            SettingsRow(systemImage: "cloud", title: "Moteur cloud", info: Self.info) {
-                PillTabs(
-                    options: Self.choices,
-                    title: { $0?.displayName ?? "Désactivé" },
-                    selection: .some(settings.cloudProvider),
-                    small: true
-                ) { settings.cloudProvider = $0 }
+            CloudKeyRow(provider: Self.precise, changed: $keyChanged)
+            if hasKey, settings.cloudProvider != nil {
+                RowNote(text: "L'audio de vos dictées est envoyé à \(Self.precise.displayName).", color: DS.Color.amberText)
             }
-            if let provider = settings.cloudProvider {
-                RowNote(text: "L'audio de vos dictées est envoyé à \(provider.displayName).", color: DS.Color.amberText)
-                RowDivider()
-                CloudKeyRow(provider: provider)
+        }
+    }
+}
+
+/// One of the two modes: a big card, clicked to choose it.
+private struct ModeCard: View {
+    let systemImage: String
+    let title: String
+    let detail: String
+    let isSelected: Bool
+    var isEnabled = true
+    let action: () -> Void
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(isSelected ? DS.Color.accent : DS.Color.inkSecondary)
+                    .frame(width: 24, height: 22)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(DS.Font.bodyEmphasis).foregroundStyle(DS.Color.ink)
+                    Text(detail).font(.system(size: 11)).foregroundStyle(DS.Color.inkSecondary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 15))
+                    .foregroundStyle(isSelected ? DS.Color.accent : DS.Color.silkscreen)
+                    .accessibilityHidden(true)
             }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                shape
+                    .fill(isSelected ? DS.Color.selection.opacity(0.55) : DS.Color.panel)
+                    .overlay(shape.strokeBorder(isSelected ? DS.Color.accent : DS.Color.seam, lineWidth: isSelected ? 1.5 : 1))
+                    .shadow(color: DS.Shadow.raised.color, radius: DS.Shadow.raised.radius, y: DS.Shadow.raised.y)
+            )
+            .contentShape(shape)
+            .keyboardFocusRing(shape)
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.45)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// « Votre voix → … · Correction … · Secours … », from `TranscriptionRoute`.
+private struct RouteSummary: View {
+    let parts: [TranscriptionRoute.Part]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
+                if index > 0 { Text("·").font(DS.Font.label).foregroundStyle(DS.Color.silkscreen) }
+                HStack(spacing: 5) {
+                    Image(systemName: Self.symbol(part.step)).font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(part.step == .missingKey ? DS.Color.meterAmber : DS.Color.accent)
+                    Text(part.lead).font(DS.Font.label).foregroundStyle(DS.Color.inkSecondary)
+                    if !part.target.isEmpty {
+                        Text(part.target).font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(part.isCloud ? DS.Color.accent : part.step == .missingKey ? DS.Color.amberText : DS.Color.ink)
+                    }
+                }
+                .lineLimit(1)
+                .fixedSize()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 36)
+        .background(DS.Color.well, in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    private static func symbol(_ step: TranscriptionRoute.Step) -> String {
+        switch step {
+        case .voice: "waveform"
+        case .missingKey: "key"
+        case .correction: "sparkles"
+        case .fallback: "arrow.uturn.backward.circle"
         }
     }
 }
@@ -34,11 +131,13 @@ struct CloudSettingsCard: View {
 /// *Tester* and *Supprimer*. The key goes from the field to the Keychain, nowhere else.
 private struct CloudKeyRow: View {
     let provider: CloudProvider
-    /// Bumped when the key is saved or removed: the Keychain is not observable.
-    @State private var changed = 0
+    /// Bumped when the key is saved or removed, so the summary line reads the Keychain again.
+    @Binding var changed: Int
     @State private var draft = ""
     @State private var status: String?
     @State private var testing = false
+
+    private static let info = "ElevenLabs (Scribe v3), avec votre propre clé. Le moteur local écoute en même temps : si le cloud est lent ou injoignable, sa transcription est collée. Les mots du dictionnaire guident la transcription."
 
     var body: some View {
         let _ = changed
@@ -46,7 +145,8 @@ private struct CloudKeyRow: View {
         SettingsRow(
             systemImage: "key",
             title: "Clé \(provider.displayName)",
-            subtitle: saved ? "•••• enregistrée" + (status.map { " · " + $0 } ?? "") : status
+            subtitle: saved ? "•••• enregistrée" + (status.map { " · " + $0 } ?? "") : status,
+            info: Self.info
         ) {
             if saved {
                 HStack(spacing: DS.Space.snug) {
@@ -81,6 +181,7 @@ private struct CloudKeyRow: View {
     private func remove() {
         do {
             try CloudKeys.shared.remove(provider)
+            Settings.shared.cloudProvider = nil // Précis needs the key: back to Privé.
             status = nil
             changed += 1
         } catch {

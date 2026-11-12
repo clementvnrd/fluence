@@ -44,7 +44,7 @@ The settings window has a sidebar of six sections. Nothing was dropped.
 | Général | Microphone | Dictée |
 | Général | Language (+ 23 others), ⌥L switch | Transcription (⌥L also in Dictée) |
 | Général | Engine, Whisper model | Transcription |
-| IA & Formatage | Cleanup on/off + smart cleanup | Texte (cleanup level Aucun/Léger/Moyen/Élevé) |
+| IA & Formatage | Cleanup on/off + smart cleanup | Transcription since FLU-128, Texte before (cleanup level Aucun/Léger/Moyen/Élevé) |
 | IA & Formatage | Smart cleanup on Whisper | Transcription |
 | IA & Formatage | Code formatting | Texte (and Styles page) |
 | IA & Formatage | Snippets on/off | Texte (and Snippets page) |

@@ -472,6 +472,7 @@ struct TranscriptionSettingsSection: View {
     @State private var models = SpeechModelStore.shared
     /// The model whose *Supprimer…* was clicked, waiting for the confirmation.
     @State private var pendingDeletion: InstalledSpeechModel?
+    @State private var showsAdvanced = false
     @Environment(\.openWindow) private var openWindow
 
     private enum BoostStatus: Equatable {
@@ -482,6 +483,8 @@ struct TranscriptionSettingsSection: View {
     private static let quickLanguages: [DictationLanguage] = [.french, .english, .auto]
 
     var body: some View {
+        TranscriptionModeCards()
+
         SectionCard {
             SettingsRow(systemImage: "globe", title: "Langue de dictée", info: languageNote) {
                 HStack(spacing: DS.Space.snug) {
@@ -503,42 +506,32 @@ struct TranscriptionSettingsSection: View {
                 RowNote(text: languageCaveat, color: DS.Color.amberText)
             }
             RowDivider()
-            SettingsRow(systemImage: "waveform", title: "Moteur vocal", info: settings.engine.explanation) {
-                PillTabs(options: SpeechEngineChoice.allCases, title: \.shortName, selection: settings.engine, small: true) {
-                    settings.engine = $0
+            // FLU-128: moved here from Texte, next to where the text is corrected.
+            SettingsRow(systemImage: "sparkles", title: "Niveau de nettoyage", subtitle: cleanupState, info: cleanupInfo) {
+                PillTabs(options: CleanupLevel.allCases, title: \.title, selection: settings.cleanupLevel, small: true) {
+                    settings.cleanupLevel = $0
                 }
             }
-            if let engineCaveat {
-                RowNote(text: engineCaveat, color: DS.Color.amberText)
+            if let cleanupCaveat {
+                RowNote(text: cleanupCaveat, color: DS.Color.amberText)
             }
-            // FLU-29: Parakeet selected (or the French default) but not on disk yet — its
-            // download, asked for here, with Apple standing in meanwhile.
-            if settings.isWaitingForParakeet {
-                RowDivider()
-                ParakeetDownloadRow()
-            }
-            if settings.engine == .whisper {
-                RowDivider()
-                SettingsRow(
-                    systemImage: "cpu",
-                    title: "Modèle Whisper",
-                    subtitle: WhisperModels.isDownloaded(variant: settings.whisperModel) ? nil : "Téléchargé à la première dictée"
-                ) {
-                    MenuChip(title: WhisperModels.availableVariants.first { $0.id == settings.whisperModel }?.displayName ?? settings.whisperModel) {
-                        ForEach(WhisperModels.availableVariants) { variant in
-                            Button(variant.displayName) { settings.whisperModel = variant.id }
-                        }
-                    }
+        }
+
+        // FLU-128: the rare options, folded; the subtitle says the engine that runs.
+        SectionCard {
+            Button { showsAdvanced.toggle() } label: {
+                SettingsRow(systemImage: "slider.horizontal.3", title: "Avancé", subtitle: advancedState) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(DS.Color.inkSecondary)
+                        .rotationEffect(.degrees(showsAdvanced ? 90 : 0))
                 }
-                RowDivider()
-                SettingsRow(
-                    systemImage: "bolt",
-                    title: "Nettoyage par le modèle avec Whisper",
-                    info: "Whisper ponctue déjà. Le modèle local ajoute environ 3,5 s ; sans lui, les niveaux Moyen et Élevé nettoient avec les règles."
-                ) {
-                    RowToggle(isOn: $settings.smartCleanupOnWhisper, isEnabled: FoundationModelFormatter.isAvailable)
-                }
+                .contentShape(Rectangle())
+                .keyboardFocusRing(RoundedRectangle(cornerRadius: 12, style: .continuous), outset: 0)
             }
+            .buttonStyle(.plain)
+            .focusEffectDisabled()
+            .accessibilityValue(showsAdvanced ? "Affiché" : "Masqué")
         }
         .task {
             await models.refresh()
@@ -549,31 +542,70 @@ struct TranscriptionSettingsSection: View {
         .onChange(of: settings.parakeetVocabularyBoost) { models.reclassify() }
         .onChange(of: settings.compareMode) { models.reclassify() }
 
-        CloudSettingsCard()
-
-        if !models.installed.isEmpty {
-            modelsCard
-        }
-
-        SectionCard {
-            SettingsRow(systemImage: "text.magnifyingglass", title: "Renforcer les mots du dictionnaire dans Parakeet", subtitle: boostState, info: Self.boostInfo) {
-                RowToggle(isOn: Binding(get: { settings.parakeetVocabularyBoost }, set: { setBoost($0) }))
-            }
-        }
-
-        SectionCard {
-            SettingsRow(
-                systemImage: "square.split.2x1",
-                title: "Mode comparaison",
-                info: "Chaque dictée passe par les moteurs déjà téléchargés, côte à côte. Rien n'est tapé dans ce mode."
-            ) {
-                HStack(spacing: DS.Space.snug) {
-                    CapButton(title: "Ouvrir", height: 24) {
-                        openWindow(id: "comparison")
-                        NSApp.activate()
+        if showsAdvanced {
+            SectionCard {
+                SettingsRow(systemImage: "waveform", title: "Moteur vocal", info: settings.engine.explanation) {
+                    PillTabs(options: SpeechEngineChoice.allCases, title: \.shortName, selection: settings.engine, small: true) {
+                        settings.engine = $0
                     }
-                    RowToggle(isOn: $settings.compareMode)
                 }
+                if let engineCaveat {
+                    RowNote(text: engineCaveat, color: DS.Color.amberText)
+                }
+                // FLU-29: Parakeet selected (or the French default) but not on disk yet — its
+                // download, asked for here, with Apple standing in meanwhile.
+                if settings.isWaitingForParakeet {
+                    RowDivider()
+                    ParakeetDownloadRow()
+                }
+                if settings.engine == .whisper {
+                    RowDivider()
+                    SettingsRow(
+                        systemImage: "cpu",
+                        title: "Modèle Whisper",
+                        subtitle: WhisperModels.isDownloaded(variant: settings.whisperModel) ? nil : "Téléchargé à la première dictée"
+                    ) {
+                        MenuChip(title: WhisperModels.availableVariants.first { $0.id == settings.whisperModel }?.displayName ?? settings.whisperModel) {
+                            ForEach(WhisperModels.availableVariants) { variant in
+                                Button(variant.displayName) { settings.whisperModel = variant.id }
+                            }
+                        }
+                    }
+                    RowDivider()
+                    SettingsRow(
+                        systemImage: "bolt",
+                        title: "Nettoyage par le modèle avec Whisper",
+                        info: "Whisper ponctue déjà. Le modèle local ajoute environ 3,5 s ; sans lui, les niveaux Moyen et Élevé nettoient avec les règles."
+                    ) {
+                        RowToggle(isOn: $settings.smartCleanupOnWhisper, isEnabled: FoundationModelFormatter.isAvailable)
+                    }
+                }
+            }
+
+            SectionCard {
+                SettingsRow(systemImage: "text.magnifyingglass", title: "Renforcer les mots du dictionnaire dans Parakeet", subtitle: boostState, info: Self.boostInfo) {
+                    RowToggle(isOn: Binding(get: { settings.parakeetVocabularyBoost }, set: { setBoost($0) }))
+                }
+            }
+
+            SectionCard {
+                SettingsRow(
+                    systemImage: "square.split.2x1",
+                    title: "Mode comparaison",
+                    info: "Chaque dictée passe par les moteurs déjà téléchargés, côte à côte. Rien n'est tapé dans ce mode."
+                ) {
+                    HStack(spacing: DS.Space.snug) {
+                        CapButton(title: "Ouvrir", height: 24) {
+                            openWindow(id: "comparison")
+                            NSApp.activate()
+                        }
+                        RowToggle(isOn: $settings.compareMode)
+                    }
+                }
+            }
+
+            if !models.installed.isEmpty {
+                modelsCard
             }
         }
     }
@@ -581,6 +613,35 @@ struct TranscriptionSettingsSection: View {
     private func setLanguage(_ language: DictationLanguage) {
         settings.dictationLanguage = language
         settings.prewarmCurrentEngine()
+    }
+
+    /// « Moteur : Parakeet · 632 Mo sur ce Mac »; « Secours » when the cloud is on top of it.
+    private var advancedState: String {
+        let engine = (settings.cloudProvider == nil ? "Moteur : " : "Secours : ") + settings.activeEngine.compared.displayName
+        if models.installed.isEmpty { return engine }
+        return engine + " · " + FrenchFormat.bytes(SpeechModelInventory.totalBytes(models.installed)) + " sur ce Mac"
+    }
+
+    /// Where the text is corrected, as a state (FLU-19: what each level does is in ⓘ).
+    private var cleanupState: String? {
+        guard settings.cleanupLevel != .none else { return nil }
+        let model = settings.effectiveCleanupLevel.usesModel && FoundationModelFormatter.isAvailable
+        return "Sur ce Mac · règles" + (model ? " + modèle Apple" : "")
+    }
+
+    private var cleanupInfo: String {
+        settings.cleanupLevel.explanation + " Les corrections du dictionnaire et vos snippets s'appliquent à tous les niveaux."
+    }
+
+    /// Only when the chosen level cannot run as described: that stays on the page.
+    private var cleanupCaveat: String? {
+        if settings.cleanupLevel.usesModel, let reason = FoundationModelFormatter.unavailableReason {
+            return "\(reason) En attendant, ce niveau nettoie avec les règles du niveau Léger."
+        }
+        if settings.engine == .whisper, !settings.smartCleanupOnWhisper, settings.cleanupLevel.usesModel {
+            return "Avec Whisper, ce niveau n'utilise le modèle que si « Nettoyage par le modèle avec Whisper » est activé (Avancé)."
+        }
+        return nil
     }
 
     // MARK: FLU-31 — models on this Mac

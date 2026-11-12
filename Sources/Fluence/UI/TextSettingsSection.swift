@@ -1,29 +1,14 @@
 import FluenceCore
 import SwiftUI
 
-/// Réglages ▸ Texte (FLU-12, mock-up 08): the cleanup level with one sentence shown at every
-/// level, the styles per app, snippets, code formatting, and the two ways the dictionary
-/// learns.
+/// Réglages ▸ Texte (FLU-12, mock-up 08): the styles per app, snippets, code formatting, and
+/// the two ways the dictionary learns. The cleanup level is in Transcription (FLU-128).
 struct TextSettingsSection: View {
     @State private var settings = Settings.shared
     @State private var snippets = SnippetStore.shared
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        SectionCard {
-            SettingsRow(systemImage: "sparkles", title: "Niveau de nettoyage", info: cleanupInfo) {
-                PillTabs(options: CleanupLevel.allCases, title: \.title, selection: settings.cleanupLevel, small: true) {
-                    settings.cleanupLevel = $0
-                }
-            }
-            CleanupExamples(selection: settings.cleanupLevel) { settings.cleanupLevel = $0 }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 10)
-            if let cleanupCaveat {
-                RowNote(text: cleanupCaveat, color: DS.Color.amberText)
-            }
-        }
-
         SectionCard {
             // The cards live on the Styles page; here, one row that leads there (FLU-19:
             // the same cards twice was the same text twice).
@@ -79,62 +64,6 @@ struct TextSettingsSection: View {
             }
         }
     }
-
-    private var cleanupInfo: String {
-        settings.cleanupLevel.explanation + " Les corrections du dictionnaire et vos snippets s'appliquent à tous les niveaux."
-    }
-
-    /// Only when the chosen level cannot run as described: that stays on the page.
-    private var cleanupCaveat: String? {
-        if settings.cleanupLevel.usesModel, let reason = FoundationModelFormatter.unavailableReason {
-            return "\(reason) En attendant, ce niveau nettoie avec les règles du niveau Léger."
-        }
-        if settings.engine == .whisper, !settings.smartCleanupOnWhisper, settings.cleanupLevel.usesModel {
-            return "Avec Whisper, ce niveau n'utilise le modèle que si « Nettoyage par le modèle avec Whisper » est activé (Transcription)."
-        }
-        return nil
-    }
-}
-
-/// The same sentence at the four levels; the chosen one highlighted, any one clickable.
-private struct CleanupExamples: View {
-    let selection: CleanupLevel
-    let onSelect: (CleanupLevel) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(CleanupLevel.allCases, id: \.self) { level in
-                let isSelected = level == selection
-                Button { onSelect(level) } label: {
-                    HStack(spacing: DS.Space.base) {
-                        Text(level.title)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(isSelected ? DS.Color.accent : DS.Color.inkSecondary)
-                            .frame(width: 46, alignment: .leading)
-                        Text(FrenchFormat.quoted(level.example))
-                            .font(DS.Font.body)
-                            .foregroundStyle(isSelected ? DS.Color.ink : DS.Color.inkSecondary)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        if isSelected {
-                            Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(DS.Color.accent)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
-                    .background {
-                        if isSelected {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous).fill(DS.Color.selection)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(6)
-        .background(DS.Color.well, in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
-    }
 }
 
 extension CleanupLevel {
@@ -144,16 +73,6 @@ extension CleanupLevel {
         case .light: "Léger"
         case .medium: "Moyen"
         case .high: "Élevé"
-        }
-    }
-
-    /// One dictated sentence at this level (mock-up 08) — an illustration, not a promise.
-    var example: String {
-        switch self {
-        case .none: "euh donc je pousse sur guit hub jeudi, enfin non, vendredi quoi"
-        case .light: "Donc je pousse sur guit hub jeudi, enfin non, vendredi."
-        // High in French fixes names like Medium (FLU-91); its style rewrite is for other languages.
-        case .medium, .high: "Donc je pousse sur GitHub jeudi, enfin non, vendredi."
         }
     }
 
