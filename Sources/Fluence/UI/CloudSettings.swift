@@ -14,25 +14,28 @@ struct TranscriptionModeCards: View {
 
     var body: some View {
         let _ = keyChanged
+        let hasKey = CloudKeys.shared.has(Self.precise)
         HStack(spacing: DS.Space.base) {
             ModeCard(systemImage: "lock.shield", title: "Privé", detail: "Tout reste sur ce Mac", isSelected: settings.cloudProvider == nil) {
                 settings.cloudProvider = nil
             }
-            ModeCard(systemImage: "scope", title: "Précis", detail: "La voix part chez \(Self.precise.displayName)", isSelected: settings.cloudProvider != nil) {
+            // Without a key Précis could only fall back to the local engine: it cannot be chosen.
+            ModeCard(systemImage: "scope", title: "Précis", detail: hasKey ? "La voix part chez \(Self.precise.displayName)" : "Clé requise", isSelected: settings.cloudProvider != nil, isEnabled: hasKey) {
                 settings.cloudProvider = Self.precise
             }
         }
         RouteSummary(parts: TranscriptionRoute.summary(
             local: settings.activeEngine.compared,
             cloud: settings.cloudProvider,
-            hasKey: settings.cloudProvider.map { CloudKeys.shared.has($0) } ?? false,
+            hasKey: hasKey,
             compareMode: settings.compareMode,
             cleanup: settings.cleanupLevel
         ))
-        if let provider = settings.cloudProvider {
-            SectionCard {
-                CloudKeyRow(provider: provider, changed: $keyChanged)
-                RowNote(text: "L'audio de vos dictées est envoyé à \(provider.displayName).", color: DS.Color.amberText)
+        // In both modes: a key pasted in Privé stays visible, and can be removed there.
+        SectionCard {
+            CloudKeyRow(provider: Self.precise, changed: $keyChanged)
+            if hasKey, settings.cloudProvider != nil {
+                RowNote(text: "L'audio de vos dictées est envoyé à \(Self.precise.displayName).", color: DS.Color.amberText)
             }
         }
     }
@@ -44,6 +47,7 @@ private struct ModeCard: View {
     let title: String
     let detail: String
     let isSelected: Bool
+    var isEnabled = true
     let action: () -> Void
 
     var body: some View {
@@ -78,6 +82,8 @@ private struct ModeCard: View {
         }
         .buttonStyle(.plain)
         .focusEffectDisabled()
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.45)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
@@ -175,6 +181,7 @@ private struct CloudKeyRow: View {
     private func remove() {
         do {
             try CloudKeys.shared.remove(provider)
+            Settings.shared.cloudProvider = nil // Précis needs the key: back to Privé.
             status = nil
             changed += 1
         } catch {
