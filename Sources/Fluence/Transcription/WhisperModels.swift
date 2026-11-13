@@ -49,16 +49,20 @@ actor WhisperModels {
         AppPaths.directory("WhisperModels")
     }
 
-    /// Fast synchronous check without loading models into memory.
-    nonisolated static func isDownloaded(variant: String = defaultVariant) -> Bool {
-        let base = downloadDirectory
-        let expectedFolder = base.appendingPathComponent("models/argmaxinc/whisperkit-coreml")
-        guard FileManager.default.fileExists(atPath: expectedFolder.path) else { return false }
+    /// The variant's folder, where WhisperKit's download puts it.
+    nonisolated static func folder(variant: String) -> URL {
+        downloadDirectory.appendingPathComponent("models/argmaxinc/whisperkit-coreml/\(variant)")
+    }
 
-        guard let contents = try? FileManager.default.contentsOfDirectory(atPath: expectedFolder.path) else {
-            return false
-        }
-        return contents.contains { $0.contains(variant) }
+    /// Fast synchronous check without loading models into memory: every bundle with its
+    /// weights (audit 3 A7-3). The folder alone appears with the download's first file, so an
+    /// interrupted download read as a model and was never resumed.
+    nonisolated static func isDownloaded(variant: String = defaultVariant) -> Bool {
+        ModelFolderCheck.isComplete(
+            files: ModelFolderCheck.files(under: folder(variant: variant)),
+            bundles: ["MelSpectrogram.mlmodelc", "AudioEncoder.mlmodelc", "TextDecoder.mlmodelc"],
+            otherFiles: []
+        )
     }
 
     private var loadedPipelines: [String: WhisperKit] = [:]
@@ -158,14 +162,15 @@ actor WhisperModels {
         let baseDir = Self.downloadDirectory
         let task = Task<Void, Error> { [self] in
             let started = Date()
-            Log.speech.info("WhisperKit: preparing model '\(variant, privacy: .public)' in \(baseDir.path, privacy: .public)")
+            // The variant only: a path names the account (audit 3 A5-4).
+            Log.speech.info("WhisperKit: preparing model '\(variant, privacy: .public)'")
 
-            let expectedFolder = baseDir.appendingPathComponent("models/argmaxinc/whisperkit-coreml/\(variant)")
             let modelFolder: URL
-            if FileManager.default.fileExists(atPath: expectedFolder.path) {
-                modelFolder = expectedFolder
-                Log.speech.info("WhisperKit: using local model at \(expectedFolder.path, privacy: .public)")
+            if Self.isDownloaded(variant: variant) {
+                modelFolder = Self.folder(variant: variant)
+                Log.speech.info("WhisperKit: using the local model")
             } else {
+                // A partial folder too: the download resumes, fetching only what is missing.
                 modelFolder = try await WhisperKit.download(
                     variant: variant,
                     downloadBase: baseDir,
@@ -178,7 +183,7 @@ actor WhisperModels {
                 )
             }
 
-            Log.speech.info("WhisperKit: model ready at \(modelFolder.path, privacy: .public). Loading CoreML pipeline…")
+            Log.speech.info("WhisperKit: model on disk, loading the CoreML pipeline…")
 
             let kit = try await WhisperKit(
                 downloadBase: baseDir,

@@ -211,16 +211,7 @@ actor ParakeetModels {
     /// download for a finished one, and the next dictation waited on the rest. Views read
     /// `ParakeetDownload.isReady` instead of calling this while they draw.
     nonisolated static var isDownloaded: Bool {
-        let directory = AsrModels.defaultCacheDirectory(for: version)
-        guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil) else {
-            return false
-        }
-        let prefix = directory.standardizedFileURL.path + "/"
-        var files = Set<String>()
-        for case let item as URL in enumerator {
-            let path = item.standardizedFileURL.path
-            if path.hasPrefix(prefix) { files.insert(String(path.dropFirst(prefix.count))) }
-        }
+        let files = ModelFolderCheck.files(under: AsrModels.defaultCacheDirectory(for: version))
         return ModelFolderCheck.isComplete(files: files, bundles: requiredBundles, otherFiles: [ModelNames.ASR.vocabularyFile])
     }
 
