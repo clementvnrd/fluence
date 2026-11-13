@@ -65,7 +65,8 @@ final class OnboardingModel {
         /// `systemAudio` is the meetings step: call detection and the call's sound (FLU-34).
         /// `transcription` downloads Parakeet with the user's consent (FLU-29).
         /// `tryIt` is « Essayer »: a first dictation typed into a field on the page (FLU-37).
-        case accessibility, microphone, transcription, systemAudio, calendar, tryIt, ready
+        /// `importer` brings in another dictation app's data (FLU-144).
+        case accessibility, microphone, transcription, systemAudio, calendar, tryIt, importer, ready
 
         var id: Int { rawValue }
 
@@ -77,11 +78,12 @@ final class OnboardingModel {
             case .systemAudio: "Réunions"
             case .calendar: "Calendrier"
             case .tryIt: "Essayer"
+            case .importer: "Importer"
             case .ready: "Prêt"
             }
         }
 
-        var isOptional: Bool { self == .systemAudio || self == .calendar }
+        var isOptional: Bool { self == .systemAudio || self == .calendar || self == .importer }
     }
 
     /// The steps this window walks through, fixed when it opens: a download finishing
@@ -131,6 +133,9 @@ final class OnboardingModel {
         case .tryIt:
             // FLU-37: the real dictation types into the page, so it needs the app's controller.
             return OnboardingWindow.shared.controller != nil
+        case .importer:
+            // FLU-144: only when another app's data is on this Mac.
+            return OtherAppsImport.anyFound
         default:
             return true
         }
@@ -145,6 +150,7 @@ final class OnboardingModel {
     func status(of step: Step) -> Status? {
         // « Essayer » is done once a dictation landed in its field; never auto-advanced.
         if step == .tryIt { return tryDone ? .granted : nil }
+        if step == .importer { return importer.phase == .done ? .granted : nil }
         return statuses[step]
     }
 
@@ -157,6 +163,9 @@ final class OnboardingModel {
     private(set) var tryDone = false
 
     func markTryDone() { tryDone = true }
+
+    /// FLU-144 « Importer »: read when the step opens, written on « Importer ».
+    let importer = OtherAppsImport()
 
     /// Re-reads every grant. When the step on screen has just been granted, moves on by
     /// itself — the user is in System Settings and shouldn't have to come back to click Next.
@@ -236,6 +245,7 @@ private struct OnboardingView: View {
         .task(id: model.step) {
             // FLU-37: on « Essayer », only dictations from now on count, and the field takes
             // the focus (after the page has appeared, or the focus does not stick).
+            if model.step == .importer { model.importer.scan(includeDocuments: false) }
             guard model.step == .tryIt else { return }
             model.tryBaseline = controller?.lastEnding?.id ?? 0
             try? await Task.sleep(for: .milliseconds(150))
@@ -421,6 +431,8 @@ private struct OnboardingView: View {
                     .foregroundStyle(DS.Color.inkSecondary)
                     .padding(.top, DS.Space.base)
                 }
+            } else if model.step == .importer {
+                ImportContent(model: model.importer)
             } else if model.step == .ready {
                 if Self.requiredGranted(model) { ShortcutLegend() }
             } else {
@@ -494,6 +506,16 @@ private struct OnboardingView: View {
                 .keyboardShortcut(.cancelAction)
             } else if isFinished {
                 DefaultActionPill(title: "Terminer", systemImage: "checkmark", action: onDone)
+            } else if model.step == .importer, model.status(of: .importer) != .granted {
+                // FLU-144: optional; nothing is read again or written without « Importer ».
+                CapButton(title: "Plus tard", height: 32, isEnabled: model.importer.phase != .importing) {
+                    model.importer.cancel()
+                    withAnimation(DS.Motion.panel) { model.advance() }
+                }
+                .keyboardShortcut(.cancelAction)
+                DefaultActionPill(title: "Importer", systemImage: "square.and.arrow.down") { model.importer.run() }
+                    .disabled(!model.importer.canImport)
+                    .opacity(model.importer.canImport ? 1 : 0.45)
             } else if model.step == .transcription, model.status(of: .transcription) != .granted, !download.isDownloading {
                 // FLU-29: nothing is downloaded without this click. « Plus tard » leaves Apple
                 // in place; Réglages › Transcription offers the download again.
@@ -706,6 +728,16 @@ private struct OnboardingView: View {
                 action: Permissions.calendarUndecided
                     ? Action(title: "Autoriser le calendrier") { Task { _ = await Permissions.requestCalendar() } }
                     : Action(title: "Ouvrir Réglages Système") { Permissions.openCalendarSettings() }
+            )
+        case .importer:
+            Page(
+                symbol: model.importer.phase == .done ? "checkmark" : ImportCopy.symbol,
+                title: model.importer.phase == .done ? "Import terminé" : ImportCopy.title,
+                body: "",
+                facts: [],
+                action: nil,
+                info: ImportCopy.info(Settings.shared.historyRetention),
+                tone: model.importer.phase == .done ? .success : .accent
             )
         case .ready:
             Page(

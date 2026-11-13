@@ -138,10 +138,18 @@ final class RunStore {
     }
 
     fileprivate func loaded(_ stored: [DictationRun]) {
-        // Anything recorded while the file was still being read is newer than all of it.
-        runs = hasLoaded ? runs : stored + runs
+        // Anything recorded while the file was still being read is newer than all of it. By
+        // date: imported dictations (FLU-144) are appended to the file after newer ones.
+        runs = hasLoaded ? runs : Self.byDate(stored + runs)
         hasLoaded = true
     }
+
+    /// Oldest first; equal dates keep their order (a comparison's rows).
+    private static func byDate(_ runs: [DictationRun]) -> [DictationRun] {
+        runs.enumerated().sorted { ($0.element.date, $0.offset) < ($1.element.date, $1.offset) }.map(\.element)
+    }
+
+    fileprivate func insert(_ imported: [DictationRun]) { runs = Self.byDate(runs + imported) }
 
     /// After the file changed under the app (a restore, a fresh start): the file's runs, plus
     /// the ones in memory it lacks — recorded while it could not be written. Returns those,
@@ -150,9 +158,7 @@ final class RunStore {
         func identity(_ run: DictationRun) -> String { "\(run.date.timeIntervalSince1970)|\(run.text)" }
         let onDisk = Set(stored.map(identity))
         let unsaved = runs.filter { !onDisk.contains(identity($0)) }
-        runs = (stored + unsaved).enumerated()
-            .sorted { ($0.element.date, $0.offset) < ($1.element.date, $1.offset) }
-            .map(\.element)
+        runs = Self.byDate(stored + unsaved)
         hasLoaded = true
         return unsaved
     }
@@ -219,6 +225,14 @@ enum RunLog {
             HistoryFile.shared.append(run, then: report)
         }
         applyRetention()
+    }
+
+    /// Dictations read from another app (FLU-144), with their own dates: into the list in date
+    /// order, and sealed onto disk like any other.
+    static func importRuns(_ imported: [DictationRun]) {
+        guard retention.persists, !imported.isEmpty else { return }
+        RunStore.shared.insert(imported)
+        for run in imported { HistoryFile.shared.append(run, then: report) }
     }
 
     /// Drops whatever the retention setting no longer allows, in memory and on disk.

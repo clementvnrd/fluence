@@ -226,9 +226,12 @@ struct KeyLostCard: View {
     }
 }
 
-/// « Sauvegarder mes données » and « Restaurer une sauvegarde », in Confidentialité.
+/// « Sauvegarder mes données », « Restaurer une sauvegarde » and « Importer depuis une autre
+/// app », in Confidentialité.
 struct BackupCard: View {
     @Bindable var model: DataSafetyModel
+    /// FLU-144: the « Importer depuis une autre app » sheet.
+    @State private var isImporting = false
 
     var body: some View {
         SectionCard {
@@ -251,6 +254,15 @@ struct BackupCard: View {
                     model.chooseBackupToRestore()
                 }
             }
+            RowDivider()
+            SettingsRow(
+                systemImage: ImportCopy.symbol,
+                title: ImportCopy.title,
+                info: ImportCopy.info(Settings.shared.historyRetention)
+            ) {
+                CapButton(title: "Importer…", height: 24, isEnabled: !model.isBusy && !model.isKeyLost) { isImporting = true }
+            }
+            .sheet(isPresented: $isImporting) { ImportSheet() }
             if model.isBusy {
                 RowNote(text: "En cours…")
             } else if let note = model.note {

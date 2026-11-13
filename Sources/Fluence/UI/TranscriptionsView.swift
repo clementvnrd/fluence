@@ -168,7 +168,7 @@ private struct TranscriptionCard: View {
                 Text(FrenchDates.time(run.date, calendar: FrenchDates.calendar))
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Color.inkSecondary)
-                    .help("\(run.engine) · texte prêt en \(FrenchFormat.seconds(run.processSeconds))")
+                    .help(run.processSeconds > 0 ? "\(run.engine) · texte prêt en \(FrenchFormat.seconds(run.processSeconds))" : run.engine)  // 0: imported (FLU-144)
                 Spacer()
                 actions
                     .opacity(isHovering || isShowingCorrection || reveal.withoutPointer ? 1 : 0)

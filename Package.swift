@@ -41,10 +41,19 @@ let package = Package(
             path: "Sources/FluenceCore",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // FLU-144: reading another app's dictionary, dictations and meetings (read-only), and
+        // deciding what an import adds. No app, no Keychain: tested on synthetic fixtures.
+        .target(
+            name: "FluenceImport",
+            dependencies: ["FluenceCore", "FluenceDictionary", "FluenceMeetingCore"],
+            path: "Sources/FluenceImport",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .executableTarget(
             name: "Fluence",
             dependencies: [
                 "FluenceDictionary",
+                "FluenceImport",
                 "FluenceMeetingCore",
                 "FluenceNotesCore",
                 "FluenceCore",
@@ -84,6 +93,12 @@ let package = Package(
             dependencies: ["FluenceMeetingCore"],
             path: "Tests/FluenceMeetingCoreTests",
             resources: [.copy("meeting-test-vectors.json"), .copy("transcript-import-vectors.json"), .copy("speaker-consolidation-vectors.json")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "FluenceImportTests",
+            dependencies: ["FluenceImport"],
+            path: "Tests/FluenceImportTests",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
