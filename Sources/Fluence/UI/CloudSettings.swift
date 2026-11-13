@@ -15,12 +15,14 @@ struct TranscriptionModeCards: View {
     var body: some View {
         let _ = keyChanged
         let hasKey = CloudKeys.shared.has(Self.precise)
+        let sent = TranscriptionRoute.sentTo(cloud: settings.cloudProvider, hasKey: hasKey, compareMode: settings.compareMode)
+        let paused = settings.compareMode && settings.cloudProvider != nil
         HStack(spacing: DS.Space.base) {
             ModeCard(systemImage: "lock.shield", title: "Privé", detail: "Tout reste sur ce Mac", isSelected: settings.cloudProvider == nil) {
                 settings.cloudProvider = nil
             }
             // Without a key Précis could only fall back to the local engine: it cannot be chosen.
-            ModeCard(systemImage: "scope", title: "Précis", detail: hasKey ? "La voix part chez \(Self.precise.displayName)" : "Clé requise", isSelected: settings.cloudProvider != nil, isEnabled: hasKey) {
+            ModeCard(systemImage: "scope", title: "Précis", detail: paused ? "En pause : mode comparaison" : hasKey ? "La voix part chez \(Self.precise.displayName)" : "Clé requise", isSelected: settings.cloudProvider != nil, isEnabled: hasKey) {
                 settings.cloudProvider = Self.precise
             }
         }
@@ -34,8 +36,11 @@ struct TranscriptionModeCards: View {
         // In both modes: a key pasted in Privé stays visible, and can be removed there.
         SectionCard {
             CloudKeyRow(provider: Self.precise, changed: $keyChanged)
-            if hasKey, settings.cloudProvider != nil {
+            if sent != nil {
                 RowNote(text: "L'audio de vos dictées et de vos appels est envoyé à \(Self.precise.displayName).", color: DS.Color.amberText)
+            } else if hasKey, settings.cloudProvider != nil {
+                // Compare mode pauses the cloud for dictation only; meetings recorded in Précis still go (FLU-132).
+                RowNote(text: "L'audio de vos appels est envoyé à \(Self.precise.displayName).", color: DS.Color.amberText)
             }
         }
     }

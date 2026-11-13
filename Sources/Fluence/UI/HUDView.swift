@@ -19,6 +19,7 @@ struct HUDView: View {
     @State private var settings = Settings.shared
     @State private var download = ParakeetDownload.shared
     @State private var startedAt: Date?
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ZStack {
@@ -298,6 +299,11 @@ struct HUDView: View {
             if let action = message.action {
                 SmallPill(title: action.title, primary: action.isPrimary) {
                     guard preview == nil else { return }
+                    if action == .openComparison {
+                        AppPresence.shared.becomeRegular()
+                        openWindow(id: "comparison")
+                        NSApp.activate(ignoringOtherApps: true)
+                    }
                     controller.performCapsuleAction()
                 }
             } else if let writer = controller.writtenBy {
@@ -401,6 +407,7 @@ private struct ProgressDots: View {
 /// - `listen`, `handsFree`, `command`, `transcribing`, `cancelled`, `learn` (FLU-12);
 /// - `preparingModel` (« Préparation du modèle… 42 % », `…_PROGRESS` = 0.42 by default),
 ///   `preparingEngine` (« Préparation de Parakeet… »);
+/// - `compared` (« Rien n'est tapé » + Ouvrir, FLU-140);
 /// - `nothingHeard` (`…_MIC` names the microphone, « MacBook Pro » by default);
 /// - `notTyped` (Accessibilité non autorisée + Réglages), `notTypedAppChanged` (⌃⌘V);
 /// - `errorRetry` (« La transcription a échoué » + Réessayer, `…_ENGINE` = apple, parakeet or
@@ -430,6 +437,7 @@ struct HUDPreview {
         case "preparingEngine":
             return HUDPreview(content: .listen(text: text, preparation: .loading(SpeechEngineChoice(engine).shortName), showsLanguage: engine != .parakeet))
         case "cancelled": return HUDPreview(content: .message(.cancelled))
+        case "compared": return HUDPreview(content: .message(.compared))
         case "nothingHeard": return HUDPreview(content: .message(.nothingHeard(microphone: env["FLUENCE_PREVIEW_HUD_MIC"] ?? "MacBook Pro")))
         case "notTyped": return HUDPreview(content: .message(.notTyped(.noAccessibility, canPasteLast: false)))
         case "notTypedAppChanged": return HUDPreview(content: .message(.notTyped(.appChanged, canPasteLast: true)))

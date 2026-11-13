@@ -30,17 +30,20 @@ public struct CapsuleMessage: Equatable, Sendable {
         case soundSettings
         /// Réglages Système › Confidentialité › Accessibilité.
         case accessibilitySettings
+        /// The comparison window, after a compare-mode dictation (FLU-140).
+        case openComparison
 
         public var title: String {
             switch self {
             case .retry: "Réessayer"
             case .microphoneSettings, .soundSettings, .accessibilitySettings: "Réglages"
+            case .openComparison: "Ouvrir"
             }
         }
 
         /// Blue for the way out of an error; grey for the help offered beside a result that
         /// still worked (the text is kept).
-        public var isPrimary: Bool { self != .accessibilitySettings }
+        public var isPrimary: Bool { self != .accessibilitySettings && self != .openComparison }
     }
 
     public var icon: Icon
@@ -73,6 +76,10 @@ public enum PasteLastShortcut {
 extension CapsuleMessage {
     /// Esc during a dictation.
     public static let cancelled = CapsuleMessage(icon: .cancelled, title: "Annulé", detail: "Rien n'a été collé")
+
+    /// Compare mode types nothing, on purpose (FLU-140): said after every dictation, or it looks
+    /// like a dictation that silently failed.
+    public static let compared = CapsuleMessage(icon: .notTyped, title: "Rien n'est tapé", detail: "Mode comparaison activé", action: .openComparison)
 
     /// A short notice that is not a fault (« Dernière transcription copiée. »).
     public static func notice(_ text: String) -> CapsuleMessage {

@@ -1069,9 +1069,13 @@ final class DictationController {
                 """)
         }
 
+        // ⌃⌘V / ⌃⌘C: this dictation, as the usual engine heard it — never an older one (FLU-140).
+        let usual = Settings.shared.activeEngine.compared.displayName
+        lastTranscript = results.first { $0.engine == usual && !$0.failed }?.text
+
         // The local engines are done, and so is the dictation: the next one may start now,
-        // whether or not Wispr Flow is still on its way (FLU-48).
-        end(session, as: .idle)
+        // whether or not Wispr Flow is still on its way (FLU-48). Nothing is typed: say so.
+        end(session, showing: .compared)
         if Settings.shared.soundEnabled { NSSound(named: "Glass")?.play() }
 
 #if !FLUENCE_WITHOUT_WISPR
@@ -1255,6 +1259,8 @@ final class DictationController {
             Permissions.openSoundInputSettings()
         case .accessibilitySettings:
             Permissions.openAccessibilitySettings()
+        case .openComparison:
+            break  // HUDView opens it: `openWindow` is a SwiftUI environment value.
         }
     }
 

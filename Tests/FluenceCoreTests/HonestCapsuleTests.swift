@@ -11,7 +11,7 @@ struct CapsuleMessageTests {
             + CapsuleMessage.NotTypedReason.allCases.flatMap { reason in
                 [true, false].map { CapsuleMessage.notTyped(reason, canPasteLast: $0) }
             }
-            + [.cancelled, .nothingHeard(microphone: "MacBook Pro"), .nothingHeard(microphone: nil)]
+            + [.cancelled, .nothingHeard(microphone: "MacBook Pro"), .nothingHeard(microphone: nil), .compared]
     }
 
     /// Words that only show up when an English message leaks through (an engine's own error
@@ -43,6 +43,16 @@ struct CapsuleMessageTests {
                 #expect(!text.contains("  "))
             }
         }
+    }
+
+    /// FLU-140: compare mode types nothing, on purpose; the capsule says so after each dictation.
+    @Test func compareModeSaysNothingIsTyped() {
+        #expect(CapsuleMessage.compared
+            == CapsuleMessage(icon: .notTyped, title: "Rien n'est tapé", detail: "Mode comparaison activé", action: .openComparison))
+        #expect(CapsuleMessage.Action.openComparison.title == "Ouvrir")
+        // Grey: the comparison worked, the button is help beside it.
+        #expect(!CapsuleMessage.Action.openComparison.isPrimary)
+        #expect(CapsuleMessage.compared.duration == CapsuleMessage.actionDuration)
     }
 
     @Test func everyFailureHasAFrenchTitleAndDetail() {

@@ -163,7 +163,7 @@ struct ComparisonWindow: View {
             Image(systemName: "waveform")
                 .font(DS.Font.title)
                 .foregroundStyle(DS.Color.inkSecondary)
-            Text("Maintenez \(settings.pushToTalkKey.displayName), dites une phrase, relâchez.")
+            Text("Maintenez \(ShortcutLabel.display(settings.pushToTalkKey.shortName)), dites une phrase, relâchez.")
                 .font(DS.Font.bodyEmphasis)
                 .foregroundStyle(DS.Color.ink)
             Text(settings.compareMode
