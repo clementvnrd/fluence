@@ -627,6 +627,12 @@ final class HotkeyMonitor {
             return true
         }
 
+        // FLU-135: any other key under a held modifier-only shortcut makes it a chord (⌘⌥V).
+        // The key still reaches the app.
+        if (isPressed && key.isModifierOnly) || (isCommandPressed && commandKey?.isModifierOnly == true) {
+            perform(gesture.otherKeyDown())
+        }
+
         // ⌃⌘V / ⌃⌘C, exactly: Shift or Option held makes it someone else's shortcut.
         let chord = flags.intersection([.maskCommand, .maskControl, .maskShift, .maskAlternate])
         if chord == [.maskCommand, .maskControl], let onLastTranscript {

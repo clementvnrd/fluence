@@ -1394,6 +1394,11 @@ extension DictationController {
 
         case .finish:
             endDictation(from: .hotkey)
+
+        case .cancel:
+            // FLU-135: the shortcut's modifiers were part of a chord (⌘⌥V): nothing to type.
+            guard let session, session.source == .hotkey, !session.isReleased else { return }
+            cancelDictation(reason: "chord")
         }
     }
 

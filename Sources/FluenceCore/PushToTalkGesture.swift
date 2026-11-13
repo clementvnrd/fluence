@@ -27,6 +27,8 @@ public struct PushToTalkGesture: Equatable, Sendable {
         case markCommand
         /// Stop recording and deliver.
         case finish
+        /// Drop the dictation in progress: the key was part of a chord, not a press to talk.
+        case cancel
     }
 
     public enum Phase: Equatable, Sendable {
@@ -136,6 +138,15 @@ public struct PushToTalkGesture: Equatable, Sendable {
         case .idle, .tapped, .handsFree(keyDown: false), .stopping, .ignoring:
             return (false, [])
         }
+    }
+
+    /// A key that is not a modifier went down while a modifier-only shortcut is held (FLU-135).
+    /// ⌘⌥V or ⌘⌥← with ⌘⌥ as the shortcut is that app's chord: read as a tap, it locked a
+    /// recording on. The press is dropped, and its release means nothing.
+    public mutating func otherKeyDown() -> [Action] {
+        guard case .holding = phase else { return [] }
+        phase = .ignoring
+        return [.cancel]
     }
 
     /// The Command Mode modifier went down while the push-to-talk key is held.
