@@ -175,6 +175,8 @@ public enum SpeechRepairs {
         "very", "too", "so", "really", "no", "yes",
         // French reflexives: "nous nous sommes vus", "vous vous trompez"; « en en parlant ».
         "nous", "vous", "en",
+        // « faire faire un devis », "I know that that is true", "he had had enough" (FLU-137).
+        "faire", "that", "had",
     ]
 
     /// "c'est c'est" → "c'est", "il y a il y a" → "il y a", "the the" → "the".
@@ -197,7 +199,10 @@ public enum SpeechRepairs {
                       let first = Range(match.range(at: 1), in: current)
                 else { break }
                 let phrase = String(current[first])
-                if emphaticAllowed.contains(phrase.lowercased()) {
+                // A repeat written with its capital is a name: « Bora Bora », « Pago Pago ».
+                let repeatIsName = current[first.upperBound..<whole.upperBound]
+                    .first(where: { !$0.isWhitespace })?.isUppercase == true
+                if repeatIsName || emphaticAllowed.contains(phrase.lowercased()) {
                     searchFrom = first.upperBound
                     continue
                 }
@@ -212,7 +217,7 @@ public enum SpeechRepairs {
     /// fragment ("pro problème"); a common word before a longer one that happens to start the
     /// same way is speech ("on va valider", "celui qui quitte", "il illustre", "be better"),
     /// and removing it deleted what was said (FLU-27, measured in 8 clips out of 8).
-    static let stutterStopWords: Set<String> = [
+    static let stutterStopWords: Set<String> = shortWords.union([
         // French: articles, pronouns, prepositions, conjunctions.
         "le", "la", "les", "de", "du", "des", "un", "une", "au", "aux", "ce", "ces", "cet", "ça",
         "ci", "se", "me", "te", "ne", "si", "ni", "ou", "où", "et", "en", "on", "ma", "ta", "sa",
@@ -247,15 +252,43 @@ public enum SpeechRepairs {
         "pull",
         // FLU-124: « la branche main maintenant », « la doc Docker », « ce cas casse ».
         "main", "doc", "type", "cas", "java", "git", "mac", "node", "plan", "port", "date", "lot",
-    ]
+    ])
 
-    /// "pro problème" → "problème", "dél délétère" → "délétère", and a word cut off with a
-    /// hyphen even when it is a real one: "mail- mailing" → "mailing".
+    /// Everyday nouns, adjectives and verbs of four letters or fewer that start longer words:
+    /// « du sel selon le goût », « la fac facture », « un ami amical », « la mer merveilleuse »,
+    /// « un gros grossiste » are speech, and the rule deleted the first word (FLU-137, A6-2).
+    private static let shortWords = Set("""
+        sel fac ami amie mer gros bal bar bec bel bloc bois bol bord bout bras but cap chef cher
+        ciel clé col cou cour cri dur eau fer feu fil fils fixe foi fond fort fou gare gaz gel goût
+        jeu joli jus lac lait lien lit loi mai mars mère mode mort mur nez noir nuit pain pair parc
+        pays peau père pic pied pin plat pli pont pot prix pur rang rare rat riz roi rond rose rue
+        sac sale sang sec seul soir sol sort sou sud tard taux tel thé tir toit tôt tour trou val
+        vent ver vide vie vif vin vis voix vol vrai vue art arc acte âge aide air âme ange auto bus
+        café camp cave dame dent dieu dire doux élu état face film four gens idée île info lune mine
+        mise nord œil ours peur post rêve rôle sens
+        able act add age area arm ask bag ball band bank bat bed bill bird bit blue boat body book
+        box buy car card care case cat cell city club cold cost cut dark deal dog door down draw
+        drop dry ear east easy eat edge eye fact fail fair fall fan far farm fast fear feel fill
+        fine fire firm fish fit fix fly food foot form free full fun fund game gap gas girl goal
+        gold hair half hall hand hard hat head hear heat help high hold home hope hot hour ice idea
+        item job join key kid kind king land last late law lead left leg less lie life line live
+        load lose love low map mark mass meet mind miss mix move name near net news nice oil once
+        open pain pair pan park pass past path pay pen pet pick play poor race rain rate raw read
+        red rest rich ride ring rise risk road rock role room row rule sad safe sale save sea seat
+        sell send ship shop shot side sign sing sit size skin slow snow soft song soon sort spot
+        star stay step stop sum sun tall task tax tea ten term thin tie tip tool town toy tree trip
+        true try unit vote wait walk wall war warm wash wave wear west wide wife wild win wind wine
+        wish wood word yard yet zone
+        """.split(whereSeparator: \.isWhitespace).map(String.init))
+
+    /// A word cut off with a hyphen, even a real one or a single letter: "mail- mailing" →
+    /// "mailing", « c- c'est » → « c'est ». Without a hyphen, only a fragment that is no
+    /// everyday word: "pro problème" → "problème", "dél délétère" → "délétère".
     ///
     /// The full word is matched by lookahead, so "un pro problème" still finds "pro" after
     /// "un" has been looked at (Clement's version consumed it and missed the stutter).
     static func removeStutterPrefixes(in text: String) -> String {
-        let pattern = #"(?i)(?<![\p{L}0-9_'])([\p{L}]{2,4})(-?)\s+(?=([\p{L}]+)(?![0-9\p{L}_']))"#
+        let pattern = #"(?i)(?<![\p{L}0-9_'])([\p{L}]{1,4})(-?)\s+(?=([\p{L}]+(?:['’][\p{L}]+)?)(?![0-9\p{L}_']))"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
         var current = text
         var passes = 0
@@ -269,7 +302,8 @@ public enum SpeechRepairs {
                 let prefix = current[prefixRange].lowercased()
                 let word = current[wordRange].lowercased()
                 let cutOff = match.range(at: 2).length > 0
-                if word.hasPrefix(prefix), word.count >= prefix.count + 2, cutOff || !stutterStopWords.contains(prefix) {
+                let fragment = cutOff || (prefix.count >= 2 && !stutterStopWords.contains(prefix))
+                if word.hasPrefix(prefix), word.count >= prefix.count + 2, fragment {
                     current.removeSubrange(range)
                     removed = true
                     break
@@ -304,7 +338,8 @@ public enum SpeechRepairs {
     /// "secondly", "numéro deux") become list lines.
     static func smartLists(_ text: String) -> String {
         var result = text.replacingOccurrences(
-            of: #"(?i)(^|[,.;:!?\n]\s*)(?:bullet\s+points?|boulettes?\s+de\s+pot|tiret|puce)\s*,?\s*"#,
+            // Not the start of a longer word: « Pucerons partout » (FLU-137).
+            of: #"(?i)(^|[,.;:!?\n]\s*)(?:bullet\s+points?|boulettes?\s+de\s+pot|tiret|puce)(?!\p{L})\s*,?\s*"#,
             with: "\n- ",
             options: .regularExpression
         )
@@ -333,6 +368,11 @@ public enum SpeechRepairs {
                 options: .regularExpression
             )
         }
+        // « Numéro 10 de l'équipe », "Number one priority": one numbered item is no list (FLU-137).
+        let numbered = #"(?i)(?:^|(?<=[.!?\n]\s{0,3}))(?:number|numéro)\s+(?:\d+|one|two|three|four|five|un|deux|trois|quatre|cinq)\s+"#
+        let items = (try? NSRegularExpression(pattern: numbered))?
+            .numberOfMatches(in: result, range: NSRange(result.startIndex..., in: result)) ?? 0
+        guard items >= 2 else { return result.trimmingCharacters(in: .whitespacesAndNewlines) }
         result = result.replacingOccurrences(
             of: #"(?i)(?:^|(?<=[.!?\n]\s{0,3}))(?:number|numéro)\s+(\d+)\s+"#,
             with: "\n$1. ",
@@ -352,13 +392,15 @@ public enum SpeechRepairs {
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// "son Ouais" → "son. Ouais": a capitalised conversational cue mid-sentence starts one.
+    /// "son Ouais, …" → "son. Ouais, …": a capitalised conversational cue mid-sentence, with
+    /// the engine's comma after it, starts one. Without the comma it is a name or a title
+    /// (« Bon Jovi », « la série Bref », « Bon Accueil »), FLU-137.
     static func conversationalTransitions(_ text: String) -> String {
         let cues = ["Ouais", "Mec", "Alors", "Bref", "Bon", "Pourtant", "D'ailleurs", "Attends", "Regarde", "Écoute"]
         var result = text
         for cue in cues {
             result = result.replacingOccurrences(
-                of: "(?<=[a-zà-ÿ]) +(\(cue)\\b)",
+                of: "(?<=[a-zà-ÿ]) +(\(cue)\\b)(?=,)",
                 with: ". $1",
                 options: .regularExpression
             )
