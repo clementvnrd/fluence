@@ -207,7 +207,7 @@ Network — every outgoing connection, and nothing else:
   chosen, plus the ~100 MB CTC model when dictionary boosting is on), Whisper (when chosen),
   and the meeting models (voice activity, speaker separation) at the first meeting. Apple's
   French speech asset is downloaded by macOS itself.
-* **Updates** (release builds only, FLU-26): the feed baked into the app (`SUFeedURL`) is read
+* **Updates** (every build except a test copy or `FEED_URL=`, FLU-26): the feed baked into the app (`SUFeedURL`) is read
   at launch and once a day, then the new version's archive is downloaded. No system profile is
   sent (`SUEnableSystemProfiling` off); like any HTTP request it carries a User-Agent with the
   app and Sparkle versions. Réglages › À propos turns it off. See `docs/RELEASING.md`.

@@ -12,7 +12,7 @@ first: the signing identity is what keeps macOS permissions (TCC) across updates
 | Update ready, Fluence in the menu bar (FLU-80) | `Support/UpdateNotifier.swift`, `UI/MenuBarIcon.swift`, rules in `FluenceCore/UpdateNotice.swift` | While a downloaded version waits: **« Installer Fluence x.y.z »** heads the menu bar menu, alone above a separator (one click installs and relaunches; greyed out with « À la fin de la réunion » / « À la fin de la dictée » during a recording), « Rechercher des mises à jour… » leaves the bottom of that menu, and a **blue dot** sits on the menu bar icon. If the version arrives while Fluence is not the active app and nothing records, **one macOS notification per version**: « Fluence x.y.z est prête » / « Installer prend quelques secondes. », button *Installer* (installs and relaunches at once, or at the end of a recording); a click on the banner opens Fluence on the *Installer / Plus tard* question. Held back during a recording and posted when it ends if Fluence is still behind. Permission is asked only when the first notification is due, never at launch; refused, the menu item and the dot remain. The version notified is remembered in the settings (`updateNotifiedVersion`). No entitlement: the app is not sandboxed. A build without a feed never touches the notification center. |
 | Update signing key | EdDSA, private half in the **login Keychain** of the release Mac (account `ed25519`, created by Sparkle's `generate_keys`); public half in `Info.plist` (`SUPublicEDKey`) | Never in the repo, never printed. |
 | Code signature | `make` picks a Developer ID if there is one, else **Apple Development** | Signed with Apple Development and **not notarized**, for good: no Developer ID (decided 2026-10-08, FLU-39). |
-| Feed | `FEED_URL` / `DOWNLOAD_URL_PREFIX`, stamped into the bundle | Empty by default: a dev build (`make app`, `make install`) has no updater. `make release` refuses anything but `https://` (or `http://localhost` for a test). |
+| Feed | `FEED_URL` / `DOWNLOAD_URL_PREFIX`, stamped into the bundle | `FEED_URL` defaults to the public feed below in every build (`make app`, `make install`, `make release`), so Clement's own `make install` keeps updating; a `BUNDLE_ID` test copy gets none unless given one, and `FEED_URL=` builds without an updater. `make release` refuses anything but `https://` (or `http://localhost` for a test). |
 
 ## Where the feed lives (decided 2026-10-08: the `fluence` repository)
 
@@ -27,12 +27,10 @@ FEED_URL=https://github.com/clementvnrd/fluence/releases/latest/download/appcast
 DOWNLOAD_URL_PREFIX=https://github.com/clementvnrd/fluence/releases/download/v<version>/
 ```
 
-**Live only once the repository is public.** Decided 2026-10-11 (FLU-66, replacing « public après
-réécriture » of FLU-43): public now, rewrite of the lines still written by another author
-(FLU-44) for the next release. The history audit (FLU-72) comes first and the switch is FLU-73,
-on Clement's confirmation phrase. Until then the feed answers 404: a background check finds
-nothing and shows nothing (the log says `updates: check ended — SUSparkleErrorDomain 2001`); a
-manual *Rechercher des mises à jour…* shows an error.
+**Live since 0.2.0**: the repository went public with that release (FLU-73) and every release
+since is published there with its `appcast.xml`. Before a first release is published the feed
+answers 404: a background check shows nothing (log: `updates: check ended — SUSparkleErrorDomain
+2001`), a manual *Rechercher des mises à jour…* shows an error.
 
 The feed URL is baked into each build: a copy only ever looks where its own build said. A copy
 built with no feed, or with another feed, needs one manual install of a build that points to
@@ -48,27 +46,45 @@ installed apps: nothing reaches them until the release is published.
 2. From a clean checkout of that commit:
 
    ```bash
-   make release FEED_URL=https://… DOWNLOAD_URL_PREFIX=https://…/v<version>/
+   make release DOWNLOAD_URL_PREFIX=https://github.com/clementvnrd/fluence/releases/download/v<version>/
    ```
 
    It builds in release mode, signs inside out with a secure timestamp, zips with `ditto`,
    writes the SHA-256, and runs Sparkle's `generate_appcast`, which signs the archive with the
    Keychain key (no prompt) and writes `appcast.xml` — all into
    `~/Library/Fluence Releases/<version>/`. It refuses an ad-hoc signature (every update would
-   then lose the permissions), a feed that is not https, and uncommitted changes.
+   then lose the permissions), a feed that is not https, uncommitted changes, and untracked
+   files under `Sources/` or `Resources/` (SwiftPM would compile a stray `.swift` into the
+   release).
 
    CI's *Release bundle launches* job (FLU-35) has already built that commit the same way
    (ad-hoc), checked its signature, version, Sparkle and rpath, and launched it with
    `--selftest`. The same check on the signed bundle, before uploading:
    `Tools/check_app_bundle.sh <the path make release printed after "built"> --public`. (Not
-   `make check-app`, which would rebuild the bundle without the feed.)
+   `make check-app`, which would rebuild the bundle.)
+
+   Then check the archive itself, unzipped with `ditto -x -k` into a scratch folder, against the
+   installed `/Applications/Fluence.app`:
+   * `shasum -a 256 -c Fluence-<version>.zip.sha256` in the release folder;
+   * `codesign --verify --strict --deep` passes, and `codesign -d -r-` gives the same designated
+     requirement as the installed app (otherwise every permission is lost);
+   * `SUPublicEDKey` identical to the installed app's, `SUFeedURL` is the feed above, the
+     version and build are the new ones (`PlistBuddy`);
+   * `Sparkle.framework` is in `Contents/Frameworks` and `otool -l` shows the rpath to it;
+   * `strings Contents/MacOS/Fluence | grep -cE 'WisprReader|WisprTrigger'` is 0 (FLU-69), and
+     the entitlements (`codesign -d --entitlements -`) have no `disable-library-validation`;
+   * `sign_update --verify <zip> <sparkle:edSignature from appcast.xml>` (same `bin/` folder as
+     `generate_appcast`) says the EdDSA signature is correct, and the appcast's `url=` points to
+     the `v<version>` download path.
 3. Upload, as a **draft** first: `gh release create v<version> --draft --repo clementvnrd/fluence
    --target <commit> --notes-file docs/releases/<version>.md <zip> <zip>.sha256 appcast.xml`.
    A draft creates no tag; publishing does. Publishing is Clement's call; installed copies see
    it at their next check (launch, once a day, or *Rechercher des mises à jour…*).
 
 The first copy that contains Sparkle has to be installed by hand once (copy `Fluence.app` to
-`/Applications`); every later version updates itself.
+`/Applications`); every later version updates itself. A `make install` build updates too: it
+carries the same feed. It has the Wispr Flow comparison, and the next release replaces it
+with a build without it (see AGENTS.md).
 
 ## Keys: keep the EdDSA key safe
 
@@ -142,7 +158,9 @@ old backups were renamed. Check with `lsregister -dump` that only `/Applications
 appears without `.bak`. Same designated requirement every time, event tap armed at launch. Clement
 said in chat that French dictation « a l'air de pas mal fonctionner » on 0.1.5 (the log shows 7.2 s
 of speech pasted as 128 characters); his written confirmation is still open, and launch at login has
-not been tried by hand (FLU-60). **The next published release must now be 0.1.6 or later.**
+not been tried by hand (FLU-60). The build-number limits above are moot since 0.2.0: from then
+on releases are published on GitHub (one `docs/releases/<version>.md` each) and reach his copy
+through Sparkle, or by hand from the published archive.
 
 ## Testing an update without touching the installed app
 
