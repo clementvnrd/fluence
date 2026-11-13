@@ -136,6 +136,7 @@ struct DictationSettingsSection: View {
     @Bindable var controller: DictationController
     @State private var settings = Settings.shared
     @State private var devices: [AudioInputDevice] = []
+    @State private var mediaRefused = false
 
     var body: some View {
         SectionCard {
@@ -167,9 +168,12 @@ struct DictationSettingsSection: View {
             SettingsRow(
                 systemImage: "pause.circle",
                 title: "Mettre la musique en pause pendant la dictée",
-                info: "Elle reprend à la fin. Rien n'est mis en pause pendant un appel."
+                info: "Elle reprend à la fin. Rien n'est mis en pause pendant un appel. Pour Spotify et Musique, macOS demande votre accord une fois, après une dictée."
             ) {
                 RowToggle(isOn: $settings.pauseMediaWhileDictating)
+            }
+            if settings.pauseMediaWhileDictating, mediaRefused {
+                RowNote(text: "Refusé pour Spotify ou Musique : Réglages Système › Confidentialité et sécurité › Automatisation.", color: DS.Color.amberText)
             }
         }
 
@@ -230,6 +234,7 @@ struct DictationSettingsSection: View {
             }
         }
         .onAppear { devices = AudioDevices.availableInputDevices() }
+        .task { mediaRefused = await MediaPause.automationRefused() }
     }
 
     private var isDefaultMicrophone: Bool {
@@ -728,7 +733,8 @@ struct TranscriptionSettingsSection: View {
     /// The download's state, when there is one to tell (FLU-19: the explanation is in ⓘ).
     private var boostState: String? {
         switch boostStatus {
-        case .idle: nil
+        // On without its model (a failed download, then the window reopened): it does nothing.
+        case .idle: settings.parakeetVocabularyBoost ? "Modèle absent : désactivez puis réactivez pour le télécharger." : nil
         case .downloading: "Téléchargement du modèle (environ 100 Mo)…"
         case .ready: "Installé"
         case .failed(let message): "Échec du téléchargement : \(message). Désactivez puis réactivez pour réessayer."

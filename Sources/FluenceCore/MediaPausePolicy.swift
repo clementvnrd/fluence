@@ -46,6 +46,8 @@ public enum MediaPausePolicy {
 
     /// Players with their own AppleScript Pause and Play, by the bundle ID `tell application id` needs.
     static let scriptable = ["com.spotify.client": "com.spotify.client", "com.apple.music": "com.apple.Music"]
+    /// The bundle IDs the scripts address.
+    public static var scriptableApps: [String] { Array(scriptable.values) }
 
     /// FLU-121: one system-wide Pause reaches only macOS's Now Playing app (YouTube in front,
     /// Spotify behind kept playing). Spotify and Music get their own script; every other player
