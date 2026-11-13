@@ -61,7 +61,12 @@ public struct ShortcutCombo: Equatable, Sendable {
         self.keyCode = keyCode
         self.modifierFlags = modifierFlags
         self.isModifierOnly = isModifierOnly
-        shortName = String(parts[4])
-        displayName = String(parts[5])
+        // The recorder writes the names unescaped, so a key that types « : » adds colons
+        // (« ⌘ ::⌘ : (:) »). Cut where the display name starts with the short name + « ( ».
+        let names = parts[4...].joined(separator: ":")
+        let cut = names.indices.first { names[$0] == ":" && names[names.index(after: $0)...].hasPrefix(names[..<$0] + " (") }
+            ?? names.firstIndex(of: ":")!
+        shortName = String(names[..<cut])
+        displayName = String(names[names.index(after: cut)...])
     }
 }

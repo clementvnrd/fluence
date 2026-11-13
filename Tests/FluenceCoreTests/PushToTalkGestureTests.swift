@@ -136,4 +136,42 @@ struct PushToTalkGestureTests {
         _ = gesture.keyDown(at: 0)
         #expect(gesture.keyDown(at: 0.5) == [])
     }
+
+    // MARK: - Tap to lock, and chords (FLU-135)
+
+    @Test func aCleanTapLocksTheRecording() {
+        var gesture = G(tapLocks: true)
+        #expect(gesture.keyDown(at: 0, commandModifier: true) == [.start(command: true)])
+        #expect(gesture.keyUp(at: 0.2) == [.enterHandsFree])
+        #expect(gesture.keyDown(at: 3) == [.finish])
+    }
+
+    /// ⌘⌥V in Finder with ⌘⌥ as the Command Mode key: a quick chord, not a tap.
+    @Test func aKeyPressedUnderAModifierOnlyShortcutCancelsIt() {
+        var gesture = G(tapLocks: true)
+        #expect(gesture.keyDown(at: 0, commandModifier: true) == [.start(command: true)])
+        #expect(gesture.otherKeyDown() == [.cancel])
+        #expect(gesture.otherKeyDown() == [])
+        #expect(gesture.keyUp(at: 0.2) == [])
+        #expect(gesture.phase == .idle)
+        // The next press is an ordinary one.
+        #expect(gesture.keyDown(at: 1) == [.start(command: false)])
+    }
+
+    @Test func aLongHoldWithAKeyIsAChordToo() {
+        var gesture = G(tapLocks: true)
+        _ = gesture.keyDown(at: 0)
+        #expect(gesture.otherKeyDown() == [.cancel])
+        #expect(gesture.keyUp(at: 2) == [])
+    }
+
+    /// Typing while a locked recording runs, or with nothing held, is no chord.
+    @Test func keysOutsideAHoldChangeNothing() {
+        var gesture = G(tapLocks: true)
+        #expect(gesture.otherKeyDown() == [])
+        _ = gesture.keyDown(at: 0)
+        _ = gesture.keyUp(at: 0.2)
+        #expect(gesture.otherKeyDown() == [])
+        #expect(gesture.phase == .handsFree(keyDown: false))
+    }
 }

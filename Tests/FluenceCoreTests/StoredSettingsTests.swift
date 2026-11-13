@@ -45,6 +45,17 @@ struct StoredSettingsTests {
         #expect(combo?.displayName == "Option + Espace")
     }
 
+    /// A key that types « : » (French layouts) is written unescaped by the recorder (A1-4).
+    @Test func comboKeepsAKeyThatTypesAColon() {
+        let combo = ShortcutCombo(rawValue: "combo:47:1048576:false:⌘ ::⌘ : (:)")
+        #expect(combo?.keyCode == 47)
+        #expect(combo?.shortName == "⌘ :")
+        #expect(combo?.displayName == "⌘ : (:)")
+        let modifiers = ShortcutCombo(rawValue: "combo:0:786432:true:⌃ ⌥:⌃ ⌥ (Modificateurs)")
+        #expect(modifiers?.shortName == "⌃ ⌥")
+        #expect(modifiers?.displayName == "⌃ ⌥ (Modificateurs)")
+    }
+
     /// `UInt32(keyCode)` in the hotkey monitor trapped on these.
     @Test func comboRefusesKeyCodesNoKeyboardSends() {
         for code in ["-1", "65536", "4294967296", "9223372036854775807", "-9223372036854775808", "x"] {
