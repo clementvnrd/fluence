@@ -94,6 +94,31 @@ public enum TranscriptionRetry {
         spans.isEmpty ? nil : spans
     }
 
+    /// A3-6: what each channel's spool (`spooled`: seconds on disk) holds past everything the
+    /// meeting accounts for — speech after the last autosave of a meeting that never stopped
+    /// (a crash, a power loss). In pieces of at most `piece` seconds, which the engine takes.
+    /// shortcut: fixed pieces can cut a word in two; run the tail through the VAD segmenter
+    /// if recovered meetings show it.
+    public static func tail(
+        segments: [TranscriptSegment],
+        untranscribed: [UntranscribedSpan],
+        spooled: [AudioSource: TimeInterval],
+        piece: TimeInterval = UtteranceSegmenter.Config().maxDuration
+    ) -> [UntranscribedSpan] {
+        guard piece > 0 else { return [] }
+        var spans: [UntranscribedSpan] = []
+        for (source, end) in spooled where end.isFinite {
+            let covered = segments.filter { $0.source == source }.map(\.end)
+                + untranscribed.filter { $0.source == source }.map(\.end)
+            var start = max(0, covered.max() ?? 0)
+            while start < end {
+                spans.append(UntranscribedSpan(source: source, start: start, end: min(end, start + piece)))
+                start += piece
+            }
+        }
+        return plan(spans)
+    }
+
     /// The panel's message when sentences are still missing at the end of a meeting.
     public static let notice = "Une partie de la réunion n'a pas pu être transcrite. Son audio est gardé sur ce Mac ; Fluence réessaiera au prochain lancement."
 }

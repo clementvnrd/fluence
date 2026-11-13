@@ -85,6 +85,7 @@ struct TranscriptImportMeetingTests {
     func noMe() {
         let transcript = TranscriptImport.parse("Bonjour à tous.\n\nAlice: On commence.\n\nMerci.\n")
         let meeting = TranscriptImport.meeting(from: transcript, title: "Notes", startedAt: start, me: nil)
+        #expect(meeting.importedAt != nil)  // A3-13
 
         #expect(!meeting.speakers.contains { $0.isMe })
         #expect(meeting.speakers.map(\.id) == ["S1", "S2"])

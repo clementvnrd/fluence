@@ -63,14 +63,17 @@ struct PrivacySettingsSection: View {
             }
         }
 
-        SectionCard {
-            SettingsRow(
-                systemImage: "person.wave.2",
-                title: "Empreintes vocales",
-                subtitle: "Donnée biométrique · prévenez les personnes concernées",
-                info: "Pour reconnaître vos interlocuteurs d'une réunion à l'autre, Fluence peut mémoriser la signature de leur voix. C'est une donnée biométrique : elle n'est créée que si vous l'activez, reste sur ce Mac, et s'efface ici à tout moment. Prévenez les personnes concernées."
-            ) {
-                RowToggle(isOn: Binding(get: { notetaker.voicePrintsEnabled }, set: { model.setVoicePrints($0) }))
+        // A3-8: nothing enrols a print yet; the row is only there to turn an old « on » off.
+        if notetaker.voicePrintsEnabled {
+            SectionCard {
+                SettingsRow(
+                    systemImage: "person.wave.2",
+                    title: "Empreintes vocales",
+                    subtitle: "Donnée biométrique · prévenez les personnes concernées",
+                    info: "Pour reconnaître vos interlocuteurs d'une réunion à l'autre, Fluence peut mémoriser la signature de leur voix. C'est une donnée biométrique : elle n'est créée que si vous l'activez, reste sur ce Mac, et s'efface ici à tout moment. Prévenez les personnes concernées."
+                ) {
+                    RowToggle(isOn: Binding(get: { notetaker.voicePrintsEnabled }, set: { model.setVoicePrints($0) }))
+                }
             }
         }
 

@@ -34,7 +34,7 @@ public struct ParticipantRead: Sendable, Equatable, Codable {
 ///
 /// Otherwise `trustedCount` is nil and the window gives no cap. `names` keeps every name
 /// ever read either way, for naming, whose own rules decide what a name may be given to.
-public struct ParticipantRoster: Sendable, Equatable {
+public struct ParticipantRoster: Sendable, Equatable, Codable {
     /// Every name read so far, in the order first seen, de-duplicated.
     public private(set) var names: [String] = []
     /// How many walks reported back.

@@ -89,6 +89,48 @@ struct TranscriptionRetryTests {
         #expect(meeting.untranscribed == nil)
     }
 
+    // A3-6: a meeting that never stopped was saved at its last autosave; its spools go on.
+    @Test func theSpoolPastTheLastAutosaveIsTranscribedInPieces() {
+        let segments = [
+            TranscriptSegment(source: .system, speakerID: Speaker.othersID, start: 10, end: 20, text: "a"),
+            TranscriptSegment(source: .microphone, speakerID: Speaker.meID, start: 25, end: 30, text: "b"),
+        ]
+        let tail = TranscriptionRetry.tail(
+            segments: segments,
+            untranscribed: [span(.system, 22, 25)],
+            spooled: [.system: 60, .microphone: 31],
+            piece: 14.5
+        )
+        #expect(tail == [
+            span(.system, 25, 39.5),
+            span(.microphone, 30, 31),
+            span(.system, 39.5, 54),
+            span(.system, 54, 60),
+        ])
+    }
+
+    @Test func aChannelWithNothingTranscribedIsTakenFromItsStart() {
+        let tail = TranscriptionRetry.tail(segments: [], untranscribed: [], spooled: [.microphone: 5], piece: 14.5)
+        #expect(tail == [span(.microphone, 0, 5)])
+    }
+
+    @Test func aSpoolFullyAccountedForLeavesNoTail() {
+        let segments = [TranscriptSegment(source: .system, speakerID: "S1", start: 0, end: 12, text: "a")]
+        #expect(TranscriptionRetry.tail(segments: segments, untranscribed: [], spooled: [.system: 12], piece: 14.5).isEmpty)
+    }
+
+    @Test func theWindowRosterSurvivesASave() throws {
+        var meeting = Meeting(title: "T", startedAt: Date(timeIntervalSince1970: 0))
+        let roster = ParticipantRoster(reads: [
+            ParticipantRead(names: ["Ana", "Bo"], complete: true),
+            ParticipantRead(names: ["Ana", "Bo"], complete: true),
+        ])
+        meeting.windowRoster = roster
+        let back = try JSONDecoder().decode(Meeting.self, from: JSONEncoder().encode(meeting))
+        #expect(back.windowRoster == roster)
+        #expect(back.windowRoster?.trustedCount == 2)
+    }
+
     @Test func untranscribedSpansSurviveASave() throws {
         var meeting = Meeting(title: "T", startedAt: Date(timeIntervalSince1970: 0))
         meeting.untranscribed = [span(.system, 1, 4)]

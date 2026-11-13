@@ -83,6 +83,18 @@ struct MeetingIndexTests {
         #expect(Set(expired) == [monday.id, old])
     }
 
+    // A3-13: an old transcript imported today is kept for the whole retention period.
+    @Test("retention counts an imported meeting from its import")
+    func retentionCountsImportsFromTheImport() {
+        var imported = Meeting(title: "Import", trigger: .imported, startedAt: Self.now.addingTimeInterval(-60 * Self.day))
+        imported.importedAt = Self.now
+        var oldImport = Meeting(title: "Ancien import", trigger: .imported, startedAt: Self.now.addingTimeInterval(-60 * Self.day))
+        oldImport.importedAt = Self.now.addingTimeInterval(-40 * Self.day)
+        let index = MeetingIndex(index: [today, MeetingSummary(imported), MeetingSummary(oldImport)], folders: nil, rebuild: { _ in nil })
+        let cutoff = Self.now.addingTimeInterval(-30 * Self.day)
+        #expect(index.expired(before: cutoff, folderDates: [:]) == [oldImport.id])
+    }
+
     @Test("deleting an unreadable meeting lets the index be written again")
     func deletingUnreadableCompletes() {
         let lost = UUID()

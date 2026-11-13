@@ -267,7 +267,11 @@ struct MeetingRecordingView: View {
 
     var body: some View {
         Group {
-            if controller.isPanelExpanded {
+            if case .failed(let message) = controller.state {
+                FloatCard(width: DS.MeetingPanel.cardWidth) {
+                    ProblemBanner(message: message) { controller.dismissFailure() }
+                }
+            } else if controller.isPanelExpanded {
                 RecordingPanelExpanded(controller: controller)
             } else {
                 RecordingPill(controller: controller)
@@ -505,6 +509,7 @@ struct MeetingMenuItems: View {
             Button("Afficher la transcription en direct") { controller.showLiveTranscript() }
         case .processing:
             Text("Traitement de la réunion…")
+            Button("Prendre des notes de réunion") { controller.takeNotes() }
         case .failed(let message):
             Text(message)
             Button("Ignorer") { controller.dismissFailure() }

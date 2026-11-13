@@ -198,6 +198,11 @@ public struct Meeting: Codable, Sendable, Identifiable {
     /// FLU-132: recorded in Précis, so its call may be transcribed by the cloud; set when the
     /// recording starts, never later. `false` in Privé, `nil` in meetings saved before.
     public var cloudAllowed: Bool?
+    /// What the call window showed, saved with the meeting so that a recovery at a later
+    /// launch caps and names the voices as the end of the meeting would have (A3-9).
+    public var windowRoster: ParticipantRoster?
+    /// When an imported meeting was imported: retention counts from it (A3-13).
+    public var importedAt: Date?
 
     public init(
         id: UUID = UUID(),
@@ -282,6 +287,8 @@ public struct MeetingSummary: Codable, Sendable, Identifiable, Hashable {
     public var speakers: [Speaker]?
     /// Whether the meeting was imported rather than recorded (FLU-16).
     public var isImported: Bool?
+    /// When it was imported (A3-13); `nil` for a recorded one and older entries.
+    public var importedAt: Date?
 
     public init(_ meeting: Meeting) {
         id = meeting.id
@@ -295,7 +302,12 @@ public struct MeetingSummary: Codable, Sendable, Identifiable, Hashable {
         keepAudio = meeting.keepAudio
         speakers = meeting.speakers
         isImported = meeting.trigger == .imported
+        importedAt = meeting.importedAt
     }
+
+    /// What retention counts from: the import for an imported meeting, so an old transcript
+    /// is not deleted at the next launch (A3-13), otherwise the start.
+    public var retentionDate: Date { importedAt ?? startedAt }
 
     /// The first sentence of a recap, at most `limit` characters (cut on a word, with "…").
     public static func recapLine(from recap: String, limit: Int = 140) -> String {

@@ -73,7 +73,7 @@ public struct MeetingIndex: Equatable, Sendable {
     /// ones by the day their folder was created (never later than their start, except for an
     /// imported meeting, which then goes later rather than sooner).
     public func expired(before cutoff: Date, folderDates: [UUID: Date]) -> [UUID] {
-        summaries.filter { $0.startedAt < cutoff }.map(\.id)
+        summaries.filter { $0.retentionDate < cutoff }.map(\.id)
             + unreadable.filter { folderDates[$0].map { $0 < cutoff } ?? false }.sorted { $0.uuidString < $1.uuidString }
     }
 

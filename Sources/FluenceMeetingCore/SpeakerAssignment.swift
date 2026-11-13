@@ -176,3 +176,50 @@ public enum SpeakerAssignment {
         return result
     }
 }
+
+// MARK: - Recovery (A3-9)
+
+extension SpeakerAssignment {
+    /// A meeting diarized again at a later launch (recovery) gets new labels, in a new order.
+    /// Each new voice takes the speaker its lines overlapped most, on the same channel, in
+    /// the meeting as it was (`before`): the names and merges the user gave stay with the
+    /// voices. A voice with no earlier lines keeps its label, or a fresh unnamed one when
+    /// that label was someone else's. A meeting never finalised (all « Others ») is unchanged.
+    public static func carryOver(from before: Meeting, into after: Meeting) -> Meeting {
+        func isVoice(_ id: String) -> Bool { id != Speaker.meID && id != Speaker.othersID }
+        let earlier = before.segments.filter { isVoice($0.speakerID) }
+        var used = Set(before.speakers.map(\.id) + after.speakers.map(\.id) + after.segments.map(\.speakerID))
+        var mapping: [String: String] = [:]
+        for label in after.speakers.map(\.id) where isVoice(label) {
+            var overlap: [String: TimeInterval] = [:]
+            for segment in after.segments where segment.speakerID == label {
+                for old in earlier where old.source == segment.source {
+                    let shared = min(segment.end, old.end) - max(segment.start, old.start)
+                    if shared > 0 { overlap[old.speakerID, default: 0] += shared }
+                }
+            }
+            // Most overlap; a tie goes to the smaller label.
+            if let best = overlap.max(by: { ($0.value, $1.key) < ($1.value, $0.key) }) {
+                mapping[label] = best.key
+            } else if before.speaker(label) != nil {
+                let prefix = label.prefix { !$0.isNumber }
+                var number = 1
+                while used.contains("\(prefix)\(number)") { number += 1 }
+                mapping[label] = "\(prefix)\(number)"
+                used.insert("\(prefix)\(number)")
+            }
+        }
+
+        var meeting = after
+        for index in meeting.segments.indices {
+            if let id = mapping[meeting.segments[index].speakerID] { meeting.segments[index].speakerID = id }
+        }
+        var speakers: [Speaker] = []
+        for speaker in after.speakers {
+            let carried = mapping[speaker.id].map { before.speaker($0) ?? Speaker(id: $0) } ?? speaker
+            if !speakers.contains(where: { $0.id == carried.id }) { speakers.append(carried) }
+        }
+        meeting.speakers = speakers
+        return meeting
+    }
+}

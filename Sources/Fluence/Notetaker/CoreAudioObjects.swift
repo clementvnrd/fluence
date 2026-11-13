@@ -76,11 +76,6 @@ enum CoreAudioObjects {
 
     // MARK: - Devices
 
-    static var defaultInputDevice: AudioObjectID? {
-        value(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultInputDevice, initial: AudioObjectID(0))
-            .flatMap { $0 == kAudioObjectUnknown ? nil : $0 }
-    }
-
     static var defaultOutputDevice: AudioObjectID? {
         value(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultOutputDevice, initial: AudioObjectID(0))
             .flatMap { $0 == kAudioObjectUnknown ? nil : $0 }
@@ -109,6 +104,10 @@ enum CoreAudioObjects {
 
     static func hasOutputStreams(_ device: AudioObjectID) -> Bool {
         !array(device, kAudioDevicePropertyStreams, scope: kAudioDevicePropertyScopeOutput, of: AudioObjectID.self, zero: 0).isEmpty
+    }
+
+    static func hasInputStreams(_ device: AudioObjectID) -> Bool {
+        !array(device, kAudioDevicePropertyStreams, scope: kAudioDevicePropertyScopeInput, of: AudioObjectID.self, zero: 0).isEmpty
     }
 
     /// The Mac's own speakers/headphone jack. Hosting the tap's aggregate device here keeps

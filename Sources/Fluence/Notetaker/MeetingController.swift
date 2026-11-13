@@ -138,6 +138,7 @@ final class MeetingController {
     /// being processed does not block it (FLU-32: back-to-back calls).
     private func offer(_ detected: DetectedMeeting) -> Bool {
         guard state == .idle || state == .processing || isFailed else { return false }
+        if isFailed { recordingPanel?.dismiss() }
         state = .detected(detected)
         let initial = DetectionOffer(autoRecordSeconds: NotetakerSettings.shared.autoRecordSeconds)
         countdown = initial.remaining
@@ -184,7 +185,9 @@ final class MeetingController {
     }
 
     func dismissFailure() {
-        if isFailed { state = finalizing > 0 ? .processing : .idle }
+        guard isFailed else { return }
+        state = finalizing > 0 ? .processing : .idle
+        recordingPanel?.dismiss()
     }
 
     private var isFailed: Bool {
@@ -218,6 +221,7 @@ final class MeetingController {
     private func begin(_ detected: DetectedMeeting?, trigger: MeetingTrigger) async {
         guard state != .recording else { return }
         state = .recording
+        recordingPanel?.dismiss()  // a failure shown there (A3-7); shown again once recording
         notice = nil
         lastStopReason = nil
 
@@ -284,7 +288,9 @@ final class MeetingController {
 
     private func fail(_ message: String) {
         state = .failed(message)
-        recordingPanel?.dismiss()
+        // A3-7: said on the meeting's own surface, until dismissed, not only in the menu.
+        isPanelExpanded = false
+        showRecordingPanel()
         Log.app.error("meeting failed: \(message, privacy: .public)")
         Diagnostics.error("meeting.failed")
     }
@@ -366,7 +372,10 @@ final class MeetingController {
         guard var meeting else { return }
         meeting.keepAudio = keepAudio
         // FLU-54: what the engine failed on so far, so a crash does not lose its place.
-        if let session { meeting.untranscribed = TranscriptionRetry.remaining(session.untranscribed) }
+        if let session {
+            meeting.untranscribed = TranscriptionRetry.remaining(session.untranscribed)
+            meeting.windowRoster = session.roster  // A3-9: for a recovery
+        }
         do {
             try Self.saveKeepingEdits(meeting)
         } catch {
@@ -395,12 +404,15 @@ final class MeetingController {
         Log.app.info("meeting recording stopped: \(reason.rawValue, privacy: .public)")
 
         let id = meeting.id
+        // A3-5: this meeting's choice; a next meeting starting during the pass resets it.
+        let keepAudio = self.keepAudio
         finalPasses[id] = Task {
             await session.finish()
             meeting.segments = session.allSegments
             meeting.untranscribed = TranscriptionRetry.remaining(session.untranscribed)
             meeting.endedAt = Date()
             meeting.keepAudio = keepAudio
+            meeting.windowRoster = session.roster
             // Everything said is on disk from here, before the (longer) final pass: a quit
             // that cannot wait for it loses nothing (FLU-54).
             try? Self.saveKeepingEdits(meeting)
@@ -571,11 +583,22 @@ final class MeetingController {
     /// FLU-54: the utterances a meeting still lacks, from its spools on disk, at a later
     /// launch. What still fails stays listed.
     private static func transcribeLate(_ meeting: Meeting, directory: URL, key: SymmetricKey) async -> Meeting {
-        let spans = TranscriptionRetry.plan(meeting.untranscribed ?? [])
         var readers: [AudioSource: MeetingAudioSpoolReader] = [:]
         for source in AudioSource.allCases {
             readers[source] = try? MeetingAudioSpoolReader(url: MeetingAudioSpool.url(in: directory, source: source), key: key)
         }
+        var pending = meeting.untranscribed ?? []
+        // A3-6: a meeting that never stopped was saved at its last autosave; what its spools
+        // hold past it was never transcribed. Listed, it also keeps the audio if this fails.
+        if meeting.endedAt == nil {
+            let rate = Double(MeetingAudioFormat.sampleRate)
+            pending += TranscriptionRetry.tail(
+                segments: meeting.segments,
+                untranscribed: pending,
+                spooled: readers.mapValues { Double($0.sampleCount) / rate }
+            )
+        }
+        let spans = TranscriptionRetry.plan(pending)
         let corrector = DictionaryStore.shared.corrector
         let found = readers
         let outcome = await Task.detached(priority: .utility) {
@@ -635,20 +658,23 @@ final class MeetingController {
             let pass = Task {
                 var meeting = meeting
                 let key = try? MeetingStore.shared.meetingKey(for: id, create: false)
-                if let key, meeting.untranscribed?.isEmpty == false {
+                if let key {
                     meeting = await Self.transcribeLate(meeting, directory: directory, key: key)
                 }
-                meeting.endedAt = meeting.endedAt
-                    ?? meeting.startedAt.addingTimeInterval(meeting.segments.map(\.end).max() ?? 0)
+                meeting.endedAt = meeting.endedAt ?? meeting.startedAt.addingTimeInterval(
+                    (meeting.segments.map(\.end) + (meeting.untranscribed ?? []).map(\.end)).max() ?? 0
+                )
                 let spool = MeetingAudioSpool.url(in: directory, source: .system)
-                let finalized = await Self.finalPass(
+                let (finalized, voices) = await Self.finalPass(
                     meeting,
                     spool: FileManager.default.fileExists(atPath: spool.path) ? spool : nil,
                     micSpool: MeetingAudioSpool.url(in: directory, source: .microphone),
                     key: key,
-                    windowRoster: ParticipantRoster()
+                    windowRoster: meeting.windowRoster ?? ParticipantRoster()
                 )
-                if Self.complete(finalized, directory: directory) == .done {
+                // A3-9: names and merges the user gave stay with the voices, whatever their new labels.
+                let carried = SpeakerAssignment.carryOver(from: meeting, into: finalized)
+                if Self.complete((carried, voices), directory: directory) == .done {
                     Log.app.info("recovered an interrupted meeting")
                     Diagnostics.recovery("meeting.recovered")
                 }
