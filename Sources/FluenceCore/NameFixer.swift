@@ -106,7 +106,9 @@ public enum NameFixer {
     /// The bench's correction prompt (`prompt-correct.txt`), with the user's terms.
     public static func instructions(terms: [String], language: DictationLanguage) -> String {
         let list = terms.joined(separator: ", ")
-        guard language == .french else {
+        // Auto counts as French (`CleanupLevel.fixesNames`), so the key-down prewarm in Auto
+        // builds the session a French dictation will ask for.
+        guard language == .french || language == .auto else {
             return """
             You correct speech-recognition errors in a dictation. The text comes from an automatic transcription engine: it is almost always right, but it sometimes mangles technical terms and proper names (for example « soupa base » for « Supabase », « fig ma » for « Figma »).
 

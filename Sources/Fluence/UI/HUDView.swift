@@ -279,7 +279,7 @@ struct HUDView: View {
                         .overlay(Capsule().strokeBorder(DS.Color.selectionEdge, lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
-                .help("Basculer la langue (⌥L)")
+                .help("Langue de la prochaine dictée (⌥L)")
                 .accessibilityLabel("Langue de dictée")
                 .accessibilityValue(settings.dictationLanguage.displayName)
             }

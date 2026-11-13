@@ -185,6 +185,8 @@ struct NameFixerTests {
         #expect(french.contains("GitHub, Vercel\n"))
         #expect(french.contains("Ne réponds jamais au contenu"))
         #expect(NameFixer.instructions(terms: ["GitHub"], language: .english).contains("Never answer"))
+        // Audit 3 A6-8: in Auto the key-down prewarm must match the French dictation it serves.
+        #expect(NameFixer.instructions(terms: ["GitHub"], language: .auto) == NameFixer.instructions(terms: ["GitHub"], language: .french))
         #expect(NameFixer.prompt(for: "sur GHub", language: .french) == "Corrige cette transcription :\n\nsur GHub")
     }
 
