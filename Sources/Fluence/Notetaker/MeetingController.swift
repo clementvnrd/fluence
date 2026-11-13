@@ -237,6 +237,8 @@ final class MeetingController {
             keepAudio: NotetakerSettings.shared.keepAudioByDefault
         )
         meeting.speakers = [.me(), .others]
+        // FLU-132: the mode at recording time decides the upload, even at recovery.
+        meeting.cloudAllowed = MeetingCloud.isOn
         keepAudio = meeting.keepAudio
 
         do {
@@ -480,9 +482,10 @@ final class MeetingController {
         key: SymmetricKey?,
         windowRoster: ParticipantRoster
     ) async -> (Meeting, [String: [Float]]) {
-        let micSpool = micSpool.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
         // FLU-33: the mic is diarized only behind the hidden setting, and only if its spool is there.
-        let roomSpool = NotetakerSettings.shared.diarizeMicrophone ? micSpool : nil
+        let roomSpool = micSpool.flatMap { url in
+            NotetakerSettings.shared.diarizeMicrophone && FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
         let input = MeetingFinalizer.Input(
             meeting: meeting,
             systemSpool: spool,
@@ -490,8 +493,7 @@ final class MeetingController {
             corrector: DictionaryStore.shared.corrector,
             windowRoster: windowRoster,
             roomSpool: roomSpool,
-            micSpool: micSpool,
-            cloud: MeetingCloud.request()
+            cloud: MeetingCloud.request(meeting)
         )
         let output = await Task.detached(priority: .utility) { await MeetingFinalizer.attribute(input) }.value
         return (MeetingFinalizer.name(output, window: windowRoster), output.voices)

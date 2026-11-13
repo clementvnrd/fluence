@@ -42,7 +42,7 @@ struct CloudSpeechTests {
     // FLU-132: one channel of a finished meeting.
     @Test func meetingChannelRequest() throws {
         let pcm = Data([0x01, 0x00, 0xFF, 0x7F])
-        let (request, body) = CloudRequest.meeting(key: "xi-9", pcm: pcm, diarize: true, terms: ["Fluence", "a<b"], boundary: "B")
+        let (request, body) = CloudRequest.meeting(key: "xi-9", terms: ["Fluence", "a<b"], boundary: "B") { $0.append(pcm) }
         #expect(request.url?.absoluteString == "https://api.elevenlabs.io/v1/speech-to-text")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "xi-api-key") == "xi-9")
@@ -65,17 +65,12 @@ struct CloudSpeechTests {
         #expect(body.range(of: Data("filename=\"audio.pcm\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8) + pcm + Data("\r\n--B--\r\n".utf8)) != nil)
     }
 
-    @Test func theMicrophoneChannelIsNotDiarized() {
-        let (_, body) = CloudRequest.meeting(key: "k", pcm: Data(), diarize: false, terms: [], boundary: "B")
-        let text = String(decoding: body, as: UTF8.self)
-        #expect(text.contains(field("diarize", "false")))
-        #expect(!text.contains("name=\"keyterms\""))
-    }
-
+    // A3-10: one wait for the whole meeting, retry included, at most 15 minutes.
     @Test func aMeetingWaitsLongerWithItsAudioUpToACap() {
         #expect(CloudFallback.meetingDeadline(audioSeconds: 0) == 60)
-        #expect(CloudFallback.meetingDeadline(audioSeconds: 600) == 360)
-        #expect(CloudFallback.meetingDeadline(audioSeconds: 3 * 3600) == 1800)
+        #expect(CloudFallback.meetingDeadline(audioSeconds: 600) == 210)
+        #expect(CloudFallback.meetingDeadline(audioSeconds: 3600) == 900)
+        #expect(CloudFallback.meetingDeadline(audioSeconds: 3 * 3600) == 900)
     }
 
     @Test func onlyABusyOrFailingServerIsTriedAgain() {

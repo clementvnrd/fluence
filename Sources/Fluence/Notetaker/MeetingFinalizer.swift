@@ -29,9 +29,11 @@ extension MeetingAudioSpoolReader: AudioSampleSource {}
 /// the room, `R1…Rn` (`InRoomSpeakers`). Off, or on any failure, the mic stays the user's
 /// alone, as before.
 ///
-/// In Précis mode (FLU-132), ElevenLabs transcribes both spools first (`MeetingCloud`): its
-/// words replace the live ones and its voices replace step 1's diarizer; steps 1b to 4 run
-/// unchanged. On any cloud failure the pass runs on the Mac, as above.
+/// For a meeting recorded in Précis (FLU-132), ElevenLabs transcribes the call's spool first
+/// (`MeetingCloud`): its words replace the live system segments and its voices replace step
+/// 1's diarizer; the mic keeps its live, echo-cancelled segments (the raw mic spool still
+/// holds the call's echo). Steps 1b to 4 run unchanged. On any cloud failure the pass runs on
+/// the Mac, as above.
 enum MeetingFinalizer {
     struct Input: Sendable {
         var meeting: Meeting
@@ -44,9 +46,7 @@ enum MeetingFinalizer {
         /// FLU-33, hidden setting: the mic spool to diarize for the people in the room; nil
         /// keeps the mic the user's alone.
         var roomSpool: URL?
-        /// FLU-132: the mic's spool, sent to the cloud with the call's.
-        var micSpool: URL?
-        /// FLU-132: Précis mode with its key; nil in Privé.
+        /// FLU-132: recorded in Précis, and its key still there; nil otherwise.
         var cloud: MeetingCloud.Request?
     }
 
@@ -59,19 +59,17 @@ enum MeetingFinalizer {
     /// Steps 1–3. Naming needs the voice-print store (main actor), so it is separate.
     static func attribute(_ input: Input) async -> Output {
         var meeting = input.meeting
+        var mic = meeting.segments.filter { $0.source == .microphone }
+        var system = meeting.segments.filter { $0.source == .system }
         var cloud: MeetingCloud.Transcript?
-        if let request = input.cloud, let key = input.key {
-            cloud = await MeetingCloud.transcribe(
-                request, microphone: input.micSpool, system: input.systemSpool, key: key,
-                live: meeting.segments, corrector: input.corrector
-            )
+        if let request = input.cloud, let url = input.systemSpool, let key = input.key {
+            cloud = await MeetingCloud.transcribe(request, system: url, key: key, live: system, corrector: input.corrector)
         }
-        if cloud != nil {
-            // Each spool sent was transcribed whole, the spans the live pass missed included (FLU-54).
-            meeting.untranscribed = meeting.untranscribed?.filter { ($0.source == .system ? input.systemSpool : input.micSpool) == nil }
+        if let cloud {
+            system = cloud.system
+            // The spool was transcribed whole, the spans the live pass missed included (FLU-54).
+            meeting.untranscribed = meeting.untranscribed?.filter { $0.source != .system }
         }
-        var mic = cloud?.microphone ?? meeting.segments.filter { $0.source == .microphone }
-        let system = cloud?.system ?? meeting.segments.filter { $0.source == .system }
 
         var roomLabels: [String] = []
         if !mic.isEmpty, let url = input.roomSpool, let key = input.key {

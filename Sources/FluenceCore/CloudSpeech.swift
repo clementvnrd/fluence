@@ -76,32 +76,32 @@ public enum CloudRequest {
         // « (rires) » has no place in typed text.
         fields.append(("tag_audio_events", "false"))
         fields += Self.terms(terms).map { ("keyterms", $0) }
-        request.httpBody = multipart(fields, file: wav, name: "audio.wav", type: "audio/wav", boundary: boundary)
+        request.httpBody = multipart(fields, name: "audio.wav", type: "audio/wav", boundary: boundary) { $0.append(wav) }
         return request
     }
 
-    /// FLU-132: one channel of a finished meeting, with word timings, and its voices told apart
-    /// when `diarize` (the call's channel; the mic is the user). The spool's own samples go as
-    /// they are — 16 kHz 16-bit mono PCM, no codec, nothing written to disk — about 115 MB an
-    /// hour. Neither the language (a meeting is not always in the dictation's) nor the count of
-    /// voices (rarely known for sure, FLU-33) is sent: the provider finds both.
+    /// FLU-132: the call's channel of a finished meeting, with word timings and its voices
+    /// told apart. The spool's own samples go as they are — 16 kHz 16-bit mono
+    /// PCM, no codec, nothing written to disk — about 115 MB an hour, written by `pcm` straight
+    /// into the body so the channel is held once (A3-10). Neither the language (a meeting is not
+    /// always in the dictation's) nor the count of voices (rarely known for sure, FLU-33) is
+    /// sent: the provider finds both.
     /// The body comes apart from the request, for `URLSession.upload(for:from:)`.
     public static func meeting(
         key: String,
-        pcm: Data,
-        diarize: Bool,
         terms: [String],
-        boundary: String = "fluence-" + UUID().uuidString
+        boundary: String = "fluence-" + UUID().uuidString,
+        pcm: (inout Data) -> Void
     ) -> (request: URLRequest, body: Data) {
         var fields = [
             ("model_id", elevenLabsModel),
             ("tag_audio_events", "false"),
             ("timestamps_granularity", "word"),
-            ("diarize", diarize ? "true" : "false"),
+            ("diarize", "true"),
             ("file_format", "pcm_s16le_16"),
         ]
         fields += Self.terms(terms).map { ("keyterms", $0) }
-        let body = multipart(fields, file: pcm, name: "audio.pcm", type: "application/octet-stream", boundary: boundary)
+        let body = multipart(fields, name: "audio.pcm", type: "application/octet-stream", boundary: boundary, file: pcm)
         return (post(key: key, boundary: boundary), body)
     }
 
@@ -127,14 +127,13 @@ public enum CloudRequest {
         return Array(kept.prefix(CloudProvider.termLimit))
     }
 
-    private static func multipart(_ fields: [(String, String)], file: Data, name fileName: String, type: String, boundary: String) -> Data {
+    private static func multipart(_ fields: [(String, String)], name fileName: String, type: String, boundary: String, file: (inout Data) -> Void) -> Data {
         var body = Data()
-        body.reserveCapacity(file.count + 4096)
         for (name, value) in fields {
             body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
         }
         body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\nContent-Type: \(type)\r\n\r\n".utf8))
-        body.append(file)
+        file(&body)
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))
         return body
     }
@@ -175,11 +174,11 @@ public enum CloudFallback {
         min(2.5 + 0.1 * max(0, audioSeconds), 8)
     }
 
-    /// FLU-132: how long one channel of a finished meeting may take, upload included, before
-    /// the Mac transcribes it instead: a minute, plus half the audio's length (115 MB an hour
-    /// to upload), at most 30 minutes.
+    /// FLU-132: how long a finished meeting's cloud pass may take, upload and retry included,
+    /// before the Mac transcribes it instead: a minute, plus a quarter of the audio's length
+    /// (115 MB an hour to upload), at most 15 minutes (A3-10).
     public static func meetingDeadline(audioSeconds: Double) -> Double {
-        min(60 + 0.5 * max(0, audioSeconds), 1800)
+        min(60 + 0.25 * max(0, audioSeconds), 900)
     }
 
     public enum Outcome: Equatable, Sendable {

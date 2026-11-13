@@ -29,16 +29,18 @@ enum NotetakerHooks {
 /// library, Settings, and the capture side's recording panel.
 @MainActor
 enum NotetakerConsent {
-    /// The notice in one language, or French then English when `language` is nil.
-    static func text(_ language: NotesLanguage?) -> String {
-        language.map(ConsentNotice.text) ?? ConsentNotice.bilingual
+    /// The notice in one language, or French then English when `language` is nil. `cloud`:
+    /// the recording meeting's mode; nil for a meeting not started yet, which follows Précis.
+    static func text(_ language: NotesLanguage?, cloud: Bool? = nil) -> String {
+        let cloud = cloud ?? MeetingCloud.isOn
+        return language.map { ConsentNotice.text($0, cloud: cloud) } ?? ConsentNotice.bilingual(cloud: cloud)
     }
 
     /// Puts the notice on the pasteboard, ready to paste into the meeting chat. Kept off
     /// Universal Clipboard like every other Notetaker copy.
-    static func copyNotice(_ language: NotesLanguage?) {
+    static func copyNotice(_ language: NotesLanguage?, cloud: Bool? = nil) {
         let pasteboard = NSPasteboard.general
         _ = pasteboard.prepareForNewContents(with: .currentHostOnly)
-        pasteboard.setString(text(language), forType: .string)
+        pasteboard.setString(text(language, cloud: cloud), forType: .string)
     }
 }

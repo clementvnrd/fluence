@@ -107,8 +107,8 @@ struct MeetingSettingsSection: View {
                 RowToggle(isOn: Bindable(settings).detectMeetings)
             }
             // FLU-132: Précis sends meetings too, said where meetings are set up.
-            if Settings.shared.cloudProvider != nil, CloudKeys.shared.has(.elevenLabs) {
-                RowNote(text: "Mode Précis\(FrenchFormat.space): l'audio des réunions (toutes les voix) est envoyé à \(CloudProvider.elevenLabs.displayName).", color: DS.Color.amberText)
+            if MeetingCloud.isOn {
+                RowNote(text: "Mode Précis\(FrenchFormat.space): la voix des participants est envoyée à \(CloudProvider.elevenLabs.displayName).", color: DS.Color.amberText)
             }
             RowDivider()
             SettingsRow(
