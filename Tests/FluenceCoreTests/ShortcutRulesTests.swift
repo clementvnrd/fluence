@@ -36,7 +36,8 @@ struct ShortcutRulesTests {
     /// what fits without the chip's own shrinking (measured on the mock-up board).
     @Test func everyPresetChipFitsTheSidebar() {
         for preset in Self.presets {
-            for engine in ["Apple", "Whisper", "Parakeet"] {
+            // ElevenLabs: the chip names the cloud while Précis writes (FLU-134).
+            for engine in ["Apple", "Whisper", "Parakeet", "ElevenLabs"] {
                 #expect(ShortcutLabel.status(shortName: preset, engine: engine, hotkey: .active).count <= 30)
             }
         }

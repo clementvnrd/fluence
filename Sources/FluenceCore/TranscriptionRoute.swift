@@ -42,4 +42,9 @@ public enum TranscriptionRoute {
     public static func sentTo(cloud: CloudProvider?, hasKey: Bool, compareMode: Bool) -> CloudProvider? {
         hasKey && !compareMode ? cloud : nil
     }
+
+    /// What leaves the Mac in Précis, in one line (FLU-134).
+    public static func sentNote(_ provider: CloudProvider) -> String {
+        "L'audio de vos dictées et de vos appels et les mots du dictionnaire sont envoyés à \(provider.displayName)."
+    }
 }

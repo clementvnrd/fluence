@@ -647,9 +647,11 @@ private struct OnboardingView: View {
                 symbol: "mic.fill",
                 title: "Autoriser le micro",
                 body: "Fluence a besoin du micro pour vous entendre quand vous maintenez \(key). "
-                    + "Votre voix est transformée en texte sur ce Mac, puis l'audio est effacé.",
+                    + (Settings.shared.anyCloud == nil ? "Votre voix est transformée en texte sur ce Mac, puis l'audio est effacé." : "La correction se fait sur ce Mac."),
                 facts: [
-                    Fact(symbol: "lock.fill", text: "Le son ne quitte jamais cet ordinateur."),
+                    // FLU-134: in Précis the sound does leave this computer.
+                    Settings.shared.anyCloud.map { Fact(symbol: "scope", text: TranscriptionRoute.sentNote($0)) }
+                        ?? Fact(symbol: "lock.fill", text: "Le son ne quitte jamais cet ordinateur."),
                     Fact(symbol: "hand.raised.fill", text: "Fluence n'écoute que pendant que vous dictez, ou pendant une réunion que vous avez acceptée."),
                     Fact(symbol: "gearshape.fill", text: "Vous pouvez retirer l'accès à tout moment dans Réglages Système."),
                 ],

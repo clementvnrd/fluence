@@ -37,7 +37,7 @@ struct TranscriptionModeCards: View {
         SectionCard {
             CloudKeyRow(provider: Self.precise, changed: $keyChanged)
             if sent != nil {
-                RowNote(text: "L'audio de vos dictées et de vos appels est envoyé à \(Self.precise.displayName).", color: DS.Color.amberText)
+                RowNote(text: TranscriptionRoute.sentNote(Self.precise), color: DS.Color.amberText)
             } else if hasKey, settings.cloudProvider != nil {
                 // Compare mode pauses the cloud for dictation only; meetings recorded in Précis still go (FLU-132).
                 RowNote(text: "L'audio de vos appels est envoyé à \(Self.precise.displayName).", color: DS.Color.amberText)
@@ -142,7 +142,7 @@ private struct CloudKeyRow: View {
     @State private var status: String?
     @State private var testing = false
 
-    private static let info = "ElevenLabs (Scribe v3), avec votre propre clé. Le moteur local écoute en même temps : si le cloud est lent ou injoignable, sa transcription est collée. Les mots du dictionnaire guident la transcription."
+    private static let info = "ElevenLabs (Scribe v3), avec votre propre clé. Le moteur local écoute en même temps : si le cloud est lent ou injoignable, sa transcription est collée. Les mots du dictionnaire guident la transcription. ElevenLabs peut conserver ce qu'il reçoit, selon ses conditions."
 
     var body: some View {
         let _ = changed

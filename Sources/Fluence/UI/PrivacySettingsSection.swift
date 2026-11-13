@@ -170,22 +170,28 @@ struct PrivacySettingsSection: View {
         }
     }
 
+    /// FLU-134: in Précis the voice leaves the Mac, and the card says so.
     private var summaryCard: some View {
-        HStack(alignment: .top, spacing: DS.Space.roomy) {
-            Image(systemName: "lock.fill")
+        let sent = settings.anyCloud
+        return HStack(alignment: .top, spacing: DS.Space.roomy) {
+            Image(systemName: sent == nil ? "lock.fill" : "scope")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(DS.Color.accent)
                 .frame(width: 44, height: 44)
                 .background(Circle().fill(DS.Color.selection))
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Text("Tout reste sur ce Mac").font(DS.Font.title).foregroundStyle(DS.Color.ink)
-                    InfoButton(text: "Vos dictées, réunions et notes sont transcrites et résumées sur cet ordinateur, puis enregistrées chiffrées. Rien n'est envoyé sur Internet, et il n'y a pas de compte.")
+                    Text(sent.map { "La voix part chez \($0.displayName)" } ?? "Tout reste sur ce Mac").font(DS.Font.title).foregroundStyle(DS.Color.ink)
+                    InfoButton(text: sent.map {
+                        TranscriptionRoute.sentNote($0) + " \($0.displayName) peut les conserver, selon ses conditions. La correction se fait sur ce Mac, et ce qui est enregistré est chiffré."
+                    } ?? "Vos dictées, réunions et notes sont transcrites et résumées sur cet ordinateur, puis enregistrées chiffrées. Rien n'est envoyé sur Internet, et il n'y a pas de compte.")
                 }
                 HStack(spacing: 6) {
-                    MetaChip(text: "Transcription sur l'appareil", systemImage: "cpu")
+                    MetaChip(text: sent == nil ? "Transcription sur l'appareil" : "Correction sur l'appareil", systemImage: "cpu")
                     MetaChip(text: "Chiffré sur le disque", systemImage: "lock.fill")
-                    MetaChip(text: "Aucun envoi réseau", systemImage: "wifi.slash")
+                    if sent == nil {
+                        MetaChip(text: "Aucun envoi réseau", systemImage: "wifi.slash")
+                    }
                 }
                 .padding(.top, 4)
             }

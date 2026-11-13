@@ -458,7 +458,11 @@ private struct MenuContent: View {
         Toggle("Mode comparaison", isOn: $settings.compareMode)
 
         if !settings.compareMode {
-            Picker("Moteur", selection: $settings.engine) {
+            // FLU-134: in Précis the local engine is only the fallback.
+            if let sent = settings.sentCloud {
+                Text("Voix : \(sent.displayName)")
+            }
+            Picker(settings.sentCloud == nil ? "Moteur" : "Secours", selection: $settings.engine) {
                 ForEach(SpeechEngineChoice.allCases, id: \.self) { choice in
                     Text(choice.displayName).tag(choice)
                 }

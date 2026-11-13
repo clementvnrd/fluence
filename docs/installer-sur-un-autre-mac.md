@@ -57,7 +57,9 @@ Fluence vérifie une fois par jour si une nouvelle version existe. Si une versio
 
 ## Ce qui reste sur votre Mac
 
-Votre voix, les textes dictés et les notes de réunion restent sur votre Mac, chiffrés. Fluence ne se connecte à Internet que pour deux choses : vérifier les mises à jour et télécharger les modèles de voix. Aucun texte, aucun son, aucun nom ne part. La liste complète des composants et de leurs licences est dans **Réglages › À propos › Licences**.
+Votre voix, les textes dictés et les notes de réunion restent sur votre Mac, chiffrés. Fluence ne se connecte à Internet que pour deux choses : vérifier les mises à jour et télécharger les modèles de voix. Aucun texte, aucun son, aucun nom ne part.
+
+Une exception, si vous la choisissez : en mode **Précis** (Réglages › Transcription), l'audio de vos dictées et les mots du dictionnaire sont envoyés à ElevenLabs avec votre propre clé. La correction reste sur le Mac. La liste complète des composants et de leurs licences est dans **Réglages › À propos › Licences**.
 
 ## Si ça ne marche pas
 

@@ -49,4 +49,10 @@ struct TranscriptionRouteTests {
         #expect(TranscriptionRoute.sentTo(cloud: .elevenLabs, hasKey: false, compareMode: false) == nil)
         #expect(TranscriptionRoute.sentTo(cloud: nil, hasKey: true, compareMode: false) == nil)
     }
+
+    /// FLU-134: the amber line used to name only the audio; the dictionary's terms (often names) go too.
+    @Test func sentNoteNamesTheAudioAndTheDictionary() {
+        let note = TranscriptionRoute.sentNote(.elevenLabs)
+        #expect(note.contains("audio") && note.contains("dictionnaire") && note.contains("ElevenLabs"))
+    }
 }

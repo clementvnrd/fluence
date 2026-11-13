@@ -863,7 +863,7 @@ struct AboutSettingsSection: View {
                         AIBadge()
                     }
                     Text("Version \(version)").font(DS.Font.caption).foregroundStyle(DS.Color.inkSecondary)
-                    Text("Dictée et notes de réunion, entièrement sur ce Mac.").font(DS.Font.body).foregroundStyle(DS.Color.inkSecondary)
+                    Text(Settings.shared.anyCloud == nil ? "Dictée et notes de réunion, entièrement sur ce Mac." : "Dictée et notes de réunion.").font(DS.Font.body).foregroundStyle(DS.Color.inkSecondary)
                 }
                 Spacer()
             }

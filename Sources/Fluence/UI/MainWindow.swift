@@ -168,11 +168,12 @@ private struct AppSidebar: View {
         "\(settings.dictationLanguage.displayName) • \(MicrophoneName.current(settings.selectedMicrophoneUID))"
     }
 
-    /// « ⌥ Espace · Parakeet » (Clement, FLU-37): the configured shortcut and the engine.
+    /// « ⌥ Espace · Parakeet » (Clement, FLU-37): the configured shortcut and the engine — the
+    /// cloud's name while Précis writes (FLU-134).
     private var statusText: String {
         ShortcutLabel.status(
             shortName: settings.pushToTalkKey.shortName,
-            engine: settings.activeEngine.shortName,
+            engine: settings.sentCloud?.displayName ?? settings.activeEngine.shortName,
             hotkey: controller.hotkeyStatus
         )
     }
