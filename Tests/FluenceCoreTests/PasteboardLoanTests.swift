@@ -88,12 +88,30 @@ struct PasteboardLoanTests {
             fillWithUserContent(pasteboard)
             let before = read(pasteboard)
             let loan = PasteboardLoan(lending: "dictée", on: pasteboard, source: nil)
-            // A clipboard manager re-posting what it saw: changeCount moves, the content is ours.
+            // A clipboard manager re-posting what it saw, markers included: changeCount moves,
+            // the content is still ours.
+            let item = NSPasteboardItem()
+            item.setString("dictée", forType: .string)
+            item.setData(Data(), forType: PasteboardLoan.transientType)
             pasteboard.clearContents()
-            pasteboard.setString("dictée", forType: .string)
+            pasteboard.writeObjects([item])
             #expect(pasteboard.changeCount != loan.generation)
             #expect(loan.giveBack(to: pasteboard))
             #expect(read(pasteboard) == before)
+        }
+    }
+
+    /// Audit 3 A1-8: the user selects the pasted dictation and presses ⌘C before it is given
+    /// back. Same text, but their copy, without our markers: it wins.
+    @Test func theUsersOwnCopyOfTheSameTextIsLeftAlone() {
+        withPrivatePasteboard { pasteboard in
+            fillWithUserContent(pasteboard)
+            let loan = PasteboardLoan(lending: "dictée", on: pasteboard, source: nil)
+            pasteboard.clearContents()
+            pasteboard.setString("dictée", forType: .string)
+            #expect(!loan.isOut(on: pasteboard))
+            #expect(!loan.giveBack(to: pasteboard))
+            #expect(pasteboard.string(forType: .string) == "dictée")
         }
     }
 
