@@ -143,9 +143,22 @@ struct CloudSpeechTests {
 
     @Test func withoutLocalTextOnlyTheCloudCounts() {
         #expect(CloudFallback.choose(cloud: nil, local: nil) == .failed(.timedOut))
-        #expect(CloudFallback.choose(cloud: nil, local: " ") == .failed(.timedOut))
         #expect(CloudFallback.choose(cloud: .failed(.server(500)), local: nil) == .failed(.server(500)))
         #expect(CloudFallback.choose(cloud: .text(""), local: nil) == .cloud(""))
+    }
+
+    // A2-1: the Mac heard nothing and the cloud gave no answer: « Rien entendu », not an engine failure.
+    @Test func aLocalEngineThatHeardNothingIsNotAFailure() {
+        #expect(CloudFallback.choose(cloud: nil, local: " ") == .local("", because: .timedOut))
+        #expect(CloudFallback.choose(cloud: .failed(.network), local: "") == .local("", because: .network))
+        #expect(CloudFallback.choose(cloud: .failed(.noKey), local: "") == .local("", because: .noKey))
+    }
+
+    // A2-7: past two minutes the cloud cannot answer within its 8 s: the audio stays on the Mac.
+    @Test func longDictationsAreNotSent() {
+        #expect(CloudFallback.sends(audioSeconds: 0))
+        #expect(CloudFallback.sends(audioSeconds: 120))
+        #expect(!CloudFallback.sends(audioSeconds: 120.1))
     }
 
     @Test func theCapsuleSaysWhyInAFewWords() {
@@ -156,6 +169,8 @@ struct CloudSpeechTests {
         #expect(CloudFallback.notice(.timedOut, local: "Parakeet") == "Cloud trop lent\(nbsp): Parakeet")
         #expect(CloudFallback.notice(.server(500), local: "Parakeet") == "Cloud indisponible\(nbsp): Parakeet")
         #expect(CloudFallback.notice(.rateLimited, local: "Parakeet") == "Cloud indisponible\(nbsp): Parakeet")
+        // A2-8: a locked Keychain is not a missing key.
+        #expect(CloudFallback.notice(.keychain, local: "Parakeet") == "Trousseau indisponible\(nbsp): Parakeet")
     }
 
     // MARK: - FLU-129: who wrote the text

@@ -91,6 +91,8 @@ enum DiagnosticExport {
             ("engine", settings.engine.rawValue),
             ("whisperModel", settings.whisperModel),
             ("compareMode", flag(settings.compareMode)),
+            // The mode only: the key never leaves the Keychain.
+            ("cloudProvider", settings.cloudProvider?.rawValue ?? "none"),
             ("cleanupLevel", settings.cleanupLevel.rawValue),
             ("effectiveCleanupLevel", settings.effectiveCleanupLevel.rawValue),
             ("dictationLanguage", settings.dictationLanguage.rawValue),

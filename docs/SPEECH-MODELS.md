@@ -114,3 +114,31 @@ What stays wrong is out of reach of rules: look-alikes that are French words («
 « le fixe » from « le fix » takes context, i.e. another engine (Qwen3-ASR with hotwords had
 +14–21 points of tech-term recall in the FLU-86 audit) or a cloud one. Synthetic voices are not
 Clement's: a few of his real recordings would tell how much of this carries over.
+
+## In the cloud: ElevenLabs Scribe v3 (FLU-113)
+
+The opt-in « Précis » mode (Réglages › Transcription) sends each dictation to ElevenLabs Scribe
+v3 with the user's own key; the local engine transcribes the same audio and its text is typed
+when the cloud is late or fails. Same bench, run through the API by `cloud.py`, MacBook Air M2,
+2026-11-12, 554 recordings, 52 min:
+
+| Engine | fleurs | fleurs-webcam | tech | tech-webcam | franglais | franglais-webcam |
+|---|---:|---:|---:|---:|---:|---:|
+| Apple | 7.6 % | 12.1 % | 18.6 % | 24.1 % | 33.9 % | 38.9 % |
+| Parakeet Ultra | 6.7 % | 9.2 % | 9.7 % | 11.5 % | 20.7 % | 33.9 % |
+| Scribe v3 | 2.1 % | 3.4 % | 3.9 % | 5.2 % | 10.8 % | 20.0 % |
+| **Scribe v3 + vocabulary** | **2.2 %** | **3.9 %** | **2.9 %** | **4.2 %** | **4.6 %** | **12.3 %** |
+
+* English work words written right (`franglais.py`): Parakeet 149/300 (50 %), Scribe 186/300
+  (62 %), Scribe + vocabulary 262/300 (87 %). No vocabulary word was wrongly inserted, by any engine.
+* The vocabulary was the tech lexicon plus the franglais terms, 100 `keyterms`. The app sends the
+  dictionary's spellings, the user's own first, then the lexicon's names, then its corrections, at
+  most 100 (it sent 40 until FLU-142). Past 100, ElevenLabs bills at least 20 s per request.
+* Latency from France, upload plus answer: p50 0.68 s, p90 1.18 s, 1.9 s for the 44 s
+  dictation. It includes the network, so it does not compare with the compute-only times above.
+  The app waits 2.5 s plus 0.1 s per second of audio, at most 8 s, and does not send a
+  dictation over 2 minutes.
+
+**Verdict:** the most accurate engine measured, 2.4 to 4.5 times fewer words wrong than
+Parakeet Ultra on every set, and the only one that gets most English work words right. It
+stays opt-in because the voice leaves the Mac. Synthetic and read speech only, not Clement's voice.

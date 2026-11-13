@@ -217,7 +217,7 @@ Network — every outgoing connection, and nothing else:
   kept in the Keychain. ElevenLabs may keep what it receives under its own terms: the request does
   not ask for zero retention, which ElevenLabs reserves for enterprise accounts. Cleanup stays on
   the Mac. The local engine transcribes the same audio meanwhile and its text is used when the cloud
-  is slow or unreachable. Only status codes and timings are logged; no cache is kept.
+  is slow or unreachable; a dictation over 2 minutes is not sent. Only status codes and timings are logged; no cache is kept.
   A meeting recorded in the same mode sends, once it ends, the call's audio (the other
   participants' voices; your mic stays on the Mac) there too, decrypted in memory only, with
   the dictionary's terms, to be transcribed and split by speaker (FLU-132); the notes are still
