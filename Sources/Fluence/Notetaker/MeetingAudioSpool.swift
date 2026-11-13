@@ -5,8 +5,9 @@ import Foundation
 /// `[Float]` in memory.
 ///
 /// One file per channel, `<meeting dir>/audio-mic.enc` and `audio-system.enc`, sealed with
-/// the meeting's own key (`MeetingStore.meetingKey(for:create:)`), so deleting the meeting
-/// makes its audio unreadable. Deleted after the final pass unless `meeting.keepAudio`.
+/// the meeting's own key (`MeetingStore.meetingKey(for:create:)`), deleted with the meeting
+/// (see `Vault` for what that does and does not erase on an SSD). Deleted after the final
+/// pass unless `meeting.keepAudio`.
 ///
 /// Sample *i* is meeting time *i / 16 000* (the channel pipeline writes the aligned
 /// timeline, silence included), which is what lets the diarizer read it by time.

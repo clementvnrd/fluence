@@ -61,6 +61,23 @@ struct ModelFolderCheckTests {
         #expect(!ModelFolderCheck.isComplete(files: files, bundles: bundles, otherFiles: vocabulary))
     }
 
+    /// Audit 3 A7-3: the files are read from disk, relative to the model folder, so a Whisper
+    /// variant cut mid-download (a bundle without its weights) is not taken for a model.
+    @Test func filesAreListedRelativeToTheFolder() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("fluence-modelcheck-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        for path in ["AudioEncoder.mlmodelc/coremldata.bin", "AudioEncoder.mlmodelc/weights/weight.bin", "TextDecoder.mlmodelc/coremldata.bin", "config.json"] {
+            let url = folder.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: url)
+        }
+        let files = ModelFolderCheck.files(under: folder)
+        #expect(files == ["AudioEncoder.mlmodelc/coremldata.bin", "AudioEncoder.mlmodelc/weights/weight.bin", "TextDecoder.mlmodelc/coremldata.bin", "config.json"])
+        #expect(!ModelFolderCheck.isComplete(files: files, bundles: ["AudioEncoder.mlmodelc", "TextDecoder.mlmodelc"], otherFiles: []))
+        #expect(ModelFolderCheck.isComplete(files: files, bundles: ["AudioEncoder.mlmodelc"], otherFiles: []))
+        #expect(ModelFolderCheck.files(under: folder.appendingPathComponent("absent")).isEmpty)
+    }
+
     @Test func aMissingVocabularyOrBundleFails() {
         var files = complete
         files.remove("parakeet_vocab.json")

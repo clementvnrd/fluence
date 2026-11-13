@@ -15,8 +15,7 @@ struct TextSettingsSection: View {
             SettingsRow(
                 systemImage: "textformat",
                 title: "Styles par app",
-                subtitle: settings.cleanupLevel.rewrites(in: settings.dictationLanguage) ? nil
-                    : settings.cleanupLevel == .high ? "Inactifs en français" : "Inactifs sous le niveau Élevé"
+                subtitle: settings.stylesPause
             ) {
                 CapButton(title: "Ouvrir", systemImage: "chevron.right", height: 28) {
                     MainNavigation.shared.show(.styles, openWindow: openWindow)
@@ -58,7 +57,7 @@ struct TextSettingsSection: View {
             SettingsRow(
                 systemImage: "text.append",
                 title: "Apprendre les termes fréquents",
-                info: "Un nom propre, un sigle ou un terme technique dicté trois fois, sur deux jours au moins, vous est proposé pour le dictionnaire."
+                info: "Un nom propre, un sigle ou un terme technique dicté trois fois, sur deux jours au moins, vous est proposé pour le dictionnaire. Le compte reste en mémoire et repart de zéro à chaque fermeture de Fluence."
             ) {
                 RowToggle(isOn: $settings.learnFrequentTerms)
             }

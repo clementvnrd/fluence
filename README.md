@@ -61,14 +61,14 @@ tap arms itself as soon as Accessibility is granted — no restart. Hold **⌥ E
 | ⌥L | Switch the dictation language (Français ⇄ English, ⇄ Auto with Whisper) |
 | ⌃⌘V / ⌃⌘C | Paste / copy the last transcript |
 
-Both shortcuts are recorded in Réglages ▸ Général and IA & Formatage: any combination of at
+Both shortcuts are recorded in Réglages ▸ Dictée: any combination of at
 least two keys (a modifier and a key, or two modifiers).
 
 Space and Esc are only swallowed while they act on a dictation; otherwise they reach the app
 as usual. Command Mode rewrites with Apple Intelligence on this Mac, never in the cloud (in
 Précis mode the spoken instruction itself is transcribed by ElevenLabs, like any dictation). It
 refuses password fields, and replaces nothing if the selection changed while it worked. Its
-shortcut and the ⌃⌘V / ⌃⌘C pair are in Réglages; Réglages ▸ Raccourcis lists every gesture.
+shortcut and the ⌃⌘V / ⌃⌘C pair are in Réglages ▸ Dictée, whose « Gestes » row lists every gesture.
 
 The bundle ID is `io.github.clementvnrd.fluence`. Settings, dictionary, history and snippets
 from the app's previous identity (`ai.pivotstudio.murmur-youtube`) migrate on first launch,
@@ -114,8 +114,8 @@ checks and a `--selftest` launch, as CI does (`PUBLIC=1` for a build for others)
 
 ## What happens to the words
 
-Everything below runs on the Mac. Settings ▸ Cleanup, Language, Styles, Dictionary; the
-main window's Snippets tab.
+Everything below runs on the Mac. Réglages ▸ Transcription (cleanup level, language) and
+Texte; the main window's Dictionnaire, Snippets and Styles pages.
 
 **Cleanup levels.** *None* types what the engine heard. *Light* (the default) applies
 Clement's repairs — "scratch that" / "efface tout", self-corrections ("mardi, en fait
@@ -129,10 +129,9 @@ it writes is dropped (the free rewrite answered or reworded French dictations, F
 languages Medium applies self-corrections, lists and numbers, and High also rewrites in the
 style chosen for the kind of app, both checked by `CleanupGuard`. Every
 model pass falls back to Light when the model is unavailable, fails or times out. The
-old on/off and "smart cleanup" switches migrate to None / Light / Medium, and remain in
-Réglages ▸ IA & Formatage as two switches over the level. With **Whisper**, whose output is
-already punctuated, the model passes are skipped unless *Post-traitement LLM sur Whisper* is
-on. *Formatage code & terminaux* (on by default) turns spoken symbols into code ("double tiret
+old on/off and "smart cleanup" switches migrate once to None / Light / Medium. With **Whisper**,
+whose output is already punctuated, the model passes are skipped unless *Nettoyage par le
+modèle avec Whisper* (Réglages ▸ Transcription ▸ Avancé) is on. *Formatage code & terminaux* (on by default) turns spoken symbols into code ("double tiret
 amend" → `--amend`, "accolade ouvrante" → `{`) and drops the final full stop of a one-line
 command, in editors and terminals.
 
@@ -188,7 +187,7 @@ name, dependencies and branch.
 
 | What | Where | How |
 |---|---|---|
-| History | `~/Library/Application Support/Fluence/history.sealed` | One AES-256-GCM sealed line per dictation; key in the login Keychain (this device only, never synced). Retention: don't keep / 1 day / **30 days (default)** / forever. If the Keychain refuses, nothing is written. |
+| History | `~/Library/Application Support/Fluence/history.sealed` | One AES-256-GCM sealed line per dictation; key in the login Keychain (never synced to iCloud; the login keychain itself moves with Migration Assistant and its own backups). Retention: don't keep / 1 day / **30 days (default)** / forever. If the Keychain refuses, nothing is written. |
 | Dictionary | `…/Fluence/dictionary.txt` | Plain text on purpose — it is meant to be edited by hand. Backed up by Time Machine, with the `dictionary.txt.bak` kept before a save that would empty it. |
 | Snippets | `…/Fluence/snippets.sealed` | Sealed like history (they hold addresses, numbers, signatures). If the Keychain refuses, nothing is written and the file is never overwritten. |
 | Meetings | `…/Fluence/Meetings/` | Notes, transcripts and the recording spool sealed with the Vault, one wrapped key per meeting. Audio deleted after transcription unless kept. |
@@ -317,7 +316,7 @@ Sources/
 
 Parakeet is the engine to use in French (`docs/SPEECH-MODELS.md`: the bench, and why the
 newer models people suggest are not in). The engine and the Whisper model are chosen in
-Réglages ▸ Transcription; the microphone too (any
+Réglages ▸ Transcription ▸ Avancé; the microphone in Réglages ▸ Dictée (any
 input, without changing the Mac's default).
 
 **Compare mode** (menu bar) runs every engine on one recording and shows them side by side

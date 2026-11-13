@@ -29,9 +29,11 @@ public struct PasteboardSnapshot {
         unreadableTypes = lost
     }
 
-    /// Puts the items back; an empty snapshot leaves the pasteboard empty.
+    /// Puts the items back; an empty snapshot leaves the pasteboard empty. What comes back is a
+    /// new copy (a new `changeCount`), kept on this Mac: whether the original was allowed onto
+    /// Universal Clipboard cannot be read back, so it never travels (audit 3 A5-3).
     public func restore(to pasteboard: NSPasteboard) {
-        pasteboard.clearContents()
+        pasteboard.prepareForNewContents(with: .currentHostOnly)
         // Items read from a pasteboard die with the clear, so each one is rebuilt.
         let rebuilt = items.filter { !$0.isEmpty }.map { entries in
             let item = NSPasteboardItem()
@@ -82,10 +84,12 @@ public struct PasteboardLoan {
     }
 
     /// Whether the pasteboard still holds the dictation. Reading it — the paste itself — does
-    /// not move `changeCount`; a write does. A write of the very same text (a clipboard
-    /// manager re-posting what it saw) still counts as ours.
+    /// not move `changeCount`; a write does. A write of the very same text still counts as
+    /// ours only with our transient marker (a clipboard manager re-posting what it saw): the
+    /// user's own ⌘C of the pasted text carries none, and their copy wins (audit 3 A1-8).
     public func isOut(on pasteboard: NSPasteboard) -> Bool {
-        pasteboard.changeCount == generation || pasteboard.string(forType: .string) == text
+        pasteboard.changeCount == generation
+            || (pasteboard.string(forType: .string) == text && pasteboard.data(forType: Self.transientType) != nil)
     }
 
     /// Gives the user's contents back, unless someone else wrote meanwhile (the user copied

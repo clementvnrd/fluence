@@ -342,7 +342,8 @@ final class DictationController {
             source: source,
             isComparing: isComparing,
             engineName: isComparing ? "Comparaison…" : kind.displayName,
-            engineKind: kind
+            engineKind: kind,
+            language: Settings.shared.dictationLanguage
         )
         self.session = session
         MediaPause.shared.dictationBegan()
@@ -362,8 +363,8 @@ final class DictationController {
 
         // The name fixer's model loads while the user speaks (FLU-92).
         let level = Settings.shared.effectiveCleanupLevel
-        if !command, level.fixesNames(in: Settings.shared.dictationLanguage) {
-            NameFixerFormatter.prewarm(terms: DictionaryStore.shared.biasPhrases, language: Settings.shared.dictationLanguage)
+        if !command, level.fixesNames(in: session.language) {
+            NameFixerFormatter.prewarm(terms: DictionaryStore.shared.biasPhrases, language: session.language)
         }
 
         // Without a grant there's nothing to open yet; `prepare` asks first.
@@ -770,6 +771,7 @@ final class DictationController {
         // the odds of the right word; that pass guarantees it.
         let processed = await DictationPipeline.process(
             raw,
+            language: session.language,
             category: session.target?.category ?? .other,
             bundleID: session.target?.bundleID == Bundle.main.bundleIdentifier
                 ? lastExternalApp?.bundleIdentifier
@@ -1307,7 +1309,7 @@ final class DictationController {
             whisperReady: WhisperModels.isDownloaded(variant: Settings.shared.whisperModel)
         )
         let kind = SpeechEngineChoice(engine)
-        let session = DictationSession(source: .retry, isComparing: false, engineName: kind.displayName, engineKind: kind, started: kept.started)
+        let session = DictationSession(source: .retry, isComparing: false, engineName: kind.displayName, engineKind: kind, language: Settings.shared.dictationLanguage, started: kept.started)
         session.releasedAt = kept.releasedAt
         session.target = kept.target
         session.targetApp = kept.targetApp
@@ -1554,6 +1556,8 @@ private final class DictationSession {
     let engineName: String
     /// The engine this dictation runs on (FLU-29: the one a failure names).
     let engineKind: SpeechEngineChoice
+    /// The language the engine listens in, for the cleanup too (audit 3 A4-6).
+    let language: DictationLanguage
     let started: Date
     var releasedAt: Date?
     var isReleased: Bool { releasedAt != nil }
@@ -1606,7 +1610,8 @@ private final class DictationSession {
     /// FLU-29: the one app the text may be typed into (`InsertTargetPolicy`).
     var targetApp: InsertTargetPolicy.App?
 
-    init(source: Source, isComparing: Bool, engineName: String, engineKind: SpeechEngineChoice, started: Date = Date()) {
+    init(source: Source, isComparing: Bool, engineName: String, engineKind: SpeechEngineChoice, language: DictationLanguage, started: Date = Date()) {
+        self.language = language
         self.source = source
         self.isComparing = isComparing
         self.engineName = engineName

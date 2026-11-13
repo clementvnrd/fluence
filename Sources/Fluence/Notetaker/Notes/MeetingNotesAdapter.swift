@@ -158,26 +158,26 @@ enum NotesTemplateChoice {
     private static let key = "notetaker.notesTemplates"
 
     static func template(for id: UUID) -> NotesTemplate {
-        let all = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
+        let all = AppPaths.defaults.dictionary(forKey: key) as? [String: String] ?? [:]
         return all[id.uuidString].flatMap(NotesTemplate.init(rawValue:)) ?? .general
     }
 
     static func set(_ template: NotesTemplate, for id: UUID) {
-        var all = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
+        var all = AppPaths.defaults.dictionary(forKey: key) as? [String: String] ?? [:]
         all[id.uuidString] = template == .general ? nil : template.rawValue
-        UserDefaults.standard.set(all, forKey: key)
+        AppPaths.defaults.set(all, forKey: key)
     }
 
     static func forget(_ id: UUID) {
-        var all = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
+        var all = AppPaths.defaults.dictionary(forKey: key) as? [String: String] ?? [:]
         all[id.uuidString] = nil
-        UserDefaults.standard.set(all, forKey: key)
+        AppPaths.defaults.set(all, forKey: key)
     }
 
     /// Drops choices for meetings that no longer exist.
     static func prune(keeping ids: Set<UUID>) {
-        let all = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
+        let all = AppPaths.defaults.dictionary(forKey: key) as? [String: String] ?? [:]
         let kept = all.filter { UUID(uuidString: $0.key).map(ids.contains) ?? false }
-        UserDefaults.standard.set(kept, forKey: key)
+        AppPaths.defaults.set(kept, forKey: key)
     }
 }

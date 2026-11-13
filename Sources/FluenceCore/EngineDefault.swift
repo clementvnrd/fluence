@@ -63,6 +63,18 @@ public enum ModelFolderCheck {
         }
         return otherFiles.isSubset(of: files)
     }
+
+    /// Every regular file under `folder`, as paths relative to it; empty when it is missing.
+    public static func files(under folder: URL) -> Set<String> {
+        guard let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil) else { return [] }
+        let prefix = folder.standardizedFileURL.path + "/"
+        var files = Set<String>()
+        for case let item as URL in enumerator where !item.hasDirectoryPath {
+            let path = item.standardizedFileURL.path
+            if path.hasPrefix(prefix) { files.insert(String(path.dropFirst(prefix.count))) }
+        }
+        return files
+    }
 }
 
 /// A model download's progress as the UI shows it: « 42 % », « 252 Mo sur 600 Mo ».

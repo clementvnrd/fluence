@@ -312,8 +312,10 @@ mode (Réglages › Transcription, `Settings.cloudProvider == .elevenLabs` and a
   and counts only.
 
 ### 2.7 Data protection
-- Per-meeting AES-256-GCM key, wrapped by a master key in the Keychain
-  (`WhenUnlockedThisDeviceOnly`); deleting a meeting destroys its key.
+- Per-meeting AES-256-GCM key, wrapped by a master key in the login Keychain; deleting a
+  meeting deletes its key with its files. The wrapped key is a file like the others, so on an
+  SSD deletion relies on FileVault / APFS, not on the wrapping; the login keychain's
+  `…ThisDeviceOnly` flag is not enforced (it follows Migration Assistant).
 - Raw audio **not kept** by default: encrypted spool until the final diarization pass, then
   deleted. Keeping audio is an explicit per-meeting choice.
 - Retention setting for transcripts/notes; purge on launch; data folder excluded from

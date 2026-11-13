@@ -26,8 +26,11 @@ enum DictationPipeline {
     ///   - category: where the text is going; only level High uses it.
     ///   - bundleID: the app the text is going into, for Clement's developer formatting.
     ///   - formatter: a formatter injected by tests, used instead of the level's own.
+    ///   - selected: the language the engine was started in; a switch during the dictation
+    ///     (pill, ⌥L) is for the next one (audit 3 A4-6).
     static func process(
         _ raw: String,
+        language selected: DictationLanguage,
         category: AppCategory,
         bundleID: String? = nil,
         formatter: (any TextFormatter)? = nil
@@ -43,7 +46,7 @@ enum DictationPipeline {
         let (shielded, expansions) = SnippetMatcher.protect(raw, snippets: snippets)
         let language = DictationLanguage.detect(
             shielded,
-            selected: settings.dictationLanguage,
+            selected: selected,
             fallback: DictationLanguage(locale: Locale.current) ?? .english
         )
 
@@ -60,7 +63,9 @@ enum DictationPipeline {
                 // tested rules.
                 cleaned = LightCleanup.apply(shielded, language: language, developer: developer)
             case .medium, .high:
-                if level.fixesNames(in: language) {
+                // On the chosen language, as the Styles page shows it: in Auto every dictation
+                // gets the name fixer, never the free rewrite (FLU-91, audit 3 A4-3).
+                if level.fixesNames(in: selected) {
                     let terms = DictionaryStore.shared.biasPhrases
                     cleaned = await NameFixerFormatter(
                         language: language,

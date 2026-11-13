@@ -102,7 +102,7 @@ final class SystemAudioTap: @unchecked Sendable {
         hasEverHadSignal = false
         lock.unlock()
         // macOS has now asked for System Audio Recording, if it ever will (FLU-45).
-        UserDefaults.standard.set(true, forKey: MeetingPreparation.systemAudioAskedKey)
+        AppPaths.defaults.set(true, forKey: MeetingPreparation.systemAudioAskedKey)
         // The buffers are read at the tap's rate while the aggregate runs on its own clock;
         // log both so a mismatch (garbled remote audio) shows on the first real meeting.
         let deviceRate = CoreAudioObjects.value(aggregateID, kAudioDevicePropertyNominalSampleRate, initial: Float64(0)) ?? 0

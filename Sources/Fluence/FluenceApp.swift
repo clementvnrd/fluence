@@ -143,7 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Each `make install` relaunches the app and its windows are lost; without this the
         // comparison window would disappear on every rebuild.
-        if !inBackground, UserDefaults.standard.bool(forKey: "comparisonWindowOpen") {
+        if !inBackground, AppPaths.defaults.bool(forKey: "comparisonWindowOpen") {
             Task { @MainActor in
                 // Give SwiftUI time to create the scene's window, or there is no title to find.
                 try? await Task.sleep(for: .milliseconds(400))
@@ -185,19 +185,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    /// `fluence://show` raises the comparison window; `fluence://correct` the correction
-    /// window.
+    /// `fluence://show` brings the comparison window forward, `fluence://correct` the
+    /// correction window — only when the user already has it on screen.
     ///
     /// Nothing destructive is reachable from here on purpose: any app, and any web page
     /// after one browser prompt, can open a custom-scheme URL. The old `clear` action wiped
-    /// the whole history that way, with no confirmation.
+    /// the whole history that way, with no confirmation. Both windows show past dictations,
+    /// so a URL never opens one the user had closed (audit 3 A5-9): during a screen share
+    /// that would put their text in front of the audience.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls where url.scheme == "fluence" {
-            switch url.host {
-            case "show": Self.showComparisonWindow()
-            case "correct": Self.showWindow(titled: Self.correctionTitle)
-            default: break
+            let title: String? = switch url.host {
+            case "show": Self.comparisonTitle
+            case "correct": Self.correctionTitle
+            default: nil
             }
+            guard let title, NSApp.windows.contains(where: { $0.title == title && $0.isVisible }) else { continue }
+            Self.showWindow(titled: title)
         }
     }
 
@@ -263,7 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // skipped the question. The meeting's marker stays, the next launch finishes it.
         MeetingController.shared.saveBeforeExit()
         let isOpen = NSApp.windows.contains { $0.title == Self.comparisonTitle && $0.isVisible }
-        UserDefaults.standard.set(isOpen, forKey: "comparisonWindowOpen")
+        AppPaths.defaults.set(isOpen, forKey: "comparisonWindowOpen")
         controller.deactivate()
         // Belt and braces: quitting mid-comparison must not leave Wispr Flow's key held down,
         // or Wispr keeps recording — and uploading — after Fluence is gone.
@@ -551,7 +555,14 @@ private struct MenuContent: View {
             EmptyView()
         }
         if !Permissions.hasMicrophone {
-            Button("Autoriser le micro…") { Permissions.openMicrophoneSettings() }
+            // Never asked yet: Fluence is not in the pane, so ask (as the onboarding does).
+            Button("Autoriser le micro…") {
+                if Permissions.microphoneUndecided {
+                    Task { _ = await Permissions.requestMicrophone() }
+                } else {
+                    Permissions.openMicrophoneSettings()
+                }
+            }
         }
 
         Divider()

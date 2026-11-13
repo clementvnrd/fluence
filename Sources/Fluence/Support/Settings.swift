@@ -151,8 +151,7 @@ final class Settings {
     // MARK: FLU-5 text
 
     /// How much cleanup runs between the engine and the text field. Replaces the old
-    /// `cleanupEnabled` / `smartCleanup` switches, which are migrated once (see `init`) and
-    /// survive as views onto the level (below) for the settings window's two toggles.
+    /// `cleanupEnabled` / `smartCleanup` switches, which are migrated once (see `init`).
     var cleanupLevel: CleanupLevel {
         didSet { defaults.set(cleanupLevel.rawValue, forKey: Keys.cleanupLevel) }
     }
@@ -227,8 +226,8 @@ final class Settings {
         didSet { defaults.set(commandModeKey.rawValue, forKey: Keys.commandModeKey) }
     }
 
-    /// Add names, acronyms and technical terms to the dictionary once they've been dictated
-    /// twice. Off by default (opt-in): it changes the dictionary without asking each time.
+    /// Offer names, acronyms and technical terms for the dictionary once dictated three times
+    /// over two days, counted in memory only (`FrequentTerms`). Off by default (opt-in).
     var learnFrequentTerms: Bool {
         didSet { defaults.set(learnFrequentTerms, forKey: Keys.learnFrequentTerms) }
     }
@@ -375,32 +374,6 @@ final class Settings {
         maxRecordingMinutes = StoredSettings.recordingLimit(defaults.integer(forKey: Keys.maxRecordingMinutes))
         // MARK: FLU-5 input
         lastTranscriptShortcuts = defaults.object(forKey: Keys.lastTranscriptShortcuts) as? Bool ?? true
-    }
-
-    // MARK: - Clement's cleanup toggles, as views onto the level
-
-    /// "Suppression des bégaiements & répétitions": any cleanup at all.
-    var cleanupEnabled: Bool {
-        get { cleanupLevel != .none }
-        set {
-            if !newValue {
-                cleanupLevel = .none
-            } else if cleanupLevel == .none {
-                cleanupLevel = .light
-            }
-        }
-    }
-
-    /// "Nettoyage IA local": the on-device model runs (Medium, or High with styles).
-    var smartCleanup: Bool {
-        get { cleanupLevel.usesModel }
-        set {
-            if newValue {
-                if !cleanupLevel.usesModel { cleanupLevel = .medium }
-            } else if cleanupLevel.usesModel {
-                cleanupLevel = .light
-            }
-        }
     }
 
     /// The level that actually runs for the current engine: with Whisper the model passes

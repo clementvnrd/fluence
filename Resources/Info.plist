@@ -32,8 +32,9 @@
 	</array>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
-	<!-- `fluence://show` raises the comparison window. Deliberately nothing destructive:
-	     any app or web page can open a custom-scheme URL. -->
+	<!-- `fluence://show` / `fluence://correct` bring the comparison / correction window
+	     forward, only when it is already on screen. Deliberately nothing destructive and no
+	     window opened: any app or web page can open a custom-scheme URL. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

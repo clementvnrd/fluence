@@ -13,6 +13,9 @@ final class MediaPause {
     static let shared = MediaPause()
 
     private var state = MediaPausePolicy.State()
+    /// Scripted players seen during this dictation: macOS's Automation prompt for them waits
+    /// until it is over, never over the field being dictated into (audit 3 A7-7).
+    private var consentToAsk: Set<String> = []
 
     func dictationBegan() {
         // A hold from the dictation just before carries over to this one.
@@ -20,7 +23,7 @@ final class MediaPause {
         let own = Bundle.main.bundleIdentifier ?? ""
         let meeting = MeetingController.shared.isRecording
         // Never ask for System Audio Recording mid-dictation: mute only once a meeting tap asked it.
-        let canMute = UserDefaults.standard.bool(forKey: MeetingPreparation.systemAudioAskedKey)
+        let canMute = AppPaths.defaults.bool(forKey: MeetingPreparation.systemAudioAskedKey)
         Task {
             let processes = await Self.processes()
             let players = MediaPausePolicy.playersToPause(
@@ -34,6 +37,7 @@ final class MediaPause {
             if !canMute, players.count > split.script.count {
                 Log.audio.info("media mute skipped — system audio not asked · \(players.count - split.script.count, privacy: .public) player(s)")
             }
+            consentToAsk.formUnion(split.script)
             let tap = await Self.mute(processes.filter { split.mute.contains($0.bundleID) }.map(\.objectID))
             let scripted = await PlayerScript.run(.pause, split.script)
             Log.audio.info("media paused · \(scripted.sorted().joined(separator: ", "), privacy: .public) · muted \(tap == nil ? 0 : split.mute.count, privacy: .public): \(split.mute.sorted().joined(separator: ", "), privacy: .public)")
@@ -44,6 +48,10 @@ final class MediaPause {
     }
 
     func dictationEnded() {
+        if !consentToAsk.isEmpty {
+            PlayerScript.askConsent(consentToAsk)
+            consentToAsk = []
+        }
         guard let release = state.ended(meetingRecording: MeetingController.shared.isRecording) else { return }
         Self.release(release)
     }
@@ -56,6 +64,12 @@ final class MediaPause {
             let played = await PlayerScript.run(.play, hold.scripted)
             Log.audio.info("media resumed · \(played.count, privacy: .public)/\(hold.scripted.count, privacy: .public) scripted, \(hold.taps.count, privacy: .public) tap(s) removed")
         }
+    }
+
+    /// Whether a running Spotify or Music refused Fluence in Réglages Système › Automatisation,
+    /// for the note under the setting. Never prompts.
+    nonisolated static func automationRefused() async -> Bool {
+        PlayerScript.refused(Set(MediaPausePolicy.scriptableApps))
     }
 
     /// Off the main actor: the whole list takes ~60 ms to read.
@@ -113,6 +127,8 @@ private enum PlayerScript {
                 var done: Set<String> = []
                 // `tell application` would launch a closed app: only those running get a script.
                 for app in apps where !NSRunningApplication.runningApplications(withBundleIdentifier: app).isEmpty {
+                    // Never asked or refused: skipped, so no prompt opens mid-dictation.
+                    guard permission(app, ask: false) == noErr else { continue }
                     // The timeout bounds a hung app: the queue moves on after 2 s.
                     let source = "with timeout of 2 seconds\ntell application id \"\(app)\"\n\(body)\nend tell\nend timeout\nreturn false"
                     var error: NSDictionary?
@@ -125,6 +141,36 @@ private enum PlayerScript {
                 }
                 continuation.resume(returning: done)
             }
+        }
+    }
+
+    /// macOS's Automation answer for a running app: `noErr` granted,
+    /// `errAEEventWouldRequireUserConsent` never asked, `errAEEventNotPermitted` refused.
+    /// With `ask` it puts up the prompt and blocks until it is answered.
+    private static func permission(_ app: String, ask: Bool) -> OSStatus {
+        AEDeterminePermissionToAutomateTarget(
+            NSAppleEventDescriptor(bundleIdentifier: app).aeDesc,
+            AEEventClass(typeWildCard),
+            AEEventID(typeWildCard),
+            ask
+        )
+    }
+
+    /// Puts up the prompt for each running app never asked. Off the script queue: an
+    /// unanswered prompt must not hold back the next dictation's Pause.
+    static func askConsent(_ apps: Set<String>) {
+        DispatchQueue.global(qos: .utility).async {
+            for app in apps where !NSRunningApplication.runningApplications(withBundleIdentifier: app).isEmpty
+                && permission(app, ask: false) == OSStatus(errAEEventWouldRequireUserConsent) {
+                _ = permission(app, ask: true)
+            }
+        }
+    }
+
+    static func refused(_ apps: Set<String>) -> Bool {
+        apps.contains { app in
+            !NSRunningApplication.runningApplications(withBundleIdentifier: app).isEmpty
+                && permission(app, ask: false) == OSStatus(errAEEventNotPermitted)
         }
     }
 }

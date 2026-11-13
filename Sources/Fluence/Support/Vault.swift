@@ -5,14 +5,19 @@ import Security
 
 /// Encryption at rest for everything personal Fluence writes to disk.
 ///
-/// One 256-bit master key lives in the login Keychain, readable only while the Mac is
-/// unlocked and never synced to iCloud. Data is sealed with AES-256-GCM, which also
-/// authenticates it: a tampered or truncated file fails to open instead of decoding into
-/// garbage.
+/// One 256-bit master key lives in the login Keychain, never synced to iCloud. It is the
+/// file-based login keychain (no `kSecUseDataProtectionKeychain`), where the
+/// `…ThisDeviceOnly` accessibility is not enforced: the item follows the login keychain
+/// through Migration Assistant and its backups, and opens whenever that keychain is unlocked
+/// (audit 3 A5-5). Data is sealed with AES-256-GCM, which also authenticates it: a tampered
+/// or truncated file fails to open instead of decoding into garbage.
 ///
 /// Meetings get their own data key, stored *wrapped* by the master key beside the meeting.
-/// Deleting a meeting deletes its wrapped key, which makes any copy of its files left on an
-/// SSD (where overwriting is not reliable) permanently unreadable.
+/// Deleting a meeting deletes its wrapped key and files, but the wrapped key is an ordinary
+/// file under the same master key: a block of it left on the SSD is as recoverable as the
+/// meeting's own. What protects deleted data is FileVault / APFS's per-file keys, not this
+/// wrapping; and an older encrypted backup restored later brings deleted meetings back
+/// (audit 3 A5-7).
 ///
 /// If the key goes missing (a new Mac, a Keychain reset) while sealed data is on disk, the
 /// Vault stops with `VaultKeyError.keyLost` instead of making a new key over it (FLU-36):
@@ -37,7 +42,9 @@ enum Vault {
         }
     }
 
-    private static let service = (Bundle.main.bundleIdentifier ?? "fluence") + ".vault"
+    /// A scratch folder (`FLUENCE_SUPPORT_DIRECTORY`) gets its own item: with the real bundle
+    /// ID, « repartir de zéro » there replaced the real key (audit 3 A7-12).
+    private static let service = (Bundle.main.bundleIdentifier ?? "fluence") + (AppPaths.override == nil ? "" : ".scratch") + ".vault"
 
     /// The master key and its safeguards (FLU-36, `FluenceCore.VaultKeyring`): read once and
     /// cached; made only when nothing sealed is on disk. Sealed data without its key is

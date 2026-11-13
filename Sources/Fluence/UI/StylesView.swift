@@ -12,13 +12,13 @@ struct StylesView: View {
                 ContentTitle(title: "Styles")
                     .padding(.bottom, DS.Space.snug)
 
-                if !settings.cleanupLevel.rewrites(in: settings.dictationLanguage) {
+                if let pause = settings.stylesPause {
                     HStack(spacing: DS.Space.base) {
                         Image(systemName: "pause.circle").foregroundStyle(DS.Color.accent)
-                        Text(settings.cleanupLevel == .high ? "Inactifs en français" : "Inactifs au niveau \(settings.cleanupLevel.title)")
+                        Text(pause)
                             .font(DS.Font.label)
                             .foregroundStyle(DS.Color.ink)
-                        InfoButton(text: "Les styles réécrivent le texte : ils ne s'appliquent qu'au niveau de nettoyage Élevé, hors français.")
+                        InfoButton(text: "Les styles réécrivent le texte : ils ne s'appliquent qu'au niveau de nettoyage Élevé, avec Apple Intelligence, quand la langue choisie n'est ni le français ni Auto.")
                         Spacer()
                         if settings.cleanupLevel != .high {
                             CapButton(title: "Activer", height: 26) { settings.cleanupLevel = .high }
@@ -55,6 +55,18 @@ struct StylesView: View {
             .padding(.bottom, DS.Space.panel)
             .frame(maxWidth: 900, alignment: .leading)
         }
+    }
+}
+
+extension Settings {
+    /// Why no style applies right now, nil when they do: the pipeline's own checks, in its
+    /// order (audit 3 A4-3, A6-9). Shown on the Styles page and in Réglages › Texte.
+    var stylesPause: String? {
+        if cleanupLevel != .high { return "Inactifs au niveau \(cleanupLevel.title)" }
+        if effectiveCleanupLevel != .high { return "Inactifs avec Whisper" }
+        if !FoundationModelFormatter.isAvailable { return "Inactifs sans Apple Intelligence" }
+        if !cleanupLevel.rewrites(in: dictationLanguage) { return dictationLanguage == .auto ? "Inactifs en Auto" : "Inactifs en français" }
+        return nil
     }
 }
 
