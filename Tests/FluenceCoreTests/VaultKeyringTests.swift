@@ -213,6 +213,8 @@ struct VaultKeyringTests {
         let aside = try #require(try keyring.startFresh(now: Date(timeIntervalSince1970: 1_800_000_000)))
 
         #expect(aside.lastPathComponent.hasPrefix("Données illisibles "))
+        // « Tout effacer » finds it (FLU-136, A5-8).
+        #expect(fixture.layout.setAsideFolders.map(\.lastPathComponent) == [aside.lastPathComponent])
         for name in ["history.sealed", "snippets.sealed", "Meetings"] {
             #expect(FileManager.default.fileExists(atPath: aside.appendingPathComponent(name).path), "\(name)")
             #expect(!FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent(name).path), "\(name)")

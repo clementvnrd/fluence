@@ -97,14 +97,15 @@ final class MeetingStore {
     }
 
     /// Every meeting folder on disk — listed or not, readable or not — with its spooled audio,
-    /// and the index.
-    func deleteAll() {
-        for id in MeetingIndex.meetingIDs(in: folderNames() ?? []) {
+    /// and the index; except `kept` (the live meeting, FLU-136), listed again from its folder.
+    func deleteAll(keeping kept: Set<UUID> = []) {
+        for id in MeetingIndex.meetingIDs(in: folderNames() ?? []) where !kept.contains(id) {
             try? FileManager.default.removeItem(at: directory(for: id))
         }
         index = MeetingIndex()
         lastError = nil
         try? FileManager.default.removeItem(at: indexURL)
+        if !kept.isEmpty { loadIndex() }
     }
 
     /// Deletes meetings older than `days`, the unreadable ones by their folder's date.

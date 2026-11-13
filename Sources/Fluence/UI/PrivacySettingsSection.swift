@@ -139,7 +139,7 @@ struct PrivacySettingsSection: View {
         } message: {
             Text("L'historique des dictées, chaque réunion avec ses notes, sa transcription et son audio, et toutes les "
                 + "empreintes vocales sont supprimés de ce Mac. Le dictionnaire, les snippets et les réglages sont gardés. "
-                + "Cette action est irréversible.")
+                + "Cette action est irréversible." + model.liveMeetingNote)
         }
         .confirmationDialog(
             "Conserver les réunions \(model.pendingRetention?.phrase ?? "") ?",
@@ -217,5 +217,7 @@ struct PrivacySettingsSection: View {
         RunLog.clear()
         model.deleteAllMeetings()
         VoicePrintStore.shared.deleteAll()
+        // The old history, meetings and voice prints « Repartir de zéro » set aside (FLU-136).
+        for folder in Vault.keyring.layout.setAsideFolders { try? FileManager.default.removeItem(at: folder) }
     }
 }

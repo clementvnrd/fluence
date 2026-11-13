@@ -87,6 +87,9 @@ final class MeetingController {
     var isRecording: Bool { state == .recording }
     /// Recording, or a final pass still running (possibly behind a new recording).
     var isBusy: Bool { state == .recording || state == .processing || finalizing > 0 }
+    /// The meetings this controller still writes: the one recording and those in their final
+    /// pass. The library does not delete them, « Tout effacer » keeps them (FLU-136).
+    var liveMeetingIDs: Set<UUID> { Set(finalPasses.keys).union(meeting.map { [$0.id] } ?? []) }
 
     /// Final passes in flight. Observed: the updater must not relaunch during one.
     private(set) var finalizing = 0
@@ -365,7 +368,7 @@ final class MeetingController {
         // FLU-54: what the engine failed on so far, so a crash does not lose its place.
         if let session { meeting.untranscribed = TranscriptionRetry.remaining(session.untranscribed) }
         do {
-            try MeetingStore.shared.save(meeting)
+            try Self.saveKeepingEdits(meeting)
         } catch {
             Log.app.error("meeting autosave failed: \(error.localizedDescription, privacy: .public)")
             Diagnostics.error("meeting.autosave", error)
@@ -400,7 +403,7 @@ final class MeetingController {
             meeting.keepAudio = keepAudio
             // Everything said is on disk from here, before the (longer) final pass: a quit
             // that cannot wait for it loses nothing (FLU-54).
-            try? MeetingStore.shared.save(meeting)
+            try? Self.saveKeepingEdits(meeting)
 
             let finalized = await Self.finalPass(
                 meeting,
@@ -518,7 +521,7 @@ final class MeetingController {
         let (meeting, _) = result
         var saved = true
         do {
-            try MeetingStore.shared.save(meeting)
+            guard try saveKeepingEdits(meeting) else { return .done }
         } catch {
             saved = false
             Log.app.error("final meeting save failed, audio and marker kept: \(error.localizedDescription, privacy: .public)")
@@ -546,6 +549,23 @@ final class MeetingController {
         }
         Log.app.info("meeting finalized: \(meeting.segments.count) segments, \(meeting.speakers.count) speakers")
         return .done
+    }
+
+    /// Writes the controller's copy over the one on disk, keeping what the user edited in the
+    /// library meanwhile (FLU-136, `LiveMeeting`). False when the meeting was deleted
+    /// meanwhile: nothing is written, so it does not come back.
+    @discardableResult
+    private static func saveKeepingEdits(_ meeting: Meeting) throws -> Bool {
+        let store = MeetingStore.shared
+        let stored = try? store.load(meeting.id)
+        // Its folder, not the index: an index the Keychain kept locked must not read as « deleted ».
+        let onDisk = FileManager.default.fileExists(atPath: store.directory(for: meeting.id).path)
+        guard let merged = LiveMeeting.toSave(meeting, stored: stored, onDisk: onDisk) else {
+            Log.app.info("meeting deleted while live: not written back")
+            return false
+        }
+        try store.save(merged)
+        return true
     }
 
     /// FLU-54: the utterances a meeting still lacks, from its spools on disk, at a later
