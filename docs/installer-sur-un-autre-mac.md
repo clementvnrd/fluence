@@ -44,10 +44,13 @@ Pour *Accessibilité*, Fluence ouvre la liste de macOS : activez l'interrupteur 
 1. Cliquez dans n'importe quel champ de texte (une note, un mail, un message).
 2. **Maintenez ⌥ Espace**, parlez, puis relâchez : le texte s'écrit à l'endroit du curseur.
 
-Au départ, Fluence utilise la reconnaissance vocale d'Apple, qui écoute dans la langue de votre Mac. Pour un français plus juste, notamment avec des mots techniques :
+Au départ, Fluence utilise la reconnaissance vocale d'Apple, qui écoute dans la langue de votre Mac. En français, Fluence passe de lui-même à **Parakeet Ultra**, plus juste (notamment avec des mots techniques), dès que son modèle de voix est sur le Mac (environ 600 Mo, une seule fois). Une dictée ne le télécharge jamais : lancez le téléchargement vous-même, au choix :
 
-1. Ouvrez **Réglages › Transcription** et, à **Moteur vocal**, choisissez **Parakeet Ultra**.
-2. Faites une première dictée et laissez-lui le temps : Fluence télécharge alors le modèle de voix (environ 600 Mo, une seule fois). La première dictée est lente ; les suivantes sont presque instantanées.
+- à l'étape **Télécharger Parakeet** de la fenêtre de configuration ;
+- dans **Réglages › Transcription › Avancé**, ligne **Parakeet Ultra**, bouton **Télécharger** ;
+- depuis l'icône de la barre des menus, **Télécharger les modèles Parakeet…**.
+
+Apple continue d'écrire vos dictées pendant le téléchargement.
 
 Pour changer de raccourci, de langue ou de micro : **Réglages**, dans la fenêtre Fluence ou depuis l'icône de la barre des menus.
 

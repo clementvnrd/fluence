@@ -8,7 +8,7 @@ import FluenceDictionary
 ///
 /// FLU-11, against main's protections: everything here stays in memory, nothing it reads
 /// or learns is logged (counts only), and frequent terms are counted only when the user opted
-/// in (Settings ▸ IA & Formatage, `learnFrequentTerms`) and are then only proposed (FLU-88).
+/// in (Réglages ▸ Texte, `learnFrequentTerms`) and are then only proposed (FLU-88).
 @MainActor
 public final class AutoLearningEngine {
     public static let shared = AutoLearningEngine()

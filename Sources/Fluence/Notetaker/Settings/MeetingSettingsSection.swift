@@ -109,7 +109,11 @@ struct MeetingSettingsSection: View {
             SettingsRow(
                 systemImage: "person.2.wave.2",
                 title: "Détecter les réunions",
-                info: "Repère les appels — Zoom, Teams, Meet ou un navigateur — et propose de prendre des notes. Rien n'est enregistré sans votre clic sur Enregistrer ; un point rouge reste visible tant que l'enregistrement dure."
+                info: "Repère les appels — Zoom, Teams, Meet ou un navigateur — et propose de prendre des notes. "
+                    + (settings.autoRecordSeconds == 0
+                        ? "Rien n'est enregistré sans votre clic sur Enregistrer"
+                        : "Sans réponse, l'enregistrement démarre seul après \(settings.autoRecordSeconds)\(FrenchFormat.space)s")
+                    + " ; un point rouge reste visible tant que l'enregistrement dure."
             ) {
                 RowToggle(isOn: Bindable(settings).detectMeetings)
             }

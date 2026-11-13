@@ -35,7 +35,7 @@ echo "long\t$long" >> tech.ref
 while IFS=$'\t' read id text; do
   v=${voices[$(( i % 4 + 1 ))]}; i=$((i+1)); [[ $id == long ]] && v=Thomas
   say -v "$v" -o tech/$id.aiff "$text"
-  ffmpeg -v error -y -i tech/$id.aiff -ar 16000 -ac 1 tech/$id.wav && rm tech/$id.aiff
+  ffmpeg -nostdin -v error -y -i tech/$id.aiff -ar 16000 -ac 1 tech/$id.wav && rm tech/$id.aiff
   $HERE/webcam.sh tech/$id.wav tech-webcam/$id.wav
   echo "$id\t$B/sets/tech/$id.wav" >> tech.list
   echo "$id\t$B/sets/tech-webcam/$id.wav" >> tech-webcam.list
