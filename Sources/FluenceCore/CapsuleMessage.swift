@@ -116,6 +116,18 @@ extension CapsuleMessage {
         }
     }
 
+    /// A Command Mode rewrite that could not be put back (A1-7): it is in no history, so the
+    /// capsule only says why.
+    public static func notReplaced(_ reason: NotTypedReason) -> CapsuleMessage {
+        let title = "Rien n'a été remplacé"
+        switch reason {
+        case .noAccessibility:
+            return CapsuleMessage(icon: .warning, title: title, detail: "Accessibilité non autorisée", action: .accessibilitySettings)
+        case .appChanged:
+            return CapsuleMessage(icon: .warning, title: title, detail: "Vous avez changé d'app")
+        }
+    }
+
     public static func failure(_ failure: DictationFailure) -> CapsuleMessage {
         CapsuleMessage(icon: .warning, title: failure.title, detail: failure.detail, action: failure.action)
     }

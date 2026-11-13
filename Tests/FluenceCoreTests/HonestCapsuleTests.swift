@@ -11,6 +11,7 @@ struct CapsuleMessageTests {
             + CapsuleMessage.NotTypedReason.allCases.flatMap { reason in
                 [true, false].map { CapsuleMessage.notTyped(reason, canPasteLast: $0) }
             }
+            + CapsuleMessage.NotTypedReason.allCases.map(CapsuleMessage.notReplaced)
             + [.cancelled, .nothingHeard(microphone: "MacBook Pro"), .nothingHeard(microphone: nil), .compared]
     }
 
@@ -84,6 +85,11 @@ struct CapsuleMessageTests {
             #expect(CapsuleMessage.notTyped(.noAccessibility, canPasteLast: canPasteLast)
                 == CapsuleMessage(icon: .notTyped, title: "Non collé — voir Transcriptions", detail: "Accessibilité non autorisée", action: .accessibilitySettings))
         }
+        // A1-7: a Command Mode rewrite that did not land says why, never « le texte a changé ».
+        #expect(CapsuleMessage.notReplaced(.noAccessibility)
+            == CapsuleMessage(icon: .warning, title: "Rien n'a été remplacé", detail: "Accessibilité non autorisée", action: .accessibilitySettings))
+        #expect(CapsuleMessage.notReplaced(.appChanged)
+            == CapsuleMessage(icon: .warning, title: "Rien n'a été remplacé", detail: "Vous avez changé d'app"))
         #expect(CapsuleMessage.nothingHeard(microphone: "MacBook Pro")
             == CapsuleMessage(icon: .nothingHeard, title: "Rien entendu", detail: "Micro\u{00A0}: MacBook Pro"))
     }

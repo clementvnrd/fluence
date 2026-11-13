@@ -1472,13 +1472,21 @@ extension DictationController {
 
         switch result {
         case .success(let rewritten):
-            guard await target.replace(with: rewritten) else {
+            switch await target.replace(with: rewritten) {
+            case .inserted:
+                if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
+                end(session, as: .idle)
+            case nil:
                 Log.app.info("command · focus or selection moved during the rewrite — nothing replaced")
                 end(session, notice: "Le texte a changé entre-temps. Rien n'a été remplacé.")
-                return
+            // A1-7: an insert that did not land says why, not that the text changed.
+            case .notTyped(let reason):
+                Log.app.info("command · rewrite not typed")
+                end(session, showing: .notReplaced(reason))
+            case .pasteSkipped:
+                Log.app.info("command · rewrite not pasted — the pasteboard changed")
+                end(session, showing: .failure(.pasteSkipped))
             }
-            if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
-            end(session, as: .idle)
         case .failure(let failure):
             Log.app.info("command · \(failure.reason, privacy: .public)")
             end(session, notice: failure.message)

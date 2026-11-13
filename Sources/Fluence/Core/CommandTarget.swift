@@ -79,30 +79,30 @@ struct CommandTarget {
 
     /// Puts `rewritten` where the text was read from.
     ///
-    /// - Returns: `false` when the focus or the text moved since `read()`; nothing was
-    ///   written then.
-    func replace(with rewritten: String) async -> Bool {
+    /// - Returns: nil when the focus or the text moved since `read()` (nothing was written
+    ///   then); otherwise how the insert went.
+    func replace(with rewritten: String) async -> TextInjector.Outcome? {
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), Self.axTimeout)
-        guard let current = Self.focusedElement(), CFEqual(current, element) else { return false }
+        guard let current = Self.focusedElement(), CFEqual(current, element) else { return nil }
 
         switch scope {
         case .selection:
-            guard Self.string(element, kAXSelectedTextAttribute) == text else { return false }
+            guard Self.string(element, kAXSelectedTextAttribute) == text else { return nil }
         case .wholeField:
-            guard Self.string(element, kAXValueAttribute) == text else { return false }
+            guard Self.string(element, kAXValueAttribute) == text else { return nil }
             // Select everything, so the insert below replaces the field rather than adding
             // to it — on the AX path and on the paste fallback alike.
             var range = CFRange(location: 0, length: text.utf16.count)
             guard let value = AXValueCreate(.cfRange, &range),
                   AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, value) == .success,
                   Self.string(element, kAXSelectedTextAttribute) == text
-            else { return false }
+            else { return nil }
         }
 
         // The same verified insert dictation uses: AX first, the safe pasteboard otherwise.
         // With the text selected, inserting replaces it. Awaited, so the caller's success
         // sound follows the paste rather than preceding it (FLU-29).
-        return await TextInjector.insert(rewritten) == .inserted
+        return await TextInjector.insert(rewritten)
     }
 
     // MARK: - AX
