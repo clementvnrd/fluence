@@ -123,7 +123,12 @@ final class DictionaryStore {
 
     /// For Apple and Parakeet: the user's own entries first, newest first, then the tech
     /// lexicon (FLU-27).
-    var biasPhrases: [String] { DictionaryCorrector.biasPhrases(from: entries, seeded: Self.lexiconSpellings) }
+    var biasPhrases: [String] { biasPhrases(upTo: DictionaryCorrector.biasLimit) }
+
+    /// The same list, longer for the cloud, which takes up to `CloudProvider.termLimit` (A2-2).
+    func biasPhrases(upTo capacity: Int) -> [String] {
+        DictionaryCorrector.biasPhrases(from: entries, seeded: Self.lexiconSpellings, capacity: capacity)
+    }
 
     /// The user's own spellings for Whisper's prompt, newest first (FLU-20). The built-in
     /// tech lexicon is left out: it is generic, the corrections still fix its spellings after

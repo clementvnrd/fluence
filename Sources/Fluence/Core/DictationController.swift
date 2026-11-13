@@ -347,8 +347,10 @@ final class DictationController {
         self.session = session
         MediaPause.shared.dictationBegan()
         sessionEngine = isComparing ? nil : kind
-        // The same rule as `engineForCurrentSetting`.
-        sessionCloud = isComparing ? nil : Settings.shared.cloudProvider
+        // The same rule as `engineForCurrentSetting`; without a key nothing is sent, so no
+        // cloud is named (A2-8).
+        let cloud = Settings.shared.cloudProvider
+        sessionCloud = TranscriptionRoute.sentTo(cloud: cloud, hasKey: cloud.map(CloudKeys.shared.has) ?? false, compareMode: isComparing)
         writtenBy = nil
         badgeHold = 0
         isCommand = command
@@ -830,7 +832,10 @@ final class DictationController {
         forgetKeptRecording()
 
         switch outcome {
-        case .inserted: end(session, as: .idle)
+        case .inserted:
+            // A2-10: the badge's hold shows what was typed, not the engine's raw words.
+            if self.session === session { transcript = output }
+            end(session, as: .idle)
         case .notTyped(let reason): end(session, showing: .notTyped(reason, canPasteLast: canPasteLast))
         case .pasteSkipped: end(session, showing: .failure(.pasteSkipped))
         }

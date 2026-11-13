@@ -16,8 +16,10 @@ extension DictionaryCorrector {
     /// The same, with the user's own entries first, newest first, and the built-in lexicon after
     /// them, so a long lexicon never pushes the user's words out of the limit (FLU-27). `seeded`
     /// holds the lexicon's spellings; an entry whose trimmed `write` is one of them, in any case,
-    /// counts as the lexicon's.
-    public static func biasPhrases(from entries: [DictionaryEntry], seeded: Set<String>) -> [String] {
+    /// counts as the lexicon's. The lexicon's names come before its corrections, which are mostly
+    /// French phrases (« la PR », « en prod ») that crowded every name out (A6-4). `capacity`:
+    /// `biasLimit` for the engines on the Mac, more for the cloud (A2-2).
+    public static func biasPhrases(from entries: [DictionaryEntry], seeded: Set<String>, capacity: Int = biasLimit) -> [String] {
         let builtIn = Set(seeded.map { $0.lowercased() })
         var userEntries: [DictionaryEntry] = []
         var lexiconEntries: [DictionaryEntry] = []
@@ -28,8 +30,9 @@ extension DictionaryCorrector {
                 userEntries.append(entry)
             }
         }
-        var context = BiasContext(capacity: biasLimit)
+        var context = BiasContext(capacity: capacity)
         context.offer(userEntries.reversed())
+        context.offer(lexiconEntries.filter { $0.kind == .term })
         context.offer(lexiconEntries)
         return context.spellings
     }

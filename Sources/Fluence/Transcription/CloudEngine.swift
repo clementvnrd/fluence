@@ -24,6 +24,8 @@ actor CloudEngine: TranscriptionEngine {
     private let converter = StreamConverter(output: RecordingReplay.format)
     private var samples: [Float] = []
     private var key: String?
+    /// Why there is no key: none saved, or the Keychain would not give it (A2-8).
+    private var noKey = CloudError.noKey
     private var language: String?
     private var terms: [String] = []
 
@@ -49,11 +51,12 @@ actor CloudEngine: TranscriptionEngine {
         let (stream, continuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
         self.continuation = continuation
         (language, terms) = await MainActor.run {
-            (Settings.shared.dictationLanguage.code, DictionaryStore.shared.biasPhrases)
+            (Settings.shared.dictationLanguage.code, DictionaryStore.shared.biasPhrases(upTo: CloudProvider.termLimit))
         }
         do {
             key = try CloudKeys.shared.key(for: provider)
         } catch {
+            noKey = .keychain
             Log.speech.error("cloud · key unreadable: \(error.localizedDescription, privacy: .public)")
             Diagnostics.error("speech.cloud.key", error)
         }
@@ -93,7 +96,10 @@ actor CloudEngine: TranscriptionEngine {
     }
 
     private func keep(_ buffer: AVAudioPCMBuffer) {
-        guard let channel = buffer.floatChannelData?[0] else { return }
+        // A2-7: audio too long to send is not kept for the cloud either.
+        guard let channel = buffer.floatChannelData?[0],
+              CloudFallback.sends(audioSeconds: Double(samples.count) / RecordingReplay.format.sampleRate)
+        else { return }
         samples.append(contentsOf: UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
     }
 
@@ -101,8 +107,9 @@ actor CloudEngine: TranscriptionEngine {
         for buffer in converter.drain() { keep(buffer) }
         let rate = RecordingReplay.format.sampleRate
         let audioSeconds = Double(samples.count) / rate
+        let sends = CloudFallback.sends(audioSeconds: audioSeconds)
         let started = ContinuousClock.now
-        if let key {
+        if let key, sends {
             let request = CloudRequest.transcription(
                 key: key, wav: WAV.encode(samples, sampleRate: Int(rate)),
                 language: language, terms: terms
@@ -111,18 +118,29 @@ actor CloudEngine: TranscriptionEngine {
         }
         samples.removeAll()
 
-        // The local engine finalises while the audio uploads.
-        await local?.finish()
-        let localText = await self.localText?.value ?? nil
+        // The local engine finalises while the audio uploads. The cloud's text, back first,
+        // does not wait for it (A2-11).
+        let localDone = Task { await self.finishLocal() }
+        let localText: String?
         let outcome: CloudFallback.Outcome?
-        if let cloud {
+        if let cloud, let early = await Self.text(of: cloud, before: localDone),
+           !early.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            await local?.cancel()
+            localText = nil
+            outcome = .text(early)
+        } else if let cloud {
+            localText = await localDone.value
             // With local text to fall back on, the cloud gets what is left of its deadline;
             // without, its own request timeout.
             let hasLocal = !(localText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let left = CloudFallback.deadline(audioSeconds: audioSeconds) - Self.seconds(since: started)
             outcome = await CloudClient.outcome(of: cloud, within: hasLocal ? left : nil)
         } else {
-            outcome = .failed(.noKey)
+            localText = await localDone.value
+            if key != nil, !sends {
+                Log.speech.info("cloud · not sent: \(audioSeconds, format: .fixed(precision: 0))s of audio is too long")
+            }
+            outcome = .failed(key == nil ? noKey : .timedOut)
         }
         let elapsed = Self.seconds(since: started)
 
@@ -148,6 +166,21 @@ actor CloudEngine: TranscriptionEngine {
         }
         continuation?.finish()
         continuation = nil
+    }
+
+    private func finishLocal() async -> String? {
+        await local?.finish()
+        return await localText?.value ?? nil
+    }
+
+    /// The cloud's text when it is back before `other` ends; nil when `other` ends first or
+    /// the cloud failed. Neither task is cancelled here.
+    private static func text(of cloud: Task<String, Error>, before other: Task<String?, Never>) async -> String? {
+        let (first, sink) = AsyncStream<String?>.makeStream()
+        Task { sink.yield(try? await cloud.value) }
+        Task { _ = await other.value; sink.yield(nil) }
+        for await text in first { return text }
+        return nil
     }
 
     func cancel() async {

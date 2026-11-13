@@ -62,8 +62,8 @@ struct HUDView: View {
             return .listen(
                 text: controller.transcript,
                 preparation: preparation(includingDownload: true),
-                // Parakeet takes the language from the audio; the pill is for the others.
-                showsLanguage: (controller.sessionEngine ?? settings.activeEngine) != .parakeet
+                // Parakeet takes the language from the audio; the cloud is told it (A2-5).
+                showsLanguage: controller.sessionCloud != nil || (controller.sessionEngine ?? settings.activeEngine) != .parakeet
             )
         case .finishing:
             return .transcribing(text: controller.transcript, command: controller.isCommandMode, preparation: preparation(includingDownload: false))

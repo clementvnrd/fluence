@@ -146,11 +146,14 @@ private struct CloudKeyRow: View {
 
     var body: some View {
         let _ = changed
-        let saved = CloudKeys.shared.has(provider)
+        let read = Result { try CloudKeys.shared.key(for: provider) }
+        let saved = (try? read.get()) != nil
+        // A2-8: a Keychain that would not answer is not a missing key.
+        let unreadable = if case .failure = read { true } else { false }
         SettingsRow(
             systemImage: "key",
             title: "Clé \(provider.displayName)",
-            subtitle: saved ? "•••• enregistrée" + (status.map { " · " + $0 } ?? "") : status,
+            subtitle: saved ? "•••• enregistrée" + (status.map { " · " + $0 } ?? "") : status ?? (unreadable ? "Trousseau indisponible" : nil),
             info: Self.info
         ) {
             if saved {
@@ -159,10 +162,14 @@ private struct CloudKeyRow: View {
                     DestructiveButton(title: "Supprimer", height: 24) { remove() }
                 }
             } else {
-                SecureField("Coller la clé", text: $draft)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 200)
-                    .onSubmit(save)
+                HStack(spacing: DS.Space.snug) {
+                    SecureField("Coller la clé", text: $draft)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 200)
+                        .onSubmit(save)
+                    // A4-7: a pasted key is saved without knowing about Return.
+                    CapButton(title: "Enregistrer", height: 24, isEnabled: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { save() }
+                }
             }
         }
     }

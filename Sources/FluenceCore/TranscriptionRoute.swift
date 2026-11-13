@@ -29,7 +29,7 @@ public enum TranscriptionRoute {
             parts.append(Part(step: .missingKey, lead: "Aucune clé", target: cloud.displayName, isCloud: false))
         }
         parts.append(cleanup == .none
-            ? Part(step: .correction, lead: "Sans correction", target: "", isCloud: false)
+            ? Part(step: .correction, lead: "Dictionnaire seul", target: "", isCloud: false)
             : Part(step: .correction, lead: "Correction", target: "sur ce Mac", isCloud: false))
         if sent != nil {
             parts.append(Part(step: .fallback, lead: "Secours", target: local.displayName, isCloud: false))

@@ -33,9 +33,10 @@ struct TranscriptionRouteTests {
             .allSatisfy { !$0.isCloud })
     }
 
-    @Test func levelNoneSaysThereIsNoCorrection() {
-        #expect(line(cleanup: .none) == "Votre voix → Parakeet sur ce Mac · Sans correction")
-        #expect(line(cloud: .elevenLabs, hasKey: true, cleanup: .none) == "Votre voix → ElevenLabs · Sans correction · Secours Parakeet")
+    // A4-15: the dictionary's corrections still apply at level « Aucun ».
+    @Test func levelNoneSaysOnlyTheDictionaryCorrects() {
+        #expect(line(cleanup: .none) == "Votre voix → Parakeet sur ce Mac · Dictionnaire seul")
+        #expect(line(cloud: .elevenLabs, hasKey: true, cleanup: .none) == "Votre voix → ElevenLabs · Dictionnaire seul · Secours Parakeet")
     }
 
     @Test func compareModeNeverSendsToTheCloud() {

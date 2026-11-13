@@ -56,13 +56,29 @@ struct BiasPhraseTests {
             == ["Chamonix", "Pascal", "Aiguille"] + (0..<37).map { "Lib\($0)" })
     }
 
+    @Test("the lexicon's names go before its corrections, which mostly respell French phrases (A6-4)")
+    func lexiconNamesFirst() {
+        let lexicon: [DictionaryEntry] = (0..<50).map { .correction(hear: "h\($0)", write: "la PR\($0)") } + [.term("Anthropic")]
+        let dictionary = lexicon + [.term("Chamonix")]
+        #expect(bias(dictionary, lexicon: Set(lexicon.map(\.write))).starts(with: ["Chamonix", "Anthropic", "la PR0"]))
+    }
+
+    @Test("the cloud takes a hundred, in the same order; the other engines stay at forty (A2-2)")
+    func cloudCapacity() {
+        let lexicon = (0..<150).map { DictionaryEntry.term("Lib\($0)") }
+        let dictionary = lexicon + [.term("Chamonix")]
+        let cloud = DictionaryCorrector.biasPhrases(from: dictionary, seeded: Set(lexicon.map(\.write)), capacity: 100)
+        #expect(cloud == ["Chamonix"] + (0..<99).map { "Lib\($0)" })
+        #expect(bias(dictionary, lexicon: Set(lexicon.map(\.write))).count == 40)
+    }
+
     @Test("an entry spelled like a lexicon word, in any case and of any kind, joins the lexicon")
     func lexiconMembership() {
         let dictionary: [DictionaryEntry] = [
             .term("Rust"), .term("Mine1"), .correction(hear: "go lang", write: "go"), .term("Go"),
             switchedOff("Mine2"), .term("Mine3"),
         ]
-        #expect(bias(dictionary, lexicon: ["Rust", "Go"]) == ["Mine3", "Mine1", "Rust", "go"])
+        #expect(bias(dictionary, lexicon: ["Rust", "Go"]) == ["Mine3", "Mine1", "Rust", "Go"])
     }
 
     @Test("lexicon spellings are only lower-cased, while entries are trimmed as well")

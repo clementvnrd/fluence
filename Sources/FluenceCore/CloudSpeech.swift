@@ -11,7 +11,7 @@ public enum CloudProvider: String, CaseIterable, Sendable {
     public var displayName: String { "ElevenLabs" }
 
     /// Past 100 terms ElevenLabs bills 20 s minimum per request.
-    static let termLimit = 100
+    public static let termLimit = 100
 }
 
 /// Why the cloud gave no text. Made from the HTTP status or the transport alone: a response
@@ -31,6 +31,8 @@ public enum CloudError: Error, Equatable, Sendable {
     case network
     /// Not back within `CloudFallback.deadline`.
     case timedOut
+    /// The Keychain would not give the key (locked, access refused): not a missing key (A2-8).
+    case keychain
 
     /// For the log: fixed words and a status, nothing else.
     public var kind: String {
@@ -43,6 +45,7 @@ public enum CloudError: Error, Equatable, Sendable {
         case .malformed: "malformed answer"
         case .network: "network"
         case .timedOut: "timed out"
+        case .keychain: "keychain"
         }
     }
 
@@ -181,6 +184,12 @@ public enum CloudFallback {
         min(60 + 0.25 * max(0, audioSeconds), 900)
     }
 
+    /// A2-7: past two minutes of audio the cloud's answer rarely comes back within the 8 s
+    /// deadline, and would be thrown away after the voice was sent: it stays on the Mac.
+    public static func sends(audioSeconds: Double) -> Bool {
+        audioSeconds <= 120
+    }
+
     public enum Outcome: Equatable, Sendable {
         case text(String)
         case failed(CloudError)
@@ -215,10 +224,10 @@ public enum CloudFallback {
     /// - Parameters:
     ///   - cloud: the cloud's answer, nil when it did not come back in time. Without local
     ///     text the engine waits for it as long as the request lasts.
-    ///   - local: the local engine's text, nil when it failed.
+    ///   - local: the local engine's text, nil when it failed, blank when it heard nothing.
     public static func choose(cloud: Outcome?, local: String?) -> Choice {
-        let local = local.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-        switch (cloud, local) {
+        let heard = local.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        switch (cloud, heard) {
         case (.text(let text)?, _) where !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
             return .cloud(text)
         case (.text?, let local?):
@@ -229,10 +238,11 @@ public enum CloudFallback {
             return .local(local, because: error)
         case (nil, let local?):
             return .local(local, because: .timedOut)
+        // A2-1: a local engine that ran and heard nothing is « Rien entendu », not a failure.
         case (nil, nil):
-            return .failed(.timedOut)
+            return local == nil ? .failed(.timedOut) : .local("", because: .timedOut)
         case (.failed(let error)?, nil):
-            return .failed(error)
+            return local == nil ? .failed(error) : .local("", because: error)
         }
     }
 
@@ -241,6 +251,7 @@ public enum CloudFallback {
         let reason = switch error {
         case .network: "Hors ligne"
         case .noKey: "Aucune clé"
+        case .keychain: "Trousseau indisponible"
         case .badKey: "Clé refusée"
         case .timedOut: "Cloud trop lent"
         case .rateLimited, .server, .rejected, .malformed: "Cloud indisponible"
