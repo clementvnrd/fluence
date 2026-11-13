@@ -605,7 +605,7 @@ final class MeetingController {
             guard FileManager.default.fileExists(atPath: MeetingSession.markerURL(in: directory).path),
                   let id = UUID(uuidString: directory.lastPathComponent),
                   session?.meetingID != id,
-                  var meeting = try? MeetingStore.shared.load(id)
+                  let meeting = try? MeetingStore.shared.load(id)
             else { continue }
             let attemptsURL = MeetingSession.recoveryAttemptsURL(in: directory)
             let previous = (try? String(contentsOf: attemptsURL, encoding: .utf8))
@@ -629,24 +629,35 @@ final class MeetingController {
                 }
                 continue
             }
-            let key = try? MeetingStore.shared.meetingKey(for: id, create: false)
-            if let key, meeting.untranscribed?.isEmpty == false {
-                meeting = await Self.transcribeLate(meeting, directory: directory, key: key)
+            // A final pass like the one after a stop (A3-14): the updater must not relaunch
+            // during it, and a quit waits for it.
+            finalizing += 1
+            let pass = Task {
+                var meeting = meeting
+                let key = try? MeetingStore.shared.meetingKey(for: id, create: false)
+                if let key, meeting.untranscribed?.isEmpty == false {
+                    meeting = await Self.transcribeLate(meeting, directory: directory, key: key)
+                }
+                meeting.endedAt = meeting.endedAt
+                    ?? meeting.startedAt.addingTimeInterval(meeting.segments.map(\.end).max() ?? 0)
+                let spool = MeetingAudioSpool.url(in: directory, source: .system)
+                let finalized = await Self.finalPass(
+                    meeting,
+                    spool: FileManager.default.fileExists(atPath: spool.path) ? spool : nil,
+                    micSpool: MeetingAudioSpool.url(in: directory, source: .microphone),
+                    key: key,
+                    windowRoster: ParticipantRoster()
+                )
+                if Self.complete(finalized, directory: directory) == .done {
+                    Log.app.info("recovered an interrupted meeting")
+                    Diagnostics.recovery("meeting.recovered")
+                }
             }
-            meeting.endedAt = meeting.endedAt
-                ?? meeting.startedAt.addingTimeInterval(meeting.segments.map(\.end).max() ?? 0)
-            let spool = MeetingAudioSpool.url(in: directory, source: .system)
-            let finalized = await Self.finalPass(
-                meeting,
-                spool: FileManager.default.fileExists(atPath: spool.path) ? spool : nil,
-                micSpool: MeetingAudioSpool.url(in: directory, source: .microphone),
-                key: key,
-                windowRoster: ParticipantRoster()
-            )
-            if Self.complete(finalized, directory: directory) == .done {
-                Log.app.info("recovered an interrupted meeting")
-                Diagnostics.recovery("meeting.recovered")
-            }
+            finalPasses[id] = pass
+            await pass.value
+            finalizing -= 1
+            finalPasses[id] = nil
+            if state == .processing, finalizing == 0 { state = .idle }
         }
     }
 

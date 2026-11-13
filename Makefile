@@ -79,13 +79,15 @@ STRIP ?=
 BUNDLE_ID ?=
 
 ## Updates (FLU-26, docs/RELEASING.md). FEED_URL is the appcast Sparkle reads, baked into the
-## bundle (empty, the default: no updater in this build). `make release` writes the new version
+## bundle: the public feed by default, so `make install` keeps updating (A7-6, FLU-126); none for
+## a BUNDLE_ID test copy, which would otherwise replace itself with the real app; `FEED_URL=` for
+## a build with no updater. `make release` writes the new version
 ## and its appcast into RELEASE_FEED, to be uploaded where FEED_URL and DOWNLOAD_URL_PREFIX
 ## point. Sparkle only reads http(s): a file:// feed is refused (tested on 2026-10-08).
 ## One folder per version: generate_appcast gives every archive in the folder the same
 ## DOWNLOAD_URL_PREFIX, and a GitHub release has one download path per tag.
 RELEASE_FEED        ?= $(HOME)/Library/Fluence Releases/$(APP_VERSION)
-FEED_URL            ?=
+FEED_URL            ?= $(if $(BUNDLE_ID),,https://github.com/clementvnrd/fluence/releases/latest/download/appcast.xml)
 DOWNLOAD_URL_PREFIX ?=
 
 ## Sparkle's framework and tools, fetched by SwiftPM with the package.
@@ -207,8 +209,9 @@ release:
 	@test -n "$(DOWNLOAD_URL_PREFIX)" || { echo "make release needs DOWNLOAD_URL_PREFIX (see docs/RELEASING.md)"; exit 1; }
 	@test -f "docs/releases/$(APP_VERSION).html" || { echo "missing docs/releases/$(APP_VERSION).html"; exit 1; }
 	@test -f "docs/releases/$(APP_VERSION).md" || { echo "missing docs/releases/$(APP_VERSION).md"; exit 1; }
-	@test -z "$$(git status --porcelain --untracked-files=no)" -o -n "$(ALLOW_DIRTY)" \
-		|| { echo "uncommitted changes: commit first (ALLOW_DIRTY=1 for a test build)"; exit 1; }
+	@# Untracked files count under Sources and Resources: SwiftPM compiles every .swift there (A7-10).
+	@test -z "$$(git status --porcelain --untracked-files=no; git status --porcelain -- Sources Resources)" -o -n "$(ALLOW_DIRTY)" \
+		|| { echo "uncommitted changes, or untracked files in Sources/Resources: commit or remove them first (ALLOW_DIRTY=1 for a test build)"; exit 1; }
 	@$(MAKE) --no-print-directory app TIMESTAMP=--timestamp PUBLIC=1 STRIP=1
 	@mkdir -p "$(RELEASE_FEED)"
 	@rm -f "$(RELEASE_FEED)/$(RELEASE_ZIP)"
