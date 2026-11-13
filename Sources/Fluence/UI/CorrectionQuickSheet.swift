@@ -28,14 +28,9 @@ struct CorrectionQuickSheet: View {
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(DS.Color.accent)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Auto-Apprentissage & Correction")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(DS.Color.ink)
-                    Text("Corrigez les noms mal écrits.")
-                        .font(DS.Font.caption)
-                        .foregroundStyle(DS.Color.inkSecondary)
-                }
+                Text("Auto-Apprentissage & Correction")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(DS.Color.ink)
 
                 Spacer()
             }
@@ -101,7 +96,8 @@ struct CorrectionQuickSheet: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: hasSaved ? "checkmark" : "plus.circle.fill")
-                        Text(hasSaved ? "Mémorisé !" : "Enregistrer & Mémoriser")
+                        // Only the ticked words are kept: the edited text itself goes nowhere (FLU-138).
+                        Text(hasSaved ? "Ajouté" : "Ajouter au dictionnaire")
                     }
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.white)
