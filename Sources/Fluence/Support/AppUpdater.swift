@@ -63,7 +63,9 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         return !feed.isEmpty && !key.isEmpty
     }
 
-    var isRunning: Bool { controller != nil }
+    /// Stored, not derived from `controller`: the menus are built before `start()` and must
+    /// see it change (A7-1).
+    private(set) var isRunning = false
 
     func start() {
         guard controller == nil else { return }
@@ -77,6 +79,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         notifier.onOpen = { [weak self] in self?.openFromNotification() }
         notifier.configure()
         controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
+        isRunning = true
         activation = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -91,6 +94,9 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         if installNow != nil {
             offerIfPossible(userAsked: true)
         } else {
+            // Sparkle's window is a titled window: from the menu bar it needs the Dock icon
+            // (FLU-59). Our own question above is a panel, which never takes it back.
+            AppPresence.shared.becomeRegular()
             controller?.checkForUpdates(nil)
         }
     }
