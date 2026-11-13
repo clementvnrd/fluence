@@ -186,7 +186,8 @@ struct MeetingDetectionCard: View {
                         .monospacedDigit()
                         .fixedSize(horizontal: false, vertical: true)
                     if !controller.pendingDownloads.isEmpty {
-                        Text("Première réunion : Fluence va télécharger ses modèles locaux depuis Hugging Face. Votre audio ne quitte jamais ce Mac.")
+                        Text("Première réunion : Fluence va télécharger ses modèles locaux depuis Hugging Face. "
+                            + (MeetingCloud.isOn ? "Mode Précis : la voix des participants part chez ElevenLabs." : "Votre audio ne quitte jamais ce Mac."))
                             .font(DS.Font.caption)
                             .foregroundStyle(DS.Color.inkSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -365,7 +366,7 @@ private struct RecordingPanelExpanded: View {
                     // French then English, ready to paste into the meeting chat: recording
                     // others without telling them is an offence in France (Code pénal art. 226-1).
                     CapButton(title: "Consentement", systemImage: "doc.on.clipboard", height: 28) {
-                        NotetakerConsent.copyNotice(nil)
+                        NotetakerConsent.copyNotice(nil, cloud: controller.meeting.map { $0.cloudAllowed == true })
                     }
                     .help("Copier l'avis de consentement (français puis anglais) à coller dans le chat de la réunion")
                     CapButton(title: "Transcription", systemImage: "text.bubble", isEngaged: true, height: 28) {
@@ -385,9 +386,11 @@ private struct RecordingPanelExpanded: View {
                 HStack {
                     Text("Transcription en direct").font(DS.Font.silkscreen).foregroundStyle(DS.Color.silkscreen)
                     Spacer()
+                    // FLU-132: a meeting recorded in Précis has its call transcribed by ElevenLabs afterwards.
+                    let cloud = controller.meeting?.cloudAllowed == true
                     HStack(spacing: 4) {
-                        Image(systemName: "lock.fill").font(.system(size: 8))
-                        Text("sur ce Mac").font(.system(size: 10))
+                        Image(systemName: cloud ? "cloud" : "lock.fill").font(.system(size: 8)).accessibilityHidden(true)
+                        Text(cloud ? "ElevenLabs après l'appel" : "sur ce Mac").font(.system(size: 10))
                     }
                     .foregroundStyle(DS.Color.silkscreen)
                 }

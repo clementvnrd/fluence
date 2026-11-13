@@ -35,7 +35,7 @@ struct TranscriptionModeCards: View {
         SectionCard {
             CloudKeyRow(provider: Self.precise, changed: $keyChanged)
             if hasKey, settings.cloudProvider != nil {
-                RowNote(text: "L'audio de vos dictées est envoyé à \(Self.precise.displayName).", color: DS.Color.amberText)
+                RowNote(text: "L'audio de vos dictées et de vos appels est envoyé à \(Self.precise.displayName).", color: DS.Color.amberText)
             }
         }
     }

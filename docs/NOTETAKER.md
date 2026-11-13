@@ -2,7 +2,8 @@
 
 A local, bot-free meeting note-taker: detect the meeting, capture **my voice (mic)** and
 **everyone else (system audio)**, transcribe on-device, attribute every word to a named
-speaker, and produce notes. Nothing leaves the machine.
+speaker, and produce notes. Nothing leaves the machine, except the call's audio of a
+meeting recorded in *Précis* mode (§2.4.1, FLU-132).
 
 Status: **built for macOS (milestones 1–3), never run on a real call yet.** The pure logic
 (`FluenceMeetingCore`, `FluenceNotesCore`) is unit tested against the contracts in
@@ -193,6 +194,50 @@ On speakers, the mic hears the remote side → duplicated text attributed to "Me
   biasing Parakeet (also fixes the dictation gap).
 - Live transcript in a window that never takes focus; final pass replaces it.
 - Memory bounded: audio spooled to an encrypted temp file, never one growing `[Float]`.
+
+### 2.4.1 Précis mode: the call transcribed by ElevenLabs (FLU-132)
+Clement's decisions (2026-11-12, « 1 A / 2 A / 3 A / 4 A »): **after** the meeting, not live;
+**ElevenLabs separates the voices**; the **notes stay on the Mac**; **automatic** in Précis
+mode (Réglages › Transcription, `Settings.cloudProvider == .elevenLabs` and a key saved).
+- **Decided at recording time** (`Meeting.cloudAllowed`, set in `begin()`): only a meeting
+  recorded in Précis is ever sent, and only if Précis still has its key when the final pass
+  runs. A meeting recorded in Privé stays on the Mac even if Précis is turned on before its
+  final pass or its recovery. In Privé nothing changes.
+- **Said where it matters**: the consent notice (`ConsentNotice.text(_:cloud:)`: « vos voix
+  sont transcrites par ElevenLabs »), the live panel (« ElevenLabs après l'appel » instead of
+  « sur ce Mac »), the first-meeting line of the detection card, the Préparer card's ⓘ,
+  Réglages › Réunions (amber line) and the Précis note in Réglages › Transcription. A meeting
+  being recorded uses its own flag; anything before a recording follows the current mode.
+- **Only the call's channel is sent.** The mic spool is written before echo cancellation, so on
+  speakers it holds the call's echo; a cloud transcript of it merged echo and reply into one
+  segment, and the echo dedupe then dropped the user's words or kept the call's as « Vous »
+  (audit A3-4). The mic keeps its live, echo-cancelled segments, the user's by construction.
+- What is sent (`MeetingCloud`, `CloudRequest.meeting`): the call's spool, decrypted **in
+  memory** a minute at a time straight into the multipart body (the channel is held once,
+  about 115 MB an hour; no codec, nothing written to disk), as 16 kHz 16-bit mono PCM
+  (`file_format=pcm_s16le_16`), uploaded from memory (`URLSession.upload(for:from:)`,
+  ephemeral session) to `api.elevenlabs.io/v1/speech-to-text` with `model_id=scribe_v3`,
+  `timestamps_granularity=word`, `tag_audio_events=false`, `diarize=true` and the
+  dictionary's terms as `keyterms` (at most 100, the dictation's list). No `language_code` (a
+  meeting is not always in the dictation's language) and no `num_speakers` (rarely known for
+  sure; the window/calendar cap applies afterwards in `SpeakerConsolidation`, as for the local
+  diarizer). ElevenLabs takes up to 5 GB.
+- What comes back is read by `CloudTranscript` (FluenceMeetingCore, tested): words of type
+  `word` with `start`, `end`, `speaker_id`, cut into segments where `UtteranceSegmenter`
+  would cut (0.5 s pause, 14.5 s) and at each speaker change, one `SpeakerTurn` per
+  segment. These replace the live system segments and the local diarizer's turns;
+  consolidation (by time: no embeddings, so no voice prints), `SpeakerAssignment`, the echo
+  dedupe of `TranscriptMerger`, naming and notes run unchanged. Call spans the live pass
+  missed (`untranscribed`, FLU-54) are covered by the whole-spool transcript.
+- Wait: **one deadline for the whole cloud pass**, upload and retry included: `60 s + 0.25 ×
+  audio`, at most 15 min (`CloudFallback.meetingDeadline`); one retry after 10 s on 429 / 5xx
+  inside it. Past it, the Mac takes over.
+- **Fallback**: no key, a refusal, the network, the deadline, a malformed answer, or no word
+  where the live pass heard some → that meeting's whole final pass runs on the Mac as before.
+  Logged as a kind and counted in Diagnostics (`meeting.cloud.fallback`); never a body.
+- **Survival**: the cloud step is part of the final pass, so a quit during the upload leaves
+  the marker and the next launch's recovery tries again (two attempts, `RecoveryPlan`),
+  falling back to the Mac the same way, and only for a meeting recorded in Précis.
 
 ### 2.5 Speaker diarization and naming
 - **Mic = Me. Diarize the system channel only.** Fewer speakers to separate, and my own

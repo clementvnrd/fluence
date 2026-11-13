@@ -140,6 +140,18 @@ struct ConsentTests {
         #expect(ConsentNotice.text(.french).hasPrefix("Je prends des notes de cette réunion avec Fluence"))
         #expect(ConsentNotice.text(.french).contains("rien n'est envoyé sur Internet"))
         #expect(ConsentNotice.text(.english).contains("nothing is sent over the Internet"))
-        #expect(ConsentNotice.bilingual == ConsentNotice.text(.french) + "\n\n" + ConsentNotice.text(.english))
+        #expect(ConsentNotice.bilingual() == ConsentNotice.text(.french) + "\n\n" + ConsentNotice.text(.english))
+    }
+
+    // A3-3: in Précis the call's voices go to ElevenLabs; the notice must not say otherwise.
+    @Test func thePrecisNoticeNamesElevenLabs() {
+        let french = ConsentNotice.text(.french, cloud: true)
+        let english = ConsentNotice.text(.english, cloud: true)
+        #expect(french.contains("transcrites par ElevenLabs"))
+        #expect(english.contains("transcribed by ElevenLabs"))
+        #expect(!french.contains("rien n'est envoyé"))
+        #expect(!english.contains("nothing is sent"))
+        #expect(french.hasSuffix("Dites-le-moi si vous préférez que je n'enregistre pas."))
+        #expect(ConsentNotice.bilingual(cloud: true) == french + "\n\n" + english)
     }
 }

@@ -237,6 +237,8 @@ final class MeetingController {
             keepAudio: NotetakerSettings.shared.keepAudioByDefault
         )
         meeting.speakers = [.me(), .others]
+        // FLU-132: the mode at recording time decides the upload, even at recovery.
+        meeting.cloudAllowed = MeetingCloud.isOn
         keepAudio = meeting.keepAudio
 
         do {
@@ -490,7 +492,8 @@ final class MeetingController {
             key: key,
             corrector: DictionaryStore.shared.corrector,
             windowRoster: windowRoster,
-            roomSpool: roomSpool
+            roomSpool: roomSpool,
+            cloud: MeetingCloud.request(meeting)
         )
         let output = await Task.detached(priority: .utility) { await MeetingFinalizer.attribute(input) }.value
         return (MeetingFinalizer.name(output, window: windowRoster), output.voices)

@@ -106,6 +106,10 @@ struct MeetingSettingsSection: View {
             ) {
                 RowToggle(isOn: Bindable(settings).detectMeetings)
             }
+            // FLU-132: Précis sends meetings too, said where meetings are set up.
+            if MeetingCloud.isOn {
+                RowNote(text: "Mode Précis\(FrenchFormat.space): la voix des participants est envoyée à \(CloudProvider.elevenLabs.displayName).", color: DS.Color.amberText)
+            }
             RowDivider()
             SettingsRow(
                 systemImage: "timer",

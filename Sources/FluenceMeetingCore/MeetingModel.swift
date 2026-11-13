@@ -195,6 +195,9 @@ public struct Meeting: Codable, Sendable, Identifiable {
     /// Speech the engine could not transcribe yet (FLU-54), tried again from the audio,
     /// which is kept meanwhile. `nil` when nothing is missing, and in meetings saved before.
     public var untranscribed: [UntranscribedSpan]?
+    /// FLU-132: recorded in Précis, so its call may be transcribed by the cloud; set when the
+    /// recording starts, never later. `false` in Privé, `nil` in meetings saved before.
+    public var cloudAllowed: Bool?
 
     public init(
         id: UUID = UUID(),

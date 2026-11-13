@@ -28,6 +28,12 @@ extension MeetingAudioSpoolReader: AudioSampleSource {}
 /// words (echoes of the call dropped) stays the user and the others become the people in
 /// the room, `R1…Rn` (`InRoomSpeakers`). Off, or on any failure, the mic stays the user's
 /// alone, as before.
+///
+/// For a meeting recorded in Précis (FLU-132), ElevenLabs transcribes the call's spool first
+/// (`MeetingCloud`): its words replace the live system segments and its voices replace step
+/// 1's diarizer; the mic keeps its live, echo-cancelled segments (the raw mic spool still
+/// holds the call's echo). Steps 1b to 4 run unchanged. On any cloud failure the pass runs on
+/// the Mac, as above.
 enum MeetingFinalizer {
     struct Input: Sendable {
         var meeting: Meeting
@@ -40,6 +46,8 @@ enum MeetingFinalizer {
         /// FLU-33, hidden setting: the mic spool to diarize for the people in the room; nil
         /// keeps the mic the user's alone.
         var roomSpool: URL?
+        /// FLU-132: recorded in Précis, and its key still there; nil otherwise.
+        var cloud: MeetingCloud.Request?
     }
 
     struct Output: Sendable {
@@ -52,7 +60,16 @@ enum MeetingFinalizer {
     static func attribute(_ input: Input) async -> Output {
         var meeting = input.meeting
         var mic = meeting.segments.filter { $0.source == .microphone }
-        let system = meeting.segments.filter { $0.source == .system }
+        var system = meeting.segments.filter { $0.source == .system }
+        var cloud: MeetingCloud.Transcript?
+        if let request = input.cloud, let url = input.systemSpool, let key = input.key {
+            cloud = await MeetingCloud.transcribe(request, system: url, key: key, live: system, corrector: input.corrector)
+        }
+        if let cloud {
+            system = cloud.system
+            // The spool was transcribed whole, the spans the live pass missed included (FLU-54).
+            meeting.untranscribed = meeting.untranscribed?.filter { $0.source != .system }
+        }
 
         var roomLabels: [String] = []
         if !mic.isEmpty, let url = input.roomSpool, let key = input.key {
@@ -63,11 +80,19 @@ enum MeetingFinalizer {
 
         var turns: [SpeakerTurn] = []
         var rawEmbeddings: [String: [Float]] = [:]
-        if !system.isEmpty, let url = input.systemSpool, let key = input.key {
+        let cap = SpeakerConsolidation.speakerCap(roster: input.windowRoster, attendees: meeting.attendees.count)
+        if let cloud {
+            // No embeddings from the cloud: minor voices and the cap fold by time alone.
+            turns = SpeakerConsolidation.consolidate(turns: cloud.turns, embeddings: [:], cap: cap).turns
+            Log.speech.info("""
+                voices: \(Set(cloud.turns.map(\.speaker)).count, privacy: .public) from the cloud, \
+                \(Set(turns.map(\.speaker)).count, privacy: .public) after consolidation \
+                (cap \(cap.map(String.init) ?? "none", privacy: .public))
+                """)
+        } else if !system.isEmpty, let url = input.systemSpool, let key = input.key {
             do {
                 let reader = try MeetingAudioSpoolReader(url: url, key: key)
                 if reader.sampleCount >= 2 * MeetingAudioFormat.sampleRate {
-                    let cap = SpeakerConsolidation.speakerCap(roster: input.windowRoster, attendees: meeting.attendees.count)
                     (turns, rawEmbeddings) = try await diarize(reader, ceiling: SpeakerConsolidation.diarizerCeiling(cap: cap))
                     let consolidated = SpeakerConsolidation.consolidate(turns: turns, embeddings: rawEmbeddings, cap: cap)
                     Log.speech.info("""

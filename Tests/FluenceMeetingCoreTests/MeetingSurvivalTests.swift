@@ -96,6 +96,19 @@ struct TranscriptionRetryTests {
         let back = try JSONDecoder().decode(Meeting.self, from: data)
         #expect(back.untranscribed == [span(.system, 1, 4)])
     }
+
+    // A3-11: a meeting saved before the flag, or recorded in Privé, is never sent to the cloud.
+    @Test func theCloudIsAllowedOnlyWhenRecordedInPrecis() throws {
+        let old = #"{"id":"6F1C1B0A-6C1A-4E7C-9B57-0D6B3E5E2A11","title":"T","trigger":"manual","startedAt":"2026-10-01T10:00:00Z","attendees":[],"speakers":[{"id":"me"}],"segments":[],"userNotes":"","keepAudio":false}"#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        #expect(try decoder.decode(Meeting.self, from: Data(old.utf8)).cloudAllowed == nil)
+        var meeting = Meeting(title: "T", startedAt: Date(timeIntervalSince1970: 0))
+        #expect(meeting.cloudAllowed == nil)
+        meeting.cloudAllowed = true
+        let back = try JSONDecoder().decode(Meeting.self, from: JSONEncoder().encode(meeting))
+        #expect(back.cloudAllowed == true)
+    }
 }
 
 struct MeetingCompletionTests {
