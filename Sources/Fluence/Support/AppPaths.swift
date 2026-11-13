@@ -22,12 +22,13 @@ enum AppPaths {
         : ProcessInfo.processInfo.environment["FLUENCE_SUPPORT_DIRECTORY"]
             .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
 
-    /// Where the settings are kept: the app's preferences, except under `--selftest`, whose
-    /// settings live in `defaults.plist` inside its scratch folder (an absolute path as the
-    /// suite name) and never mix with the user's (FLU-35). `UserDefaults` is thread-safe, as
-    /// `.standard` already is to every caller.
+    /// Where the settings are kept: the app's preferences, except on a scratch folder
+    /// (`--selftest`, `FLUENCE_SUPPORT_DIRECTORY`), whose settings live in `defaults.plist`
+    /// inside it (an absolute path as the suite name) and never mix with the user's (FLU-35;
+    /// audit 3 A7-12: a scratch copy with the real bundle ID wrote the real preferences).
+    /// `UserDefaults` is thread-safe, as `.standard` already is to every caller.
     nonisolated(unsafe) static let defaults: UserDefaults = {
-        guard SelfTest.isRequested else { return .standard }
+        guard override != nil else { return .standard }
         guard let scratch = UserDefaults(suiteName: support.appendingPathComponent("defaults").path) else {
             // Never fall back to the user's preferences.
             print("selftest: FAIL scratch settings could not be created")

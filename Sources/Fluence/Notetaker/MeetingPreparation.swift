@@ -25,7 +25,7 @@ final class MeetingPreparation {
     /// Set by `SystemAudioTap` whenever a tap starts: by this button or by a real meeting.
     nonisolated static let systemAudioAskedKey = "meetingPreparation.systemAudioAsked"
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = AppPaths.defaults) {
         self.defaults = defaults
         state = Self.read(systemAudioAsked: defaults.bool(forKey: Self.systemAudioAskedKey))
     }
