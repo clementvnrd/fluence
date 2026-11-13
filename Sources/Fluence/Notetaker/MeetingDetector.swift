@@ -16,8 +16,9 @@ struct DetectedMeeting: Sendable, Equatable {
 
 /// Watches for calls the way the orange mic dot does.
 ///
-/// A listener on the default input device's `kAudioDevicePropertyDeviceIsRunningSomewhere`
-/// wakes the detector when anyone opens the mic. While the mic is in use the process list
+/// A listener on every input device's `kAudioDevicePropertyDeviceIsRunningSomewhere` wakes
+/// the detector when anyone opens a mic — a call set to a headset that is not the default
+/// input included (A3-15). While the mic is in use the process list
 /// is polled (per-process listeners are unreliable): which processes are running input,
 /// which meeting app or browser they belong to, and — for a browser — whether one of its
 /// windows is actually a call. Each app is offered once per use of the mic: after "Not
@@ -32,9 +33,9 @@ final class MeetingDetector {
     /// comes back on a later poll (FLU-32).
     var onDetected: ((DetectedMeeting) -> Bool)?
 
-    private var inputDevice: AudioObjectID?
+    private var inputDevices: [AudioObjectID] = []
     private var runningListener: AudioObjectPropertyListenerBlock?
-    private var defaultDeviceListener: AudioObjectPropertyListenerBlock?
+    private var devicesListener: AudioObjectPropertyListenerBlock?
     private var pollTask: Task<Void, Never>?
     /// Families (by main bundle ID) already offered during their current use of the mic.
     private var offered: Set<String> = []
@@ -48,20 +49,20 @@ final class MeetingDetector {
     func start() {
         guard !isRunning else { return }
         isRunning = true
-        listenForDefaultDeviceChanges()
-        attachToInputDevice()
+        listenForDeviceChanges()
+        attachToInputDevices()
         Log.app.info("meeting detector started")
     }
 
     func stop() {
         guard isRunning else { return }
         isRunning = false
-        detachFromInputDevice()
-        if let defaultDeviceListener {
-            var address = CoreAudioObjects.address(kAudioHardwarePropertyDefaultInputDevice)
-            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, defaultDeviceListener)
+        detachFromInputDevices()
+        if let devicesListener {
+            var address = CoreAudioObjects.address(kAudioHardwarePropertyDevices)
+            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, devicesListener)
         }
-        defaultDeviceListener = nil
+        devicesListener = nil
         pollTask?.cancel()
         pollTask = nil
         offered.removeAll()
@@ -106,36 +107,41 @@ final class MeetingDetector {
 
     // MARK: - Listeners
 
-    private func listenForDefaultDeviceChanges() {
-        var address = CoreAudioObjects.address(kAudioHardwarePropertyDefaultInputDevice)
+    /// A device plugged in or removed: listen on the new list.
+    private func listenForDeviceChanges() {
+        var address = CoreAudioObjects.address(kAudioHardwarePropertyDevices)
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task { @MainActor in
-                self?.detachFromInputDevice()
-                self?.attachToInputDevice()
+                self?.detachFromInputDevices()
+                self?.attachToInputDevices()
             }
         }
-        defaultDeviceListener = block
+        devicesListener = block
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, block)
     }
 
-    private func attachToInputDevice() {
-        guard isRunning, let device = CoreAudioObjects.defaultInputDevice else { return }
-        inputDevice = device
+    private func attachToInputDevices() {
+        guard isRunning else { return }
+        inputDevices = CoreAudioObjects.allDevices.filter(CoreAudioObjects.hasInputStreams)
         var address = CoreAudioObjects.address(kAudioDevicePropertyDeviceIsRunningSomewhere)
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task { @MainActor in self?.ensurePolling() }
         }
         runningListener = block
-        AudioObjectAddPropertyListenerBlock(device, &address, .main, block)
-        if CoreAudioObjects.isRunningSomewhere(device) { ensurePolling() }
+        for device in inputDevices {
+            AudioObjectAddPropertyListenerBlock(device, &address, .main, block)
+        }
+        if inputDevices.contains(where: CoreAudioObjects.isRunningSomewhere) { ensurePolling() }
     }
 
-    private func detachFromInputDevice() {
-        if let device = inputDevice, let runningListener {
+    private func detachFromInputDevices() {
+        if let runningListener {
             var address = CoreAudioObjects.address(kAudioDevicePropertyDeviceIsRunningSomewhere)
-            AudioObjectRemovePropertyListenerBlock(device, &address, .main, runningListener)
+            for device in inputDevices {
+                AudioObjectRemovePropertyListenerBlock(device, &address, .main, runningListener)
+            }
         }
-        inputDevice = nil
+        inputDevices = []
         runningListener = nil
     }
 

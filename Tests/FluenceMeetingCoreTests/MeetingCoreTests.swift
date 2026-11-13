@@ -320,3 +320,71 @@ struct SpeakerMergeTests {
         #expect(meeting.segments.map(\.speakerID) == ["S1", "S2", "me", "S3"])
     }
 }
+
+/// A3-9: a meeting diarized again at a later launch keeps the user's names and merges on
+/// the voices they were given to, not on whichever new voice got the same label.
+struct SpeakerCarryOverTests {
+    private func line(_ speaker: String, _ start: TimeInterval, _ end: TimeInterval) -> TranscriptSegment {
+        TranscriptSegment(source: .system, speakerID: speaker, start: start, end: end, text: "…")
+    }
+
+    private func meeting(_ speakers: [Speaker], _ segments: [TranscriptSegment]) -> Meeting {
+        Meeting(title: "T", startedAt: Date(timeIntervalSince1970: 0), speakers: [.me()] + speakers, segments: segments)
+    }
+
+    @Test func namesFollowTheVoicesNotTheLabels() {
+        // The user merged S1 into S2 (Bob) and named S3 Alice; a new pass numbers them S1, S2.
+        let before = meeting(
+            [Speaker(id: "S2", name: "Bob", nameSource: .user), Speaker(id: "S3", name: "Alice", nameSource: .user)],
+            [line("S2", 0, 5), line("S3", 10, 15)]
+        )
+        let after = meeting(
+            [Speaker(id: "S1"), Speaker(id: "S2", name: "Bob", nameSource: .user)],
+            [line("S1", 0, 5), line("S2", 10, 15)]
+        )
+        let carried = SpeakerAssignment.carryOver(from: before, into: after)
+        #expect(carried.segments.map(\.speakerID) == ["S2", "S3"])
+        #expect(carried.speaker("S2")?.name == "Bob")
+        #expect(carried.speaker("S3")?.name == "Alice")
+        #expect(carried.speakers.map(\.id) == ["me", "S2", "S3"])
+    }
+
+    @Test func aMergeStaysMergedAndANewVoiceKeepsItsLabel() {
+        let before = meeting(
+            [Speaker(id: "S1", name: "Alice", nameSource: .user)],
+            [line("S1", 0, 5), line("S1", 11, 15)]
+        )
+        let after = meeting(
+            [Speaker(id: "S1", name: "Alice", nameSource: .user), Speaker(id: "S2"), Speaker(id: "S3")],
+            [line("S1", 0, 5), line("S2", 11, 15), line("S3", 20, 25)]
+        )
+        let carried = SpeakerAssignment.carryOver(from: before, into: after)
+        #expect(carried.segments.map(\.speakerID) == ["S1", "S1", "S3"])
+        #expect(carried.speakers.map(\.id) == ["me", "S1", "S3"])
+    }
+
+    @Test func aNewVoiceNeverInheritsSomeoneElsesName() {
+        let before = meeting(
+            [Speaker(id: "S1", name: "Alice", nameSource: .user), Speaker(id: "S2", name: "Bob", nameSource: .user)],
+            [line("S1", 0, 5), line("S2", 6, 10)]
+        )
+        // The new pass hears one voice over both, and a new one later, labelled S2.
+        let after = meeting(
+            [Speaker(id: "S1", name: "Alice", nameSource: .user), Speaker(id: "S2", name: "Bob", nameSource: .user)],
+            [line("S1", 0, 10), line("S2", 20, 25)]
+        )
+        let carried = SpeakerAssignment.carryOver(from: before, into: after)
+        #expect(carried.segments.map(\.speakerID) == ["S1", "S3"])
+        #expect(carried.speaker("S1")?.name == "Alice")
+        #expect(carried.speaker("S3")?.name == nil)
+        #expect(carried.speaker("S2") == nil)
+    }
+
+    @Test func aMeetingNeverFinalisedIsLeftAsThePassMadeIt() {
+        let before = meeting([.others], [line(Speaker.othersID, 0, 5)])
+        let after = meeting([Speaker(id: "S1")], [line("S1", 0, 5)])
+        let carried = SpeakerAssignment.carryOver(from: before, into: after)
+        #expect(carried.segments.map(\.speakerID) == ["S1"])
+        #expect(carried.speakers.map(\.id) == ["me", "S1"])
+    }
+}

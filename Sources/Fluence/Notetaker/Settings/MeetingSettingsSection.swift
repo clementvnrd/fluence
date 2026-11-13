@@ -33,7 +33,7 @@ final class MeetingSettingsModel {
 
     /// Applies at once when nothing would be deleted; otherwise asks first, saying how many.
     func chooseRetention(_ choice: RetentionChoice) {
-        let count = Retention.expiredCount(store.summaries.map(\.startedAt), days: choice.days, now: Date())
+        let count = Retention.expiredCount(store.summaries.map(\.retentionDate), days: choice.days, now: Date())
         if count > 0 {
             pendingRetention = choice
             pendingRetentionCount = count

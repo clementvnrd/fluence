@@ -415,7 +415,7 @@ public enum TranscriptImport {
             .sorted { ($0.element.start, $0.offset) < ($1.element.start, $1.offset) }
             .map(\.element)
 
-        return Meeting(
+        var meeting = Meeting(
             title: title,
             trigger: .imported,
             startedAt: startedAt,
@@ -424,5 +424,7 @@ public enum TranscriptImport {
             segments: segments,
             importedFrom: sourceName
         )
+        meeting.importedAt = Date()
+        return meeting
     }
 }

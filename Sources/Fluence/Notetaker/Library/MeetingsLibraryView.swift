@@ -54,7 +54,7 @@ private struct MeetingsList: View {
             PageHeader(title: "Réunions", subtitle: subtitle) {
                 CapButton(title: "Importer", systemImage: "square.and.arrow.down") { model.importer.begin() }
                     .help("Ajouter une réunion passée depuis un fichier de transcription ou du texte collé")
-                if !controller.isBusy {
+                if !controller.isRecording {
                     CapButton(title: "Prendre des notes", systemImage: "plus") { controller.takeNotes() }
                         .help("Enregistrer la réunion en cours, ou tout ce que le Mac joue")
                 }

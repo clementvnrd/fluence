@@ -17,7 +17,7 @@ struct MeetingPreparationCard: View {
                 info: "Demande les autorisations et télécharge les modèles maintenant, pour qu'aucune fenêtre de macOS "
                     + "ni aucune attente n'arrive pendant un appel. Les modèles viennent de Hugging Face, une seule fois ; "
                     + (MeetingCloud.isOn ? "en mode Précis, la voix des participants part chez ElevenLabs." : "aucun son ni aucun texte ne quitte ce Mac."),
-                iconTint: preparation.failure == nil ? DS.Color.accent : DS.Color.destructive
+                iconTint: preparation.failure == nil ? DS.Color.accent : DS.Color.meterAmber
             ) {
                 HStack(spacing: DS.Space.snug) {
                     if preparation.isRunning { ProgressView().controlSize(.small) }
