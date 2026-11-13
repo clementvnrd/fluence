@@ -332,6 +332,27 @@
       "name": "a file of line endings only holds nothing",
       "text": "\r\n\n\r",
       "expectedEntries": []
+    },
+    {
+      "name": "a leading # makes a comment, so the app refuses a term starting with # (FLU-138)",
+      "text": "#general\nOllivault\n",
+      "expectedEntries": [
+        { "kind": "term", "write": "Ollivault" }
+      ]
+    },
+    {
+      "name": "a bare line with an arrow is a correction, so the app refuses a term holding -> (FLU-138)",
+      "text": "C->D\n",
+      "expectedEntries": [
+        { "kind": "correction", "hear": "C", "write": "D" }
+      ]
+    },
+    {
+      "name": "only the first arrow splits, so the app refuses a trigger holding -> (FLU-138)",
+      "text": "a->b -> c\n",
+      "expectedEntries": [
+        { "kind": "correction", "hear": "a", "write": "b -> c" }
+      ]
     }
   ]
 }

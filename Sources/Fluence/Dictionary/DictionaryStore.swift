@@ -22,9 +22,13 @@ final class DictionaryStore {
     /// The entries in file order.
     private(set) var entries: [DictionaryEntry] = []
 
-    /// Lets a consumer rebuild what it derives from the entries (a bias list, say) only after
-    /// they changed. Bumped on each load from the file and on each save.
-    private(set) var revision = 0
+    /// Why the file is not being saved, shown in the panel. Nil when all is well.
+    private(set) var problem: String?
+
+    /// The `mergeKey`s of the lexicon entries the user deleted or rewrote: « Lexique Tech »
+    /// does not put them back (FLU-138). Built-in words only, nothing the user typed.
+    private var declinedLexicon = Set(AppPaths.defaults.stringArray(forKey: DictionaryStore.declinedKey) ?? [])
+    private static let declinedKey = "declinedLexiconEntries"
 
     /// Watches the file itself: catches editors that write in place.
     private var fileWatcher: DispatchSourceFileSystemObject?
@@ -33,10 +37,11 @@ final class DictionaryStore {
     /// dictionary created after launch.
     private var directoryWatcher: DispatchSourceFileSystemObject?
 
-    /// The file's contents as last loaded or saved. An event after which the file reads back
-    /// as exactly this is our own save, or nothing at all — so it changes nothing. Comparing
-    /// contents replaces an `isSaving` flag, which was already reset by the time the
-    /// watcher's event arrived, so every in-app save re-read the file it had just written.
+    /// The file's contents as last loaded or saved; nil until the file was read once. An event
+    /// after which the file reads back as exactly this is our own save, or nothing at all — so
+    /// it changes nothing. Comparing contents replaces an `isSaving` flag, which was already
+    /// reset by the time the watcher's event arrived, so every in-app save re-read the file it
+    /// had just written.
     private var lastText: String?
     private var pendingReload: Task<Void, Never>?
 
@@ -46,17 +51,15 @@ final class DictionaryStore {
 
     private init() {
         switch Self.read() {
-        case .text(let text):
-            lastText = text
-            entries = DictionaryFileFormat.parse(text)
-            revision += 1
+        case .text(let text, _):
+            adopt(text)
         case .missing:
             // First run (a legacy dictionary has already been moved or merged in by then):
             // start with Clement's tech and franglais lexicon rather than an empty file.
             entries = TechLexicon.defaultEntries
             save()
-        case .failed:
-            break
+        case .failed(let error):
+            noteUnreadable(error)
         }
         watchDirectory()
         watchFile()
@@ -65,13 +68,24 @@ final class DictionaryStore {
     // MARK: - Editing
 
     func add(_ entry: DictionaryEntry) {
-        entries.append(entry)
+        add(contentsOf: [entry])
+    }
+
+    /// Adds in one save. An entry its own line would not read back as (« #general », « C->D »)
+    /// is left out: the next read would lose it or turn it into a correction (FLU-138).
+    func add(contentsOf new: [DictionaryEntry]) {
+        let storable = new.filter(DictionaryFileFormat.canStore)
+        guard !storable.isEmpty else { return }
+        entries.append(contentsOf: storable)
         save()
     }
 
-    /// Replaces the entry with the same id where it stands; an unknown id changes nothing.
+    /// Replaces the entry with the same id where it stands. An id that is gone (its line was
+    /// changed outside the app while the sheet was open) adds the edit instead of losing it.
     func update(_ entry: DictionaryEntry) {
-        guard let index = entries.firstIndex(where: { $0.id == entry.id }) else { return }
+        guard let index = entries.firstIndex(where: { $0.id == entry.id }) else { return add(entry) }
+        guard DictionaryFileFormat.canStore(entry) else { return }
+        if entries[index].mergeKey != entry.mergeKey { decline([entries[index]]) }
         entries[index] = entry
         save()
     }
@@ -81,8 +95,17 @@ final class DictionaryStore {
     }
 
     func delete(ids: Set<UUID>) {
+        decline(entries.filter { ids.contains($0.id) })
         entries.removeAll { ids.contains($0.id) }
         save()
+    }
+
+    /// Remembers the lexicon entries among `removed`, so « Lexique Tech » leaves them out.
+    private func decline(_ removed: [DictionaryEntry]) {
+        let keys = TechLexicon.declinedKeys(removed)
+        guard !keys.isSubset(of: declinedLexicon) else { return }
+        declinedLexicon.formUnion(keys)
+        AppPaths.defaults.set(declinedLexicon.sorted(), forKey: Self.declinedKey)
     }
 
     /// The panel's search: both sides of each entry, blind to case and accents, in file order.
@@ -128,34 +151,36 @@ final class DictionaryStore {
         return retired.count
     }
 
-    /// How many of the tech lexicon's entries the dictionary lacks.
+    /// How many of the tech lexicon's entries the dictionary lacks, deleted ones apart.
     var missingTechLexiconCount: Int {
-        DictionaryEntry.missing(TechLexicon.defaultEntries, from: entries).count
+        TechLexicon.missing(from: entries, declined: declinedLexicon).count
     }
 
-    /// Clement's "Lexique Tech" button: adds the lexicon's entries the dictionary lacks and
-    /// returns how many, so the button can say so (FLU-17).
+    /// Clement's "Lexique Tech" button: adds the lexicon's entries the dictionary lacks, except
+    /// those the user deleted, and returns how many, so the button can say so (FLU-17).
     @discardableResult
     func importTechLexicon() -> Int {
-        let newEntries = DictionaryEntry.missing(TechLexicon.defaultEntries, from: entries)
-        if !newEntries.isEmpty {
-            entries.append(contentsOf: newEntries)
-            save()
-        }
+        let newEntries = TechLexicon.missing(from: entries, declined: declinedLexicon)
+        add(contentsOf: newEntries)
         return newEntries.count
     }
 
     // MARK: - File
 
     private enum ReadResult {
-        case text(String)
+        /// The text, and the bytes it was decoded from.
+        case text(String, Data)
         case missing
         case failed(Error)
     }
 
     private static func read() -> ReadResult {
         do {
-            return .text(try String(contentsOf: fileURL, encoding: .utf8))
+            let bytes = try Data(contentsOf: fileURL)
+            guard let text = DictionaryFileFormat.decode(bytes) else {
+                return .failed(CocoaError(.fileReadInapplicableStringEncoding))
+            }
+            return .text(text, bytes)
         } catch CocoaError.fileReadNoSuchFile, CocoaError.fileNoSuchFile {
             return .missing
         } catch {
@@ -173,25 +198,45 @@ final class DictionaryStore {
     /// - Returns: false if the file couldn't be read, so the caller can try again.
     private func reload() -> Bool {
         switch Self.read() {
-        case .text(let text):
-            guard text != lastText else { return true }
-            lastText = text
-            entries = DictionaryFileFormat.parse(text)
-            revision += 1
+        case .text(let text, _):
+            problem = nil
+            if text != lastText { adopt(text) }
             return true
         case .missing:
             return false
         case .failed(let error):
-            Log.app.error("dictionary unreadable, keeping the current entries: \(error.localizedDescription)")
-            Diagnostics.error("dictionary.read", error)
+            noteUnreadable(error)
             return false
         }
     }
 
-    private func save() {
-        revision += 1
+    /// Takes the file's text as the truth, keeping the ids of unchanged lines. If the file had
+    /// never been read (it failed at launch), what was added since stays, after it.
+    private func adopt(_ text: String) {
+        let read = DictionaryFileFormat.parse(text, keepingIDsOf: entries)
+        entries = lastText == nil ? read + DictionaryEntry.missing(entries, from: read) : read
+        lastText = text
+        problem = nil
+    }
 
-        keepUnreadableCopy()
+    /// The file is there but cannot be read: nothing is written over it until it can (FLU-138).
+    private func noteUnreadable(_ error: Error) {
+        problem = "dictionary.txt n'a pas pu être lu : vos changements ne sont pas enregistrés."
+        Log.app.error("dictionary unreadable, nothing saved over it: \(error.localizedDescription)")
+        Diagnostics.error("dictionary.read", error)
+    }
+
+    private func save() {
+        // Never write over a file that could not be read: it may hold the whole dictionary.
+        switch Self.read() {
+        case .failed(let error):
+            return noteUnreadable(error)
+        case .text(let current, let bytes):
+            if lastText == nil { adopt(current) }
+            keepCopy(of: current, bytes: bytes)
+        case .missing:
+            break
+        }
         let text = DictionaryFileFormat.render(entries, header: Self.header)
         do {
             try text.write(to: Self.fileURL, atomically: true, encoding: .utf8)
@@ -205,18 +250,18 @@ final class DictionaryStore {
     }
 
     /// The file on disk is about to be replaced. If it holds lines the parser could not read
-    /// (a format it does not know yet), or if its entries are about to be replaced by none
-    /// (how the line-ending bug erased dictionaries), copy it to `dictionary.txt.bak` first,
-    /// so nothing the user typed is ever lost (FLU-53).
-    private func keepUnreadableCopy() {
-        guard case .text(let current) = Self.read() else { return }
+    /// (a format it does not know yet), if its entries are about to be replaced by none (how
+    /// the line-ending bug erased dictionaries), or if it was not UTF-8 (FLU-138), copy its
+    /// bytes to `dictionary.txt.bak` first, so nothing the user typed is ever lost (FLU-53).
+    private func keepCopy(of current: String, bytes: Data) {
         let unread = DictionaryFileFormat.hasUnreadLines(current)
         let emptied = entries.isEmpty && !DictionaryFileFormat.parse(current).isEmpty
-        guard unread || emptied else { return }
+        let converted = Data(current.utf8) != bytes
+        guard unread || emptied || converted else { return }
         let backup = Self.fileURL.appendingPathExtension("bak")
         do {
-            try current.write(to: backup, atomically: true, encoding: .utf8)
-            Log.app.error("dictionary copied to dictionary.txt.bak before saving (unreadable lines: \(unread), emptied: \(emptied))")
+            try bytes.write(to: backup, options: .atomic)
+            Log.app.error("dictionary copied to dictionary.txt.bak before saving (unreadable lines: \(unread), emptied: \(emptied), converted: \(converted))")
             Diagnostics.recovery("dictionary.backup")
         } catch {
             Log.app.error("dictionary backup failed: \(error.localizedDescription)")

@@ -17,10 +17,12 @@ struct DictionaryPanel: View {
     @State private var editing: DictionaryEntry?
     @State private var isAdding = false
     @State private var isReviewingSuspects = false
+    /// What « Scanner un projet… » found, for the user to tick before anything is added.
+    @State private var scanned: [DictionaryEntry]?
 
     private var entries: [DictionaryEntry] { store.filtered(by: query) }
 
-    /// Adds the tech lexicon's missing terms and says how many; reads « à jour » once there
+    /// Adds the tech lexicon's missing entries and says how many; reads « à jour » once there
     /// is nothing left to add, instead of a button that silently does nothing (FLU-17).
     private var lexiconButton: some View {
         let missing = store.missingTechLexiconCount
@@ -31,15 +33,15 @@ struct DictionaryPanel: View {
             isEnabled: missing > 0
         ) {
             let added = store.importTechLexicon()
-            lexiconResult = added == 0 ? "Déjà à jour" : "+ " + FrenchFormat.count(added, "terme ajouté", "termes ajoutés")
+            lexiconResult = added == 0 ? "Déjà à jour" : "+ " + FrenchFormat.count(added, "entrée ajoutée", "entrées ajoutées")
             Task {
                 try? await Task.sleep(for: .seconds(2.5))
                 lexiconResult = nil
             }
         }
         .help(missing == 0
-            ? "Tous les termes techniques, Git et anglicismes du lexique sont déjà dans votre dictionnaire."
-            : "Ajouter \(FrenchFormat.count(missing, "terme")) techniques, Git et anglicismes à votre dictionnaire.")
+            ? "Rien à ajouter du lexique : techniques, Git et anglicismes."
+            : "Ajouter \(FrenchFormat.count(missing, "entrée")) du lexique : techniques, Git et anglicismes.")
     }
 
     /// Shown only while the dictionary still holds lexicon entries that rewrote ordinary
@@ -138,6 +140,9 @@ struct DictionaryPanel: View {
             // The file path is shown because the dictionary is meant to be editable outside
             // the UI — which is only true if you can find it.
             ListFooter(text: FrenchFormat.count(store.entries.count, "entrée")) {
+                if let problem = store.problem {
+                    Text(problem).font(DS.Font.caption).foregroundStyle(DS.Color.faultText).lineLimit(2)
+                }
                 Button {
                     NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
                 } label: {
@@ -153,7 +158,13 @@ struct DictionaryPanel: View {
             }
         }
         .sheet(isPresented: $isReviewingSuspects) {
-            SuspectReview(entries: suspects) { store.delete(ids: $0) }
+            EntryReview(title: "Termes appris par erreur", action: "Retirer", entries: suspects) { store.delete(ids: $0) }
+        }
+        .sheet(isPresented: Binding(get: { scanned != nil }, set: { if !$0 { scanned = nil } })) {
+            let found = scanned ?? []
+            EntryReview(title: "Termes du projet", action: "Ajouter", entries: found) { chosen in
+                store.add(contentsOf: found.filter { chosen.contains($0.id) })
+            }
         }
         .sheet(item: $editing) { entry in
             DictionaryEditor(entry: entry) { edited in
@@ -168,11 +179,13 @@ struct DictionaryPanel: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = "Scanner"
-        if panel.runModal() == .OK, let url = panel.url {
-            Task {
-                _ = await AutoLearningEngine.shared.scanWorkspaceForVocabulary(at: url)
-            }
-        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        // Shown before anything is added (FLU-138): a folder's name can be a client's.
+        scanned = ProjectVocabulary.candidates(
+            folderName: url.lastPathComponent,
+            packageJSON: try? Data(contentsOf: url.appendingPathComponent("package.json")),
+            known: store.entries
+        ).map(DictionaryEntry.term)
     }
 }
 
@@ -236,12 +249,15 @@ private struct DictionaryRow: View {
     }
 }
 
-// MARK: - Suspect review
+// MARK: - Review
 
-/// « Revoir »: the suspect terms with a checkbox each (ticked), removed on « Retirer » only (FLU-88).
-private struct SuspectReview: View {
+/// Entries with a checkbox each (ticked), acted on by `action` only: « Revoir » the suspect
+/// terms (FLU-88), the words a project scan found (FLU-138).
+private struct EntryReview: View {
+    let title: String
+    let action: String
     let entries: [DictionaryEntry]
-    let onRemove: (Set<UUID>) -> Void
+    let onConfirm: (Set<UUID>) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var kept: Set<UUID> = []
@@ -250,7 +266,11 @@ private struct SuspectReview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.roomy) {
-            Silkscreen(text: "Termes appris par erreur", large: true)
+            Silkscreen(text: title, large: true)
+
+            if entries.isEmpty {
+                Text("Rien de nouveau").font(DS.Font.body).foregroundStyle(DS.Color.inkSecondary)
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.snug) {
@@ -271,9 +291,9 @@ private struct SuspectReview: View {
             HStack(spacing: DS.Space.snug) {
                 Spacer()
                 TransportKey(title: "Annuler") { dismiss() }
-                TransportKey(title: "Retirer", isEngaged: !chosen.isEmpty, engagedColor: DS.Color.ink) {
+                TransportKey(title: action, isEngaged: !chosen.isEmpty, engagedColor: DS.Color.ink) {
                     guard !chosen.isEmpty else { return }
-                    onRemove(chosen)
+                    onConfirm(chosen)
                     dismiss()
                 }
                 .disabled(chosen.isEmpty)
@@ -323,6 +343,7 @@ private struct DictionaryEditor: View {
     private var isValid: Bool {
         let candidate = draft
         return !candidate.write.isEmpty && (candidate.kind == .term || !candidate.hear.isEmpty)
+            && DictionaryFileFormat.canStore(candidate)
     }
 
     var body: some View {
@@ -357,6 +378,13 @@ private struct DictionaryEditor: View {
                     RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)
                         .strokeBorder(DS.Color.selectionEdge, lineWidth: DS.Border.hairline)
                 )
+            }
+
+            // dictionary.txt would read the line back as a comment or as another correction (FLU-138).
+            if !draft.write.isEmpty, !DictionaryFileFormat.canStore(draft) {
+                Text("« # » au début ou « -> » ne peuvent pas être enregistrés.")
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Color.faultText)
             }
 
             HStack(spacing: DS.Space.snug) {
@@ -418,7 +446,7 @@ extension DictionaryWarning {
         let trigger = FrenchFormat.quoted(self.trigger)
         switch kind {
         case .ordinaryWord:
-            return "\(trigger) est un mot courant (en anglais). Chacune de ses occurrences sera réécrite, "
+            return "\(trigger) est un mot courant. Chacune de ses occurrences sera réécrite, "
                 + "pas seulement celles que vous visez. Préférez une expression plus longue."
         case .veryShort:
             return "\(trigger) est très court et se retrouvera souvent. Préférez une expression plus longue."

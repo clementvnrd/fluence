@@ -9,7 +9,6 @@ import FluenceDictionary
 /// FLU-11, against main's protections: everything here stays in memory, nothing it reads
 /// or learns is logged (counts only), and frequent terms are counted only when the user opted
 /// in (Settings ▸ IA & Formatage, `learnFrequentTerms`) and are then only proposed (FLU-88).
-/// A project scan is an explicit action and adds directly.
 @MainActor
 public final class AutoLearningEngine {
     public static let shared = AutoLearningEngine()
@@ -42,60 +41,5 @@ public final class AutoLearningEngine {
         // FLU-88: offered, never added — the silent `add` filled the dictionary with « prêt. », « Je »…
         let due = frequentTerms.record(text, at: Date())
         if !due.isEmpty { LearnedWords.shared.offer(due.map { EditLearner.Proposal(heard: $0, written: $0) }) }
-    }
-
-    // MARK: - Auto-Library & Workspace Scanner
-
-    /// Scanne un dossier de projet (code source, documents) pour extraire les termes techniques
-    /// et noms propres spécifiques au projet (ex: branches Git, dépendances, nom du projet).
-    public func scanWorkspaceForVocabulary(at url: URL) async -> [String] {
-        var terms = Set<String>()
-
-        // 1. Nom du dossier racine
-        let projectName = url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !projectName.isEmpty && projectName.count > 2 {
-            terms.insert(projectName)
-        }
-
-        // 2. Fichiers de configuration courants (package.json, Package.swift, Cargo.toml)
-        let packageJsonURL = url.appendingPathComponent("package.json")
-        if let data = try? Data(contentsOf: packageJsonURL),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            if let name = json["name"] as? String { terms.insert(name) }
-            if let deps = json["dependencies"] as? [String: Any] {
-                for key in deps.keys.prefix(20) {
-                    let clean = key.replacingOccurrences(of: "@[^/]+/", with: "", options: .regularExpression)
-                    terms.insert(clean)
-                }
-            }
-        }
-
-        // 3. Branches Git
-        let gitHeadURL = url.appendingPathComponent(".git/HEAD")
-        if let headContent = try? String(contentsOf: gitHeadURL, encoding: .utf8) {
-            let branch = headContent.trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "ref: refs/heads/", with: "")
-            if !branch.isEmpty {
-                terms.insert(branch)
-            }
-        }
-
-        // Ajoute les termes découverts au dictionnaire personnel comme .term
-        var addedCount = 0
-        for term in terms where term.count >= 3 {
-            let alreadyKnown = DictionaryStore.shared.entries.contains {
-                $0.write.caseInsensitiveCompare(term) == .orderedSame
-            }
-            if !alreadyKnown {
-                DictionaryStore.shared.add(.term(term))
-                addedCount += 1
-            }
-        }
-
-        if addedCount > 0 {
-            Log.speech.info("AutoLearning: \(addedCount) termes découverts depuis l'espace de travail")
-        }
-
-        return Array(terms)
     }
 }
