@@ -65,7 +65,8 @@ Both shortcuts are recorded in Réglages ▸ Général and IA & Formatage: any c
 least two keys (a modifier and a key, or two modifiers).
 
 Space and Esc are only swallowed while they act on a dictation; otherwise they reach the app
-as usual. Command Mode rewrites with Apple Intelligence on this Mac — never in the cloud —
+as usual. Command Mode rewrites with Apple Intelligence on this Mac, never in the cloud (in
+Précis mode the spoken instruction itself is transcribed by ElevenLabs, like any dictation). It
 refuses password fields, and replaces nothing if the selection changed while it worked. Its
 shortcut and the ⌃⌘V / ⌃⌘C pair are in Réglages; Réglages ▸ Raccourcis lists every gesture.
 
@@ -188,9 +189,13 @@ name, dependencies and branch.
 | What | Where | How |
 |---|---|---|
 | History | `~/Library/Application Support/Fluence/history.sealed` | One AES-256-GCM sealed line per dictation; key in the login Keychain (this device only, never synced). Retention: don't keep / 1 day / **30 days (default)** / forever. If the Keychain refuses, nothing is written. |
-| Dictionary | `…/Fluence/dictionary.txt` | Plain text on purpose — it is meant to be edited by hand. |
+| Dictionary | `…/Fluence/dictionary.txt` | Plain text on purpose — it is meant to be edited by hand. Backed up by Time Machine, with the `dictionary.txt.bak` kept before a save that would empty it. |
 | Snippets | `…/Fluence/snippets.sealed` | Sealed like history (they hold addresses, numbers, signatures). If the Keychain refuses, nothing is written and the file is never overwritten. |
-| The folder | `…/Fluence/` | Owner-only (0700), excluded from Time Machine, never indexed by Spotlight. |
+| Meetings | `…/Fluence/Meetings/` | Notes, transcripts and the recording spool sealed with the Vault, one wrapped key per meeting. Audio deleted after transcription unless kept. |
+| Voice prints | `…/Fluence/VoicePrints/` | Off by default; sealed with the Vault, never in the backup file. |
+| Diagnostics | `…/Fluence/diagnostics.sealed` | Sealed. Error kinds and codes, never a message or a name; leaves the folder only by « Exporter un diagnostic ». |
+| The folder | `…/Fluence/` | Owner-only (0700), never indexed by Spotlight. Time Machine backs it up but leaves out every item except the dictionary: sealed files are noise without the Keychain key. |
+| Backup file | `*.fluencebackup`, where you save it | History, snippets, dictionary and meetings, sealed under your passphrase — how sealed data moves to another Mac. |
 | Logs | unified log, subsystem `io.github.clementvnrd.fluence` | Counts and timings only — never transcript text. |
 | Clipboard | only when AX insertion fails | Marked transient + concealed (clipboard managers skip it), kept off Universal Clipboard, previous contents restored. |
 | HUD | | Excluded from screen sharing and recordings. |
@@ -206,11 +211,13 @@ Network — every outgoing connection, and nothing else:
   at launch and once a day, then the new version's archive is downloaded. No system profile is
   sent (`SUEnableSystemProfiling` off); like any HTTP request it carries a User-Agent with the
   app and Sparkle versions. Réglages › À propos turns it off. See `docs/RELEASING.md`.
-* **Cloud engine, only when turned on** (Réglages › Transcription › Moteur cloud, off by
-  default, FLU-113): each dictation's audio, its language and the dictionary's terms (at most 100) go to
-  `api.elevenlabs.io` (Scribe v3) with your own key, kept in the Keychain. Cleanup stays on the
-  Mac. The local engine transcribes the same audio meanwhile and its text is used when the cloud is
-  slow or unreachable. Only status codes and timings are logged; no cache is kept.
+* **Cloud engine, only in Précis mode** (Réglages › Transcription › Précis; Privé is the
+  default, FLU-113): each dictation's audio (Command Mode instructions included), its language
+  and the dictionary's terms (at most 100) go to `api.elevenlabs.io` (Scribe v3) with your own key,
+  kept in the Keychain. ElevenLabs may keep what it receives under its own terms: the request does
+  not ask for zero retention, which ElevenLabs reserves for enterprise accounts. Cleanup stays on
+  the Mac. The local engine transcribes the same audio meanwhile and its text is used when the cloud
+  is slow or unreachable. Only status codes and timings are logged; no cache is kept.
   A meeting recorded in the same mode sends, once it ends, the call's audio (the other
   participants' voices; your mic stays on the Mac) there too, decrypted in memory only, with
   the dictionary's terms, to be transcribed and split by speaker (FLU-132); the notes are still

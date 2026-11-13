@@ -137,6 +137,17 @@ final class Settings {
         didSet { defaults.set(cloudProvider?.rawValue, forKey: Keys.cloudProvider) }
     }
 
+    /// FLU-134: where the next dictation's voice goes, nil when it stays on this Mac.
+    var sentCloud: CloudProvider? {
+        TranscriptionRoute.sentTo(cloud: cloudProvider, hasKey: cloudProvider.map { CloudKeys.shared.has($0) } ?? false, compareMode: compareMode)
+    }
+
+    /// Where anything can go: Précis with its key. Unlike `sentCloud`, compare mode does not
+    /// pause it, because a meeting recorded now still goes there (FLU-132). The privacy texts read it.
+    var anyCloud: CloudProvider? {
+        cloudProvider.flatMap { CloudKeys.shared.has($0) ? $0 : nil }
+    }
+
     // MARK: FLU-5 text
 
     /// How much cleanup runs between the engine and the text field. Replaces the old

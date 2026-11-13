@@ -26,7 +26,7 @@ enum MeetingCloud {
 
     /// Précis with its key: what a meeting started now is recorded under, and what its texts say.
     @MainActor static var isOn: Bool {
-        Settings.shared.cloudProvider.map { CloudKeys.shared.has($0) } ?? false
+        Settings.shared.anyCloud != nil
     }
 
     /// Nil unless the meeting was recorded in Précis (A3-11) and Précis still has a readable
