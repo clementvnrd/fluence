@@ -18,8 +18,8 @@ public enum TranscriptionRoute {
     public static func summary(
         local: ComparedEngine, cloud: CloudProvider?, hasKey: Bool, compareMode: Bool, cleanup: CleanupLevel
     ) -> [Part] {
+        let sent = sentTo(cloud: cloud, hasKey: hasKey, compareMode: compareMode)
         let cloud = compareMode ? nil : cloud
-        let sent = hasKey ? cloud : nil
         var parts = [Part(
             step: .voice, lead: "Votre voix →",
             target: compareMode ? "Mode comparaison" : sent?.displayName ?? local.displayName + " sur ce Mac",
@@ -35,5 +35,11 @@ public enum TranscriptionRoute {
             parts.append(Part(step: .fallback, lead: "Secours", target: local.displayName, isCloud: false))
         }
         return parts
+    }
+
+    /// Where the voice really goes: the cloud only with its key, and never in compare mode.
+    /// The Précis card, its amber line and « Secours » all read it (FLU-140).
+    public static func sentTo(cloud: CloudProvider?, hasKey: Bool, compareMode: Bool) -> CloudProvider? {
+        hasKey && !compareMode ? cloud : nil
     }
 }

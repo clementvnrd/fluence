@@ -617,7 +617,14 @@ struct TranscriptionSettingsSection: View {
 
     /// « Moteur : Parakeet · 632 Mo sur ce Mac »; « Secours » when the cloud is on top of it.
     private var advancedState: String {
-        let engine = (settings.cloudProvider == nil ? "Moteur : " : "Secours : ") + settings.activeEngine.compared.displayName
+        let sent = TranscriptionRoute.sentTo(
+            cloud: settings.cloudProvider,
+            hasKey: settings.cloudProvider.map(CloudKeys.shared.has) ?? false,
+            compareMode: settings.compareMode
+        )
+        let engine = settings.compareMode
+            ? "Mode comparaison"
+            : (sent == nil ? "Moteur : " : "Secours : ") + settings.activeEngine.compared.displayName
         if models.installed.isEmpty { return engine }
         return engine + " · " + FrenchFormat.bytes(SpeechModelInventory.totalBytes(models.installed)) + " sur ce Mac"
     }

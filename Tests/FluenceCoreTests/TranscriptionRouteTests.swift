@@ -41,4 +41,12 @@ struct TranscriptionRouteTests {
     @Test func compareModeNeverSendsToTheCloud() {
         #expect(line(cloud: .elevenLabs, hasKey: true, compareMode: true) == "Votre voix → Mode comparaison · Correction sur ce Mac")
     }
+
+    /// FLU-140: the Précis card's amber line and « Secours » follow what is really sent.
+    @Test func audioIsSentOnlyWithAKeyAndOutsideCompareMode() {
+        #expect(TranscriptionRoute.sentTo(cloud: .elevenLabs, hasKey: true, compareMode: false) == .elevenLabs)
+        #expect(TranscriptionRoute.sentTo(cloud: .elevenLabs, hasKey: true, compareMode: true) == nil)
+        #expect(TranscriptionRoute.sentTo(cloud: .elevenLabs, hasKey: false, compareMode: false) == nil)
+        #expect(TranscriptionRoute.sentTo(cloud: nil, hasKey: true, compareMode: false) == nil)
+    }
 }
