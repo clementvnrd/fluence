@@ -56,7 +56,8 @@ public enum RuleCleanup {
             ("[ \\t]+", " "),
             // Spoken line breaks leave the spaces that surrounded the command.
             (" *\\n *", "\n"),
-            (" +([,.!?;:…)])", "$1"),
+            // Not before a colon glued to a token: « Tape :wq » (FLU-137).
+            (" +([,.!?…)]|[;:](?!\\S))", "$1"),
             ("\\( +", "("),
             // A filler removed between two commas leaves one.
             (",(?:\\s*,)+", ","),
@@ -76,7 +77,10 @@ public enum RuleCleanup {
         // in "Node.js", "v2.1" or "example.com" is inside a word (FLU-20: "Node.Js").
         var afterTerminator = false
         let closers: Set<Character> = ["»", ")", "\"", "”", "’", "'"]
+        // The word being read: « etc. et du pain », "e.g. a hammer" go on after the dot (FLU-137).
+        var word = ""
         for character in text {
+            word = character.isWhitespace ? "" : word + String(character).lowercased()
             if afterTerminator {
                 if character.isWhitespace {
                     capitalizeNext = true
@@ -97,13 +101,16 @@ public enum RuleCleanup {
                 result.append(character)
                 if character == "\n" {
                     capitalizeNext = true
-                } else if ".!?".contains(character) {
+                } else if ".!?".contains(character), !abbreviations.contains(word) {
                     afterTerminator = true
                 }
             }
         }
         return result
     }
+
+    /// Abbreviations a sentence goes on after, with their dot.
+    private static let abbreviations: Set<String> = ["etc.", "e.g.", "i.e.", "cf.", "vs.", "ex.", "p."]
 
     static func ensureTerminalPunctuation(_ text: String) -> String {
         // Look through closing quotes and brackets: «oui» and (draft) still end a sentence
@@ -151,8 +158,10 @@ enum EnglishRules {
 
     static func spokenPunctuation(_ text: String) -> String {
         var result = text
+        // After a determiner it is a noun: "We launched a new line of products" (FLU-137).
+        let noun = "(?<!\\b(?:a|an|the|this|that|our|my|your|their|his|her|its|every|each|another|one) )"
         for (phrase, replacement) in spoken {
-            result = RuleCleanup.replace(result, "(?i)\\b\(phrase)\\b", with: replacement)
+            result = RuleCleanup.replace(result, "(?i)\(noun)\\b\(phrase)\\b", with: replacement)
         }
         return result
     }
@@ -211,19 +220,37 @@ enum FrenchRules {
         ]
         for (phrase, mark) in breaks {
             result = rewrite(result, phrase: phrase) { context in
-                (context.isNoun && context.next != "à") || context.atTextEnd ? nil : .mark(mark)
+                // « Il faut aller à la ligne après chaque item » talks about a break (FLU-137).
+                if let previous = context.previous, goTo.contains(previous) { return nil }
+                return (context.isNoun && context.next != "à") || context.atTextEnd ? nil : .mark(mark)
             }
         }
-        // Layout commands: nobody says these words in a sentence about something else.
-        let layout: [(String, String)] = [
-            ("\(open) la parenth[èe]se", " ("),
-            ("\(close) la parenth[èe]se", ") "),
-            ("\(open) les guillemets", " « "),
-            ("\(close) les guillemets", " » "),
+        // Layout commands: nobody says these words in a sentence about something else. A close
+        // is one only while its mark is open: « Bref je ferme la parenthèse et on revient au
+        // budget » closes nothing (FLU-137).
+        let layout: [(phrase: String, mark: String, closes: (open: Character, close: Character)?)] = [
+            ("\(open) la parenth[èe]se", " (", nil),
+            ("\(close) la parenth[èe]se", ") ", ("(", ")")),
+            ("\(open) les guillemets", " « ", nil),
+            ("\(close) les guillemets", " » ", ("«", "»")),
         ]
-        for (phrase, mark) in layout {
-            let template = NSRegularExpression.escapedTemplate(for: mark)
-            result = RuleCleanup.replace(result, "(?i)\(start)\(phrase)\(end)", with: template)
+        for (phrase, mark, closes) in layout {
+            let pattern = "(?i)\(start)\(phrase)\(end)"
+            guard let closes else {
+                result = RuleCleanup.replace(result, pattern, with: NSRegularExpression.escapedTemplate(for: mark))
+                continue
+            }
+            var from = result.startIndex
+            while let range = result.range(of: pattern, options: .regularExpression, range: from..<result.endIndex) {
+                let head = result[..<range.lowerBound]
+                guard let opened = head.lastIndex(of: closes.open), !head[opened...].contains(closes.close) else {
+                    from = range.upperBound
+                    continue
+                }
+                let offset = result.distance(from: result.startIndex, to: range.lowerBound) + mark.count
+                result.replaceSubrange(range, with: mark)
+                from = result.index(result.startIndex, offsetBy: offset)
+            }
         }
 
         // Punctuation words are nouns as often as commands (FLU-30): « un point
@@ -448,6 +475,11 @@ enum FrenchRules {
         "positif", "positifs", "négatif", "négatifs", "majeur", "majeurs", "bloquant", "bloquants",
         "ouvert", "ouverts", "précis", "noir", "noirs",
     ]
+    /// Verbs that go to a line rather than make one: « aller à la ligne », « passer à la ligne ».
+    private static let goTo: Set<String> = [
+        "aller", "va", "vas", "vais", "allez", "allons", "passer", "passe", "passes", "passez",
+        "revenir", "reviens", "revient", "revenez", "retourner", "retourne", "retournez",
+    ]
     /// Words after which « deux points » ends a clause as a colon: « voici la liste : ».
     private static let introducers: Set<String> = [
         "voici", "voilà", "voila", "liste", "suivant", "suivants", "suivante", "suivantes", "suit",
@@ -458,5 +490,7 @@ enum FrenchRules {
         // Having or lacking two of something: « j'ai deux points à voir ».
         "ai", "as", "a", "avons", "avez", "ont", "avait", "avais", "aura", "auras", "reste",
         "restent", "manque", "manquent", "encore", "derniers", "premiers", "autres",
+        // Finding two of something: « j'ai noté deux points le budget et le planning » (FLU-137).
+        "noté", "relevé", "soulevé", "vu", "trouvé", "identifié", "retenu", "listé", "abordé",
     ])
 }

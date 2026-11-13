@@ -1,7 +1,7 @@
 {
   "$comment": [
     "Dictionary corrections, the specification of the macOS app's correction behaviour: FluenceDictionary runs every case below in CI (VectorTests, FileVectorTests).",
-    "A case lists a dictionary, gives it an input, and states the text that must come back plus, for each correction that fired, its 'to' (the entry's write, unchanged) and its count. The order of those reports is free.",
+    "A case lists a dictionary, gives it an input, and states the text that must come back plus, for each correction that changed the text, its 'to' (the entry's write, unchanged) and how many matches it changed. The order of those reports is free.",
     "An entry is a 'correction' (hear -> write) or a 'term' (write only). A missing 'hear' is an empty string; a missing 'isEnabled' is true.",
     "The inputs are the kind of thing Clement dictates: French sentences carrying English tech words. Next to every match sits plain ASCII, except in the one decomposed-accent case.",
     "Deeper Unicode behaviour (full case folding, exotic spaces, letters and digits of other scripts, tie order, chained corrections) is pinned by CorrectorTests.",
@@ -230,6 +230,28 @@
       "input": "le back en type script parle à post gres, et tout part sur get hub",
       "expected": "le back en TypeScript parle à Postgres, et tout part sur GitHub",
       "expectedCorrections": [ { "to": "TypeScript", "count": 1 }, { "to": "Postgres", "count": 1 }, { "to": "GitHub", "count": 1 } ]
+    },
+    {
+      "$comment": "FLU-137: the sentence's capital wins over the write's first letter where a capitalised match opens a sentence (text start, line start, after . ! ?). An all-capital match keeps the write as typed.",
+      "name": "a write opening a sentence keeps the sentence's capital",
+      "entries": [
+        { "kind": "correction", "hear": "la pière", "write": "la PR" },
+        { "kind": "correction", "hear": "guite", "write": "git" }
+      ],
+      "input": "La pière est prête. Merci. La pière passe, et la pière suivante aussi\nGuite tourne",
+      "expected": "La PR est prête. Merci. La PR passe, et la PR suivante aussi\nGit tourne",
+      "expectedCorrections": [ { "to": "la PR", "count": 3 }, { "to": "git", "count": 1 } ]
+    },
+    {
+      "$comment": "FLU-137: a match already written exactly as the write changes nothing, so it is not reported; the others are.",
+      "name": "a match already spelled as the write is not reported",
+      "entries": [
+        { "kind": "correction", "hear": "swift ui", "write": "SwiftUI" },
+        { "kind": "correction", "hear": "pipe line", "write": "pipeline" }
+      ],
+      "input": "on code en SwiftUI, le pipeline et la pipe line",
+      "expected": "on code en SwiftUI, le pipeline et la pipeline",
+      "expectedCorrections": [ { "to": "pipeline", "count": 1 } ]
     }
   ],
   "fileCases": [

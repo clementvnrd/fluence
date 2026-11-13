@@ -13,7 +13,7 @@ import Foundation
 ///
 /// Idempotent, so it can run after the rules *and* after the model without doubling spaces.
 /// Leaves alone what isn't prose: times and ratios (`14:30`), URLs (`https://…?q=1`),
-/// e-mail addresses, and a `:` opening a smiley.
+/// e-mail addresses, and a `:` or `;` glued to what follows (`localhost:3000`, `;)`).
 public enum FrenchTypography {
     public static let space: Character = "\u{00A0}"
 
@@ -64,11 +64,10 @@ public enum FrenchTypography {
         if token.contains("://") || token.hasPrefix("www.") || token.contains("@") { return false }
 
         switch mark {
-        case ":":
-            // 14:30, 1:2, and smileys.
-            if before.isNumber, after?.isNumber == true { return false }
-            if let after, ")(/".contains(after) { return false }
-            return true
+        case ":", ";":
+            // Prose has a space after them, a token none: 14:30, localhost:3000, std::vector,
+            // build:prod, :wq, and smileys (FLU-137).
+            return after?.isWhitespace ?? true
         case "?", "!":
             // A query string or anchor inside a path: "page.php?id=2".
             if let after, !gaps.contains(after), after.isLetter || after.isNumber || after == "=" {

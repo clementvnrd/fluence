@@ -122,6 +122,33 @@ struct DoNoHarmTests {
         "Il s'en est sorti en en parlant à son chef.",
         // « delete that » in French is franglais, not a command (FLU-124).
         "Il faut delete that file avant le merge.",
+        // A real word before a longer one that starts with it, and doubles that are meant
+        // (FLU-137, A6-2).
+        "Ajoute du sel selon le goût.",
+        "La fac facture les frais d'inscription.",
+        "Il a un ami amical.",
+        "On a vu la mer merveilleuse.",
+        "C'est un gros grossiste.",
+        "Je vais faire faire un devis.",
+        "On part en vacances à Bora Bora.",
+        // Spoken-punctuation words in ordinary sentences (FLU-137, A6-6).
+        "Bref je ferme la parenthèse et on revient au budget.",
+        "J'ai noté deux points le budget et le planning.",
+        "Il faut aller à la ligne après chaque item.",
+        "Numéro 10 de l'équipe est blessé.",
+        // Names holding a cue word, abbreviations, words starting like a bullet (A6-7, A6-16).
+        "J'adore la série Bref.",
+        "On a dîné au restaurant Bon Accueil.",
+        "Des pommes, des poires, etc. et du pain.",
+        "Le Puceron mange tout. Pucerons partout.",
+        // Code tokens keep their colons: a no-break space breaks them (A6-5).
+        "Le serveur tourne sur localhost:3000.",
+        "Utilise std::vector.",
+        "Lance npm run build:prod ce soir.",
+        "Ouvre main.swift:120.",
+        "Le ticket JIRA:42 est fermé.",
+        "Tape :wq pour sortir.",
+        "Tu viens ? Super;)",
     ]
 
     /// French typed into a terminal or an editor: Clement's prompts to Claude Code (FLU-30, F6).
@@ -145,6 +172,13 @@ struct DoNoHarmTests {
         "Thanks for the quick reply.",
         "This is the best option we have.",
         "We met at the station and walked home.",
+        // Doubles that are meant, and command words inside sentences (FLU-137).
+        "I know that that is true.",
+        "He had had enough.",
+        "We launched a new line of products.",
+        "Number one priority is security.",
+        "Use a tool, e.g. a hammer.",
+        "I love Bon Jovi.",
     ]
 
     @Test(arguments: french)
@@ -183,6 +217,14 @@ struct DoNoHarmTests {
         ("le call est à 15h, en fait 16h", .french, "Le call est à 16 h."),
         ("ça coûte 20 je voulais dire 30 euros par mois", .french, "Ça coûte 30 € par mois."),
         ("scratch that", .french, ""),
+        // Real stutters still go (FLU-137): a repeat, a fragment, a cut-off word.
+        ("je je pense", .french, "Je pense."),
+        ("le le budget", .french, "Le budget."),
+        ("c- c'est prêt", .french, "C'est prêt."),
+        ("dél délétère", .french, "Délétère."),
+        // A list of two numbered items, and a cue opening a sentence with its comma.
+        ("number one buy milk. number two call mom", .english, "1. Buy milk.\n2. Call mom."),
+        ("c'est fini Bref, on verra", .french, "C'est fini. Bref, on verra."),
     ])
     func intendedRepairsStillHappen(_ said: String, _ language: DictationLanguage, _ typed: String) {
         #expect(Self.words(Self.light(said, language)) == typed)
@@ -275,6 +317,21 @@ struct DoNoHarmTests {
         let once = Self.light(said, .french)
         #expect(once == typed)
         #expect(FrenchTypography.apply(to: once) == once, "idempotent")
+    }
+
+    /// A colon or semicolon glued to what follows is part of a token: no space before it, not
+    /// even a no-break one (FLU-137, A6-5). Prose colons still get theirs.
+    @Test(arguments: [
+        ("Le serveur tourne sur localhost:3000.", "Le serveur tourne sur localhost:3000."),
+        ("Utilise std::vector.", "Utilise std::vector."),
+        ("Lance npm run build:prod ce soir.", "Lance npm run build:prod ce soir."),
+        ("Ouvre main.swift:120.", "Ouvre main.swift:120."),
+        ("Tape :wq pour sortir.", "Tape :wq pour sortir."),
+        ("Super;)", "Super;)"),
+        ("Voici la liste: pommes; poires.", "Voici la liste\u{00A0}: pommes\u{00A0}; poires."),
+    ])
+    func codeTokensKeepTheirColons(_ said: String, _ typed: String) {
+        #expect(Self.light(said, .french) == typed)
     }
 
     /// English is left as it is: the typography is French.

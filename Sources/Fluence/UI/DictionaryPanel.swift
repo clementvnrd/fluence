@@ -51,7 +51,7 @@ struct DictionaryPanel: View {
                 store.removeRetiredLexiconEntries()
             }
             .help("Retirer \(FrenchFormat.count(retired.count, "entrée")) de l'ancien Lexique Tech qui "
-                + "réécrivai\(retired.count > 1 ? "ent" : "t") du français courant : "
+                + "réécrivai\(retired.count > 1 ? "ent" : "t") des mots courants : "
                 + retired.map { "\($0.hear) → \($0.write)" }.joined(separator: ", ") + ".")
         }
     }

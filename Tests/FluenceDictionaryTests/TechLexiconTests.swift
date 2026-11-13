@@ -49,6 +49,36 @@ struct TechLexiconTests {
         #expect(lexicon.apply(to: heard).text == meant)
     }
 
+    /// The dictionary runs in every language: ordinary English stays (FLU-137, A6-11).
+    @Test(arguments: [
+        "Please stand up for the anthem.",
+        "Count from one to one hundred.",
+        "The committer field is empty.",
+    ])
+    func englishStaysAsSaid(_ sentence: String) {
+        #expect(lexicon.apply(to: sentence).text == sentence)
+    }
+
+    /// A correction at a sentence start keeps its capital; a word already spelled right is
+    /// no correction to show (FLU-137, A6-3).
+    @Test(arguments: [
+        ("La pière est prête.", "La PR est prête."),
+        ("Merci. La pière est mergée.", "Merci. La PR est mergée."),
+        ("Guite est installé.", "Git est installé."),
+        ("La PR est prête. Déploie en prod ce soir.", "La PR est prête. Déploie en prod ce soir."),
+    ])
+    func sentenceStartsKeepTheirCapital(_ heard: String, _ meant: String) {
+        #expect(lexicon.apply(to: heard).text == meant)
+    }
+
+    @Test func wordsAlreadyRightAreNotReported() {
+        let outcome = lexicon.apply(to: "La PR utilise SwiftUI, un webhook et le pipeline de K8s.")
+        #expect(outcome.applied.isEmpty, "\(outcome.applied)")
+        #expect(TechLexicon.defaultEntries.allSatisfy { entry in
+            !DictionaryWarning.check(entry).contains { $0.kind == .rewritesToItself }
+        })
+    }
+
     /// Entries dropped from the lexicon stay in a dictionary they were seeded into; the user
     /// removes them in one click, and only those still exactly as seeded.
     @Test func retiredEntriesAreFoundOnlyWhenUntouched() {

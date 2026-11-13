@@ -16,9 +16,7 @@ public enum TechLexicon {
         .correction(hear: "la pière", write: "la PR"),
         .correction(hear: "une pière", write: "une PR"),
         .correction(hear: "cette pière", write: "cette PR"),
-        .correction(hear: "la pr", write: "la PR"),
         .correction(hear: "commite", write: "commit"),
-        .correction(hear: "committer", write: "commiter"),
         .correction(hear: "re-base", write: "rebase"),
         .correction(hear: "re-factor", write: "refactor"),
         .correction(hear: "refactore", write: "refactor"),
@@ -34,7 +32,6 @@ public enum TechLexicon {
         .correction(hear: "débeug", write: "debug"),
         .correction(hear: "débuguer", write: "debugger"),
         .correction(hear: "diploie", write: "deploy"),
-        .correction(hear: "déploie en prod", write: "déploie en prod"),
         .correction(hear: "la prode", write: "la prod"),
         .correction(hear: "en prode", write: "en prod"),
         .correction(hear: "la pré-prod", write: "la préprod"),
@@ -62,7 +59,6 @@ public enum TechLexicon {
         .correction(hear: "dokère", write: "Docker"),
         .correction(hear: "koubernétis", write: "Kubernetes"),
         .correction(hear: "k huit s", write: "K8s"),
-        .correction(hear: "k8s", write: "K8s"),
         .correction(hear: "poste gresse", write: "PostgreSQL"),
         .correction(hear: "mongo db", write: "MongoDB"),
         .correction(hear: "reste api", write: "REST API"),
@@ -88,7 +84,6 @@ public enum TechLexicon {
         .correction(hear: "riwiou", write: "review"),
         .correction(hear: "code riouiou", write: "code review"),
         .correction(hear: "stande-up", write: "standup"),
-        .correction(hear: "stand up", write: "standup"),
         // Not « le colle » or « en colle »: « je le colle », « j'en colle » are French (FLU-30).
         .correction(hear: "un colle", write: "un call"),
         .correction(hear: "raude mape", write: "roadmap"),
@@ -99,7 +94,6 @@ public enum TechLexicon {
         .correction(hear: "couique ouine", write: "quick win"),
         .correction(hear: "ouane to ouane", write: "1-to-1"),
         .correction(hear: "1 to 1", write: "1-to-1"),
-        .correction(hear: "one to one", write: "1-to-1"),
         .correction(hear: "nau go", write: "no-go"),
         .correction(hear: "aime v pays", write: "MVP"),
         .correction(hear: "capiaille", write: "KPI"),
@@ -149,13 +143,21 @@ public enum TechLexicon {
 
 
     /// Entries an earlier lexicon seeded into dictionaries and that were dropped because their
-    /// trigger is ordinary French (FLU-30): « je le colle dans Slack » became « je le call »,
-    /// « la branche master » « la branch master ». A dictionary seeded before keeps them until
-    /// its owner removes them: nothing rewrites the user's file on its own.
+    /// trigger is ordinary French (FLU-30) or English (FLU-137): « je le colle dans Slack »
+    /// became « je le call », « la branche master » « la branch master ». A dictionary seeded
+    /// before keeps them until its owner removes them: nothing rewrites the user's file on its own.
     public static let retired: [DictionaryEntry] = [
         .correction(hear: "le colle", write: "le call"),
         .correction(hear: "en colle", write: "en call"),
         .correction(hear: "branche master", write: "branch master"),
+        // FLU-137: ordinary English (« stand up for », « one to one hundred », « committer »),
+        // and entries that rewrite to themselves and only took a sentence's capital away.
+        .correction(hear: "stand up", write: "standup"),
+        .correction(hear: "one to one", write: "1-to-1"),
+        .correction(hear: "committer", write: "commiter"),
+        .correction(hear: "la pr", write: "la PR"),
+        .correction(hear: "déploie en prod", write: "déploie en prod"),
+        .correction(hear: "k8s", write: "K8s"),
     ]
 
     /// The retired entries still in `entries` exactly as they were seeded — same trigger,

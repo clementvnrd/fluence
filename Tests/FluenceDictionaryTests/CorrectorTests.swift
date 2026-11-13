@@ -287,9 +287,10 @@ struct CorrectorTests {
         #expect(again.applied.count == 2)
     }
 
-    @Test("a firing is reported even when nothing visibly changes, and per correction")
+    @Test("a match already spelled as the write is not reported (FLU-137); the rest is, per correction")
     func reportsEveryFiring() {
-        #expect(correct("GitHub and github", [("github", "GitHub")]).applied == [AppliedCorrection(from: "GitHub", to: "GitHub", count: 2)])
+        #expect(correct("GitHub and github", [("github", "GitHub")]).applied == [AppliedCorrection(from: "github", to: "GitHub", count: 1)])
+        #expect(correct("GitHub only", [("github", "GitHub")]).applied.isEmpty)
         let sameWrite = correct("clawed code and cloud code", [("clawed code", "Claude Code"), ("cloud code", "Claude Code")])
         #expect(sameWrite.applied.map(\.to) == ["Claude Code", "Claude Code"])
         #expect(sameWrite.applied.map(\.count) == [1, 1])

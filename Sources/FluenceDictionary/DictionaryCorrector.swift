@@ -7,7 +7,7 @@ public struct AppliedCorrection: Codable, Hashable, Sendable {
     public let from: String
     /// What it became: the entry's `write`.
     public let to: String
-    /// How many times the correction fired in that text.
+    /// How many matches it changed in that text.
     public let count: Int
 }
 
@@ -33,7 +33,8 @@ public struct DictionaryCorrector: Sendable {
 
     /// Runs every correction in turn on the text as the previous ones left it, so a longer
     /// trigger claims its words before a shorter one sees them. Each correction replaces all its
-    /// matches, left to right, and is reported once with its count. The text comes back in NFC,
+    /// matches, left to right, and is reported once with how many it changed. A write that opens
+    /// a sentence the engine capitalised takes that capital. The text comes back in NFC,
     /// except what a `write` inserts, which is kept as typed; with no correction or no text, it
     /// comes back untouched.
     public func apply(to text: String) -> (text: String, applied: [AppliedCorrection]) {
@@ -42,18 +43,43 @@ public struct DictionaryCorrector: Sendable {
         var applied: [AppliedCorrection] = []
         for rule in rules {
             let matches = rule.pattern.matches(in: current as String, range: NSRange(location: 0, length: current.length))
-            guard let first = matches.first else { continue }
-            applied.append(AppliedCorrection(from: current.substring(with: first.range), to: rule.replacement, count: matches.count))
+            guard !matches.isEmpty else { continue }
             let rewritten = NSMutableString(capacity: current.length)
             var cursor = 0
+            var changed: [String] = []
             for match in matches {
+                let found = current.substring(with: match.range)
+                let opens = Self.opensSentence(found, at: match.range.location, in: current)
+                let inserted = opens ? Self.capitalized(rule.replacement) : rule.replacement
+                // A match already written as the write changes nothing: no correction to show.
+                if found != inserted { changed.append(found) }
                 rewritten.append(current.substring(with: NSRange(location: cursor, length: match.range.location - cursor)))
-                rewritten.append(rule.replacement)
+                rewritten.append(inserted)
                 cursor = NSMaxRange(match.range)
             }
             rewritten.append(current.substring(from: cursor))
             current = rewritten
+            if let from = changed.first {
+                applied.append(AppliedCorrection(from: from, to: rule.replacement, count: changed.count))
+            }
         }
         return (current as String, applied)
+    }
+
+    /// A match the engine capitalised as a sentence start (« La pière », not « NEXT JS »), at
+    /// the text's start, a line's, or after . ! ? (FLU-137: « la PR est prête » lost its capital).
+    private static func opensSentence(_ found: String, at location: Int, in text: NSString) -> Bool {
+        let letters = found.prefix(2)
+        guard letters.first?.isUppercase == true, letters.last?.isLowercase == true else { return false }
+        var index = location - 1
+        while index >= 0, [0x20, 0x09].contains(text.character(at: index)) { index -= 1 }
+        guard index >= 0 else { return true }
+        guard let previous = Unicode.Scalar(text.character(at: index)) else { return false }
+        return Character(previous).isNewline || ".!?".unicodeScalars.contains(previous)
+    }
+
+    private static func capitalized(_ write: String) -> String {
+        guard let first = write.first, first.isLowercase else { return write }
+        return first.uppercased() + write.dropFirst()
     }
 }
