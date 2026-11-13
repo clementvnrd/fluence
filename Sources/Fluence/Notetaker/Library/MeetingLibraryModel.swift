@@ -154,18 +154,17 @@ final class MeetingLibraryModel {
 
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var flashTask: Task<Void, Never>?
-    @ObservationIgnored private var observer: NSObjectProtocol?
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
     init(store: MeetingStore = .shared, generator: MeetingNotesGenerator = .shared) {
         self.store = store
         self.generator = generator
-        observer = NotificationCenter.default.addObserver(
-            forName: .meetingNotesUpdated,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let id = notification.object as? UUID else { return }
-            Task { @MainActor in self?.notesUpdated(id) }
+        // FLU-136: a page opened during the call shows the final transcript once it is saved.
+        observers = [.meetingNotesUpdated, .meetingFinalized].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                guard let id = notification.object as? UUID else { return }
+                Task { @MainActor in self?.notesUpdated(id) }
+            }
         }
     }
 
@@ -240,9 +239,8 @@ final class MeetingLibraryModel {
     func commitTitle() {
         isEditingTitle = false
         let title = titleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard var meeting, !title.isEmpty, title != meeting.title else { return }
-        meeting.title = title
-        save(meeting)
+        guard let meeting, !title.isEmpty, title != meeting.title else { return }
+        edit { $0.title = title }
     }
 
     func beginRenaming(_ speaker: Speaker) {
@@ -251,30 +249,29 @@ final class MeetingLibraryModel {
     }
 
     func commitRename() {
-        guard let speaker = renaming, var meeting else { return }
+        guard let speaker = renaming else { return }
         renaming = nil
-        meeting.renameSpeaker(speaker.id, to: renameDraft)
-        save(meeting)
+        let name = renameDraft
+        edit { $0.renameSpeaker(speaker.id, to: name) }
     }
 
     /// The meeting's other voices, for "same person as…" in the rename popover (FLU-22).
     /// The user's own voice can absorb another, but is never itself merged away.
     var mergeTargets: [Speaker] {
-        guard let meeting, let renaming, !renaming.isMe else { return [] }
+        guard let meeting, let renaming, !renaming.isMe, !isLive else { return [] }
         return meeting.speakers.filter { $0.id != renaming.id }
     }
 
     /// The speaker the typed name already belongs to: committing will merge into it.
     var renameMergeTarget: Speaker? {
-        guard let meeting, let renaming, !renaming.isMe else { return nil }
+        guard let meeting, let renaming, !renaming.isMe, !isLive else { return nil }
         return meeting.speaker(named: renameDraft, other: renaming.id)
     }
 
     func commitMerge(into target: Speaker) {
-        guard let speaker = renaming, var meeting else { return }
+        guard let speaker = renaming else { return }
         renaming = nil
-        meeting.mergeSpeakerKeepingNotes(speaker.id, into: target.id)
-        save(meeting)
+        edit { $0.mergeSpeakerKeepingNotes(speaker.id, into: target.id) }
     }
 
     /// Calendar invitees not yet given to a speaker: the rename popover's suggestions.
@@ -295,9 +292,9 @@ final class MeetingLibraryModel {
     }
 
     func saveUserNotes() {
-        guard var meeting, hasUnsavedNotes else { return }
-        meeting.userNotes = notesDraft
-        save(meeting)
+        guard hasUnsavedNotes else { return }
+        let notes = notesDraft
+        edit { $0.userNotes = notes }
     }
 
     func setTemplate(_ template: NotesTemplate) {
@@ -306,15 +303,26 @@ final class MeetingLibraryModel {
         self.template = template
     }
 
-    private func save(_ updated: Meeting) {
-        rowInfoCache[updated.id] = nil
+    /// One change on the copy on disk, not on the one this page loaded: the recording
+    /// controller or the final pass may have saved since (FLU-136).
+    private func edit(_ change: (inout Meeting) -> Void) {
+        guard let id = meeting?.id else { return }
+        rowInfoCache[id] = nil
         do {
-            try store.save(updated)
-            meeting = updated
+            var fresh = try store.load(id)
+            change(&fresh)
+            try store.save(fresh)
+            meeting = fresh
             problem = nil
         } catch {
             problem = "La modification n'a pas pu être enregistrée."
         }
+    }
+
+    /// The meeting recording or being finalised: its controller writes it, so voices are not
+    /// merged and it is not deleted until it is done (FLU-136).
+    private var isLive: Bool {
+        selectedID.map(MeetingController.shared.liveMeetingIDs.contains) ?? false
     }
 
     // MARK: - Notes
@@ -341,6 +349,14 @@ final class MeetingLibraryModel {
     }
 
     // MARK: - Delete
+
+    func requestDelete() {
+        if isLive {
+            problem = "Réunion en cours : supprimez-la une fois terminée."
+        } else {
+            isConfirmingDelete = true
+        }
+    }
 
     func deleteSelected() {
         guard let id = selectedID else { return }

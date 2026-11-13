@@ -45,6 +45,16 @@ public struct VaultLayout: Sendable {
     /// What « Repartir de zéro » moves aside.
     public var sealedItems: [URL] { [history, snippets, meetings, voicePrints, fingerprint] }
 
+    /// The `Données illisibles <date>` folders « Repartir de zéro » left: « Tout effacer »
+    /// removes them too (FLU-136).
+    public var setAsideFolders: [URL] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+        return names.filter { $0.hasPrefix(Self.setAsidePrefix) }.sorted()
+            .map { root.appendingPathComponent($0, isDirectory: true) }
+    }
+
+    static let setAsidePrefix = "Données illisibles "
+
     /// Something sealed with a master key is on disk.
     public var hasSealedData: Bool { !evidence(limit: 1).isEmpty }
 
@@ -330,7 +340,7 @@ public final class VaultKeyring: @unchecked Sendable {
         let manager = FileManager.default
         let present = layout.sealedItems.filter { manager.fileExists(atPath: $0.path) }
         guard !present.isEmpty else { return nil }
-        let aside = layout.root.appendingPathComponent("Données illisibles \(Self.stamp(now))", isDirectory: true)
+        let aside = layout.root.appendingPathComponent(VaultLayout.setAsidePrefix + Self.stamp(now), isDirectory: true)
         try manager.createDirectory(at: aside, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         SupportFolder.keepOutOfBackup(aside)
         for item in present {

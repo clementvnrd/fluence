@@ -144,7 +144,7 @@ private struct MeetingsList: View {
             Button("Supprimer toutes les réunions", role: .destructive) { settingsModel.deleteAllMeetings() }
             Button("Annuler", role: .cancel) {}
         } message: {
-            Text("Chaque transcription, chaque ensemble de notes et chaque enregistrement conservé est effacé avec sa clé de chiffrement. Cette action est irréversible.")
+            Text("Chaque transcription, chaque ensemble de notes et chaque enregistrement conservé est effacé avec sa clé de chiffrement. Cette action est irréversible." + settingsModel.liveMeetingNote)
         }
     }
 
@@ -340,7 +340,7 @@ private struct MeetingHeader: View {
                 }
                 .help("Copier les notes, vos notes et la transcription en Markdown")
                 CapButton(title: "Supprimer", systemImage: "trash", tint: DS.Color.destructive) {
-                    model.isConfirmingDelete = true
+                    model.requestDelete()
                 }
             }
             .padding(.top, 34)

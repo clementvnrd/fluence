@@ -69,9 +69,16 @@ final class MeetingSettingsModel {
 
     func deleteAllMeetings() {
         MeetingNotesGenerator.shared.cancelAll()
-        store.deleteAll()
-        NotesTemplateChoice.prune(keeping: [])
+        // FLU-136: the meeting recording or being finalised stays; its controller would write it back.
+        let live = MeetingController.shared.liveMeetingIDs
+        store.deleteAll(keeping: live)
+        NotesTemplateChoice.prune(keeping: live)
         MeetingLibraryModel.shared.reconcile()
+    }
+
+    /// Ends the « delete all » confirmations while a meeting records or is finalised.
+    var liveMeetingNote: String {
+        MeetingController.shared.liveMeetingIDs.isEmpty ? "" : " La réunion en cours est gardée."
     }
 
     // MARK: Feedback
@@ -201,7 +208,7 @@ struct MeetingSettingsSection: View {
             Button("Annuler", role: .cancel) {}
         } message: {
             Text("Chaque transcription, chaque ensemble de notes et chaque enregistrement conservé est effacé avec sa clé "
-                + "de chiffrement. Cette action est irréversible.")
+                + "de chiffrement. Cette action est irréversible." + model.liveMeetingNote)
         }
     }
 
