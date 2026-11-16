@@ -35,8 +35,16 @@ struct ThirdPartyNoticesTests {
     @Test func theModelsFluenceDownloadsAreCredited() throws {
         let notices = try String(contentsOf: Self.root.appendingPathComponent("Resources/THIRD-PARTY-NOTICES.txt"), encoding: .utf8)
         for model in ["parakeet-ultra-coreml", "parakeet-ctc-110m-coreml", "parakeet-tdt-0.6b-v3-coreml",
-                      "speaker-diarization-coreml", "silero-vad-coreml", "whisperkit-coreml"] {
+                      "speaker-diarization-coreml", "silero-vad-coreml", "whisperkit-coreml",
+                      "cohere-transcribe-03-2026-mlx-4bit"] {
             #expect(notices.contains(model), "\(model) is downloaded by Fluence and must be credited")
         }
+    }
+
+    /// FLU-149: code copied into the repository is credited like a package.
+    @Test func vendoredCodeIsCredited() throws {
+        let notices = try String(contentsOf: Self.root.appendingPathComponent("Resources/THIRD-PARTY-NOTICES.txt"), encoding: .utf8)
+        #expect(notices.contains("mlx-audio-swift v0.1.9"))
+        #expect(notices.contains("Copyright (c) 2025 Prince Canuma"))
     }
 }

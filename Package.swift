@@ -15,6 +15,9 @@ let package = Package(
         // and the code signature, installs on quit or on the user's click. A binary framework,
         // embedded in Contents/Frameworks by the Makefile.
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
+        // FLU-149: MLX on the GPU, for Cohere Transcribe (an optional dictation engine). Exact:
+        // the Makefile compiles this version's Metal kernels into the bundle (mlx.metallib).
+        .package(url: "https://github.com/ml-explore/mlx-swift.git", exact: "0.33.0"),
     ],
     targets: [
         // Dictionary corrections and bias phrases. A target of its own so it is tested alone:
@@ -49,6 +52,20 @@ let package = Package(
             path: "Sources/FluenceImport",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // FLU-149: Cohere Transcribe on MLX, the six model files of mlx-audio-swift v0.1.9 (MIT)
+        // and the helpers they need, vendored rather than its MLXAudioSTT product, which brings
+        // Hugging Face, swift-transformers, Jinja, swift-crypto and zstd along.
+        .target(
+            name: "CohereMLX",
+            dependencies: [
+                "FluenceCore",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+            ],
+            path: "Sources/CohereMLX",
+            exclude: ["LICENSE"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .executableTarget(
             name: "Fluence",
             dependencies: [
@@ -57,6 +74,7 @@ let package = Package(
                 "FluenceMeetingCore",
                 "FluenceNotesCore",
                 "FluenceCore",
+                "CohereMLX",
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
                 .product(name: "Sparkle", package: "Sparkle"),
