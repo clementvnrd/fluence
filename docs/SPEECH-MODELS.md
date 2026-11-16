@@ -73,7 +73,7 @@ TypeScript").
 | [moondream/parakeet-redux](https://huggingface.co/moondream/parakeet-redux) | Parakeet v3 with ternary weights, 178 MB | Smaller but **worse in French** (FLEURS fr 7.71 vs 4.81 for v3, upstream card) and in noise. Its sibling **Parakeet Ultra**, same authors, is the one adopted. |
 | [Cactus-Compute/whistle](https://huggingface.co/Cactus-Compute/whistle) | 17 MB model, 7 languages incl. French, its own engine (`.cact`) | No published French score in text, no Swift/Core ML runtime; a 17 MB model is not expected to beat a 600 M-parameter one. Not benched. |
 | [nvidia/nemotron-3.5-asr-streaming-0.6b](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) | Streaming model, 40 languages | Streams (text while talking) but **~9–11 % on FLEURS French** (upstream card; FluidAudio's Core ML build: 9.4–9.8 %), against ~5–6 % for the Parakeet family. A candidate to replace Apple's live text one day, not Parakeet. |
-| Cohere Transcribe 03-2026 (in FluidAudio) | 2 B parameters, 14 languages | Accurate (FLEURS fr 6.2 %) but 2.2× real time on an M4 Pro, so slower than real time on an M2. |
+| Cohere Transcribe 03-2026 (in FluidAudio) | 2 B parameters, 14 languages | FluidAudio's Core ML port pads every call to a 35 s window: 1.8 s for 2 s of audio, 200 s for the first call. Its MLX 4-bit build is in, as an option: see below (FLU-149). |
 
 ## Beyond the model
 
@@ -207,3 +207,52 @@ hallucinations by design (« Love you is G. », « Well it's neuf »).
 
 Not solved: laughs and coughs that Silero is sure of (« Ha ha ha », « Yeah. » at peak 1), and
 about half of the wrong-language fragments.
+
+## Cohere Transcribe 03-2026, MLX 4-bit (FLU-149)
+
+Cohere's 2 B-parameter model (Apache-2.0), as superwhisper ships it: MLX on the GPU, 4-bit,
+checkpoint `lyzgeorge/cohere-transcribe-03-2026-mlx-4bit` at revision
+`f2f6d89b1a300c51f48ae1ecb8523dbb58636cb0` (1,5 Go; `beshkenadze/…-mlx-4bit` produced garbage).
+Same bench and scoring as above, French told to the model (it does not detect the language),
+MacBook Air M2, 2026-11-16. First with Python `mlx-audio`, raw; then through the app's own code
+(`Sources/CohereMLX`, mlx-swift 0.33.0, the `mlx.metallib` built by the Makefile), with the
+guards below:
+
+| Engine | fleurs | fleurs-webcam | tech | tech-webcam | franglais | franglais-webcam |
+|---|---:|---:|---:|---:|---:|---:|
+| Parakeet Ultra | 6.7 % | 9.2 % | 9.7 % | 11.5 % | 20.7 % | 33.9 % |
+| Cohere, raw (Python) | 5.6 % | 7.7 % | 7.3 % | 40.3 % | 16.0 % | 83.3 % |
+| **Cohere in Fluence, with the guards** | **5.7 %** | **7.6 %** | **6.8 %** | 17.3 % | **16.2 %** | 49.3 % |
+
+* Through the webcam it loops: a 2.8 s clip came back as the same phrase ten times. The guards
+  halve the damage, and it stays far behind Parakeet there.
+* On noise it writes text where Parakeet writes nothing: raw, on all 568 noise clips (288
+  synthetic, 280 ESC-50 sounds: coughs, laughs, keyboards…), « Sous-titrage Société
+  Radio-Canada » on 321 of them; Parakeet on 17. With the guards, 198 of 568 still give text,
+  mostly « Merci. » (75), « Monsieur le Président, … chers collègues, », « Voilà. ». Silence never
+  reaches it: the app's silence gate (`SpeechGate`) runs first, as for every engine.
+* Latency through the app's code, warm (M2): 0.46 s for 5 s of audio, 0.59–0.72 s for 10 s,
+  0.86 s for 15 s. Load 1–2 s and about 1.9 GB of memory; then one short warm-up pass (1 s),
+  because MLX compiles its GPU kernels on first use (the very first call of a fresh process
+took 7 s for 11 s of audio without it).
+  Python's figures: 0.21 s for 2 s, 0.30 s for 5 s, 0.63 s for 10 s, 1.10 s for 20 s. About ten
+  times slower than Parakeet, still well under a second for a dictation.
+
+The guards (`CohereGuard`, FluenceCore, tested):
+
+1. the decoder stops after 8 tokens per second of audio plus 16 (real speech peaked at 8.2 on
+   the bench, a loop at 105);
+2. a phrase repeated back to back (one word 5 times, 2–3 words 4 times, longer 3 times) is kept
+   once;
+3. near-silence is never sent, by the same `SpeechGate` as every dictation, applied again by the
+   engine for compare mode and retries;
+4. subtitle credits (« Sous-titrage Société Radio-Canada », « Sous-titres réalisés par… »,
+   « Merci d'avoir regardé ») are dropped when they are the whole output.
+
+**Verdict:** an option for dictation on a good microphone, where it makes 15–30 % fewer errors
+than Parakeet Ultra (FLEURS, tech, franglais; FLEURS through the webcam too). Not the default:
+on the synthetic dictations through a webcam mic it is much worse, and Clement often dictates
+through one. Never for meetings: it writes text over
+noise, which a meeting is full of. Réglages › Transcription offers it (« Cohere Transcribe »), and
+its model is downloaded only on a click there.
+
