@@ -307,6 +307,15 @@ struct DictationRetryTests {
         #expect(DictationRetry.automatic(after: .repeated, engine: .parakeet, attempts: 0, parakeetReady: true, whisperReady: false) == .parakeet)
     }
 
+    /// FLU-149: Cohere decodes greedily, so its loop goes to another engine on disk.
+    @Test func cohereLoopsGoToAnotherEngine() {
+        #expect(DictationRetry.automatic(after: .repeated, engine: .cohere, attempts: 0, parakeetReady: true, whisperReady: false) == .parakeet)
+        #expect(DictationRetry.automatic(after: .repeated, engine: .cohere, attempts: 0, parakeetReady: false, whisperReady: false) == .apple)
+        #expect(DictationRetry.automatic(after: .repeated, engine: .cohere, attempts: 1, parakeetReady: true, whisperReady: false) == nil)
+        #expect(DictationRetry.otherEngine(than: .cohere, parakeetReady: true, whisperReady: true) == .parakeet)
+        #expect(DictationRetry.otherEngine(than: .cohere, parakeetReady: false, whisperReady: true) == .apple)
+    }
+
     @Test func whisperLoopsAreAlreadyRetriedInside() {
         #expect(DictationRetry.automatic(after: .repeated, engine: .whisper, attempts: 0, parakeetReady: true, whisperReady: true) == nil)
     }

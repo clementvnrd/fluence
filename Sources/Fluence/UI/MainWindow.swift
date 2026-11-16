@@ -211,6 +211,7 @@ extension SpeechEngineChoice {
         case .apple: "Apple"
         case .whisper: "Whisper"
         case .parakeet: "Parakeet"
+        case .cohere: "Cohere"
         }
     }
 }

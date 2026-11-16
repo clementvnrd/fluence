@@ -27,7 +27,8 @@ enum EngineComparison {
     static func plannedEngines(whisperVariant: String) -> [ComparedEngine] {
         ComparisonPlan.engines(
             parakeetOnDisk: ParakeetModels.isDownloaded,
-            whisperOnDisk: WhisperModels.isDownloaded(variant: whisperVariant)
+            whisperOnDisk: WhisperModels.isDownloaded(variant: whisperVariant),
+            cohereOnDisk: CohereModels.isDownloaded
         )
     }
 
@@ -58,6 +59,11 @@ enum EngineComparison {
                 let engine = WhisperEngine(variant: whisperVariant, language: whisperLanguage)
                 result = await measure(kind.displayName, engine: engine, chunks: chunks) {
                     try await WhisperModels.shared.prepare(variant: whisperVariant)
+                }
+            case .cohere:
+                guard CohereModels.isDownloaded else { continue }
+                result = await measure(kind.displayName, engine: CohereEngine(), chunks: chunks) {
+                    try await CohereModels.load()
                 }
             }
             results.append(result)

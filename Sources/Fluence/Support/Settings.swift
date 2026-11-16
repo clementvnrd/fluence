@@ -7,6 +7,8 @@ enum SpeechEngineChoice: String, CaseIterable, Sendable {
     case apple
     case whisper
     case parakeet
+    /// FLU-149: dictation only, never the default.
+    case cohere
 
     /// The name shown in menus; history rows store it as their `engine`.
     var displayName: String {
@@ -14,10 +16,11 @@ enum SpeechEngineChoice: String, CaseIterable, Sendable {
         case .apple: "Apple (streaming)"
         case .whisper: "Whisper (CoreML)"
         case .parakeet: "Parakeet (batch)"
+        case .cohere: "Cohere Transcribe (MLX)"
         }
     }
 
-    /// Apple shows text while you talk; Whisper and Parakeet resolve on release.
+    /// Apple shows text while you talk; Whisper, Parakeet and Cohere resolve on release.
     var showsLiveText: Bool { self == .apple }
 
     /// The same engines under FluenceCore's name, where the engine policies live.
@@ -26,6 +29,7 @@ enum SpeechEngineChoice: String, CaseIterable, Sendable {
         case .apple: .apple
         case .whisper: .whisper
         case .parakeet: .parakeet
+        case .cohere: .cohere
         }
     }
 
@@ -34,6 +38,7 @@ enum SpeechEngineChoice: String, CaseIterable, Sendable {
         case .apple: self = .apple
         case .whisper: self = .whisper
         case .parakeet: self = .parakeet
+        case .cohere: self = .cohere
         }
     }
 }
@@ -97,13 +102,14 @@ final class Settings {
         set { engineChoice = newValue }
     }
 
-    /// The engine a dictation runs on now: `engine`, except Parakeet while its model is not
-    /// complete on disk — Apple listens meanwhile, and nothing is downloaded at a key-down.
+    /// The engine a dictation runs on now: `engine`, except Parakeet or Cohere while its model
+    /// is not complete on disk — another listens meanwhile, and nothing is downloaded at a key-down.
     var activeEngine: SpeechEngineChoice {
         SpeechEngineChoice(EngineDefault.active(
             chosen: engineChoice?.compared,
             language: dictationLanguage,
-            parakeetReady: ParakeetDownload.shared.isReady
+            parakeetReady: ParakeetDownload.shared.isReady,
+            cohereReady: CohereDownload.shared.isReady
         ))
     }
 
@@ -424,6 +430,11 @@ final class Settings {
             guard ParakeetModels.isDownloaded else { return }
             Task.detached(priority: .utility) {
                 _ = try? await ParakeetModels.shared.manager()
+            }
+        case .cohere:
+            guard CohereModels.isDownloaded else { return }
+            Task.detached(priority: .utility) {
+                try? await CohereModels.load()
             }
         }
     }

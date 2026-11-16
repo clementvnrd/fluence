@@ -16,6 +16,7 @@ import OSLog
 func engineForCurrentSetting() -> any TranscriptionEngine {
     // The disk is read again at each key-down: a download that just finished counts at once.
     ParakeetDownload.shared.refresh()
+    CohereDownload.shared.refresh()
     let local = newEngine(Settings.shared.activeEngine)
     // FLU-113: the cloud on top of the local engine, which stays the fallback. Never in compare
     // mode, which runs its own engines on the recording.
@@ -34,6 +35,7 @@ func newEngine(_ kind: SpeechEngineChoice) -> any TranscriptionEngine {
         language: Settings.shared.dictationLanguage.whisperLanguageCode
     )
     case .parakeet: ParakeetEngine()
+    case .cohere: CohereEngine()
     }
 }
 

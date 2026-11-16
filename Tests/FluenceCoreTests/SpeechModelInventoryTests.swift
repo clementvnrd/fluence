@@ -67,6 +67,17 @@ struct SpeechModelInventoryTests {
         #expect(SpeechModel.whisperTurbo.usage(parakeet) == nil)
     }
 
+    /// FLU-149: Cohere's model is in use only while Cohere dictates — never by meetings.
+    @Test func cohereIsInUseOnlyWithCohere() {
+        let cohere = SpeechModelSettings(engine: .cohere, whisperVariant: "openai_whisper-small", vocabularyBoost: false)
+        #expect(SpeechModel.cohere.usage(cohere) == .dictation)
+        for engine in [SpeechModelSettings.Engine.apple, .whisper, .parakeet] {
+            let settings = SpeechModelSettings(engine: engine, whisperVariant: "openai_whisper-small", vocabularyBoost: true, compareMode: true)
+            #expect(SpeechModel.cohere.usage(settings) == nil)
+        }
+        #expect(SpeechModel.cohere.pickerTitle == "Cohere Transcribe (~1,5\(nbsp)Go)")
+    }
+
     @Test func vocabularyModelFollowsTheToggle() {
         var settings = parakeetUser
         #expect(SpeechModel.parakeetVocabulary.usage(settings) == nil)

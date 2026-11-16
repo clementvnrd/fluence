@@ -9,6 +9,8 @@ public enum ComparedEngine: String, CaseIterable, Sendable {
     case apple
     case parakeet
     case whisper
+    /// FLU-149: Cohere Transcribe on MLX, an option for dictation only.
+    case cohere
 
     /// The row title. Short on purpose: the comparison card has little room.
     public var displayName: String {
@@ -16,6 +18,7 @@ public enum ComparedEngine: String, CaseIterable, Sendable {
         case .apple: "Apple"
         case .parakeet: "Parakeet"
         case .whisper: "Whisper"
+        case .cohere: "Cohere"
         }
     }
 }
@@ -23,14 +26,15 @@ public enum ComparedEngine: String, CaseIterable, Sendable {
 public enum ComparisonPlan {
     /// The engines a comparison runs, in the order they run.
     ///
-    /// Apple always: its speech model comes with macOS. Parakeet and Whisper only when their
-    /// model is already on disk. A comparison never downloads one: Parakeet's first load is
-    /// ~600 MB, Whisper's up to 1.5 GB, and a recording is not the moment to start that
-    /// unasked. The comparison window offers the download as an explicit button instead.
-    public static func engines(parakeetOnDisk: Bool, whisperOnDisk: Bool) -> [ComparedEngine] {
+    /// Apple always: its speech model comes with macOS. Parakeet, Whisper and Cohere only when
+    /// their model is already on disk. A comparison never downloads one: Parakeet's first load
+    /// is ~600 MB, Whisper's up to 3 GB, Cohere's 1.5 GB, and a recording is not the moment to
+    /// start that unasked. The comparison window offers Parakeet's download as a button instead.
+    public static func engines(parakeetOnDisk: Bool, whisperOnDisk: Bool, cohereOnDisk: Bool = false) -> [ComparedEngine] {
         var engines: [ComparedEngine] = [.apple]
         if parakeetOnDisk { engines.append(.parakeet) }
         if whisperOnDisk { engines.append(.whisper) }
+        if cohereOnDisk { engines.append(.cohere) }
         return engines
     }
 

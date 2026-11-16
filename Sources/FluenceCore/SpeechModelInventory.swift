@@ -13,6 +13,8 @@ public enum SpeechModel: String, CaseIterable, Sendable, Identifiable {
     case whisperBase
     case whisperSmall
     case whisperTurbo
+    /// FLU-149: Cohere Transcribe, MLX 4-bit.
+    case cohere
 
     public var id: String { rawValue }
 
@@ -24,6 +26,7 @@ public enum SpeechModel: String, CaseIterable, Sendable, Identifiable {
         case .whisperBase: "Whisper Base"
         case .whisperSmall: "Whisper Small"
         case .whisperTurbo: "Whisper Large Turbo"
+        case .cohere: "Cohere Transcribe"
         }
     }
 
@@ -52,6 +55,7 @@ public enum SpeechModel: String, CaseIterable, Sendable, Identifiable {
         case .whisperBase: 140_000_000         // the previous label, not measured
         case .whisperSmall: 487_000_000
         case .whisperTurbo: 3_195_000_000
+        case .cohere: CohereModel.totalBytes  // the pinned files, the download's own sizes
         }
     }
 
@@ -72,6 +76,8 @@ public enum SpeechModel: String, CaseIterable, Sendable, Identifiable {
             settings.vocabularyBoost ? .vocabulary : nil
         case .whisperBase, .whisperSmall, .whisperTurbo:
             settings.engine == .whisper && settings.whisperVariant == whisperVariant ? .dictation : nil
+        case .cohere:
+            settings.engine == .cohere ? .dictation : nil
         }
     }
 }
@@ -84,7 +90,7 @@ public enum SpeechModelUsage: Equatable, Sendable {
 
 /// The settings that decide which models are in use, read from the app's `Settings`.
 public struct SpeechModelSettings: Equatable, Sendable {
-    public enum Engine: Sendable { case apple, whisper, parakeet }
+    public enum Engine: Sendable { case apple, whisper, parakeet, cohere }
 
     public var engine: Engine
     public var whisperVariant: String

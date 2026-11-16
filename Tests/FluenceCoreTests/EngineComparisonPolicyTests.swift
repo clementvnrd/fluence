@@ -25,6 +25,9 @@ struct ComparisonPlanTests {
         #expect(ComparisonPlan.engines(parakeetOnDisk: true, whisperOnDisk: false) == [.apple, .parakeet])
         #expect(ComparisonPlan.engines(parakeetOnDisk: false, whisperOnDisk: true) == [.apple, .whisper])
         #expect(ComparisonPlan.engines(parakeetOnDisk: true, whisperOnDisk: true) == [.apple, .parakeet, .whisper])
+        // FLU-149: Cohere too, only once its model is on disk.
+        #expect(ComparisonPlan.engines(parakeetOnDisk: true, whisperOnDisk: false, cohereOnDisk: true) == [.apple, .parakeet, .cohere])
+        #expect(ComparisonPlan.engines(parakeetOnDisk: false, whisperOnDisk: false, cohereOnDisk: false) == [.apple])
     }
 
     @Test func waitsForAnOutsideAppOnlyWhenFluencePressedItsKey() {
