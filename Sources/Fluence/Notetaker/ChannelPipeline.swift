@@ -463,6 +463,10 @@ actor ChannelPipeline {
                 """)
             return nil
         }
+        guard !HallucinationGuard.isForeign(text) else {
+            Log.speech.info("meeting \(source.rawValue, privacy: .public) · short segment dropped, neither French nor English")
+            return nil
+        }
 
         let tokens = (result.tokenTimings ?? []).map {
             TimedToken(text: $0.token, start: $0.startTime, end: $0.endTime, confidence: $0.confidence)

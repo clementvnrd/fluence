@@ -44,6 +44,32 @@ struct HallucinationGuardTests {
     }
 }
 
+/// FLU-147: on the call channel Parakeet writes short French it half-heard in another language.
+/// Clement speaks franglais, so English stays. Sentences from the real meeting, the harness's
+/// Parakeet outputs and its short French answers (docs/SPEECH-MODELS.md, meetings).
+struct ForeignSegmentTests {
+    @Test("a short segment in another language is dropped", arguments: [
+        "Här.", "Waar het moet?", "Jetzt hören.", "Das ist Michael.", "Isso é chefe.", "Да, не скрываю.", "Nee, nee.",
+    ])
+    func dropsForeign(_ text: String) {
+        #expect(HallucinationGuard.isForeign(text))
+    }
+
+    @Test("short French, English, jargon and numbers stay", arguments: [
+        "Oui.", "Non.", "Bah non.", "D'accord.", "Ouais ouais.", "OK.", "Voilà.", "Bah ouais.", "C'est possible.",
+        "Euh", "Coucou.", "Vas-y.", "Hier.", "547", "15 %", "GitHub", "Marex", "cash flow", "spec out", "merge",
+        "same problem", "Summarize where we stand", "Love you is G.", "Well it's neuf", "Yeah.", "?",
+    ])
+    func keepsFrenchAndEnglish(_ text: String) {
+        #expect(!HallucinationGuard.isForeign(text))
+    }
+
+    @Test("four words or more are kept, whatever the language")
+    func keepsLongerSegments() {
+        #expect(!HallucinationGuard.isForeign("Das ist ein Test."))
+    }
+}
+
 struct UnknownTokenTests {
     @Test("Parakeet's <unk> never becomes a word")
     func unknownTokensAreSkipped() {

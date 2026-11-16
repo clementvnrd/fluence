@@ -184,5 +184,26 @@ code: 32 of 55 sounds with text dropped (58 %; 23 of the 30 « Yeah / Okay / Mm-
 segments; it is not used. Without VAD evidence (energy fallback, a retry at a later launch)
 nothing is dropped. `<unk>` is removed from meeting and dictation text.
 
+**Wrong-language fragments** (`HallucinationGuard.isForeign`, both channels, with or without VAD
+evidence): a segment of up to three words is dropped when Apple's on-device `NLLanguageRecognizer`,
+constrained to French, English and the other Parakeet v3 languages it knows, puts another language
+at ≥ 0.95 and French + English below 0.01. English stays (franglais), so do numbers and symbols.
+Through the shipped code:
+
+| Set | Dropped |
+|---|---:|
+| Hand list: short answers, jargon, names, numbers, English (« Oui », « Non », « Bah ouais », « 547 », « GitHub », « cash flow », « same problem ») | 0 / 228 |
+| Harness Parakeet outputs equal to the French reference | 0 / 114 |
+| Partly right French outputs | 0 / 144 |
+| FLEURS fragment references (1–3 words) | 0 / 347 |
+| Stress: every word of FLEURS dev + franglais + tech alone | 3 / 2 019 (« zones », « écozones ») |
+| Stress: 2–3-word windows of the same | 10 / 6 605 (Spanish/Polish names, « de camping », « CI. Il ») |
+| Wrong-language outputs, real words (harness + meeting: « Här. », « Waar het moet? », « Jetzt hören. ») | **24 / 46** |
+| Pseudo-words (« Ooei », « Uace ») | 2 / 45 |
+
+Single French words are the risk: « Non. » scores Italian 0.94 (French + English 0.05), hence
+both thresholds. Still kept: « Sta », « Hola. », « Bueno. », « Bom », « Nie! », and English
+hallucinations by design (« Love you is G. », « Well it's neuf »).
+
 Not solved: laughs and coughs that Silero is sure of (« Ha ha ha », « Yeah. » at peak 1), and
-the call channel's wrong-language fragments, which are real speech (VAD ≈ 1).
+about half of the wrong-language fragments.

@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 /// FLU-147: whether a transcribed meeting utterance was speech, from what Silero heard over it.
 ///
@@ -22,6 +23,32 @@ public enum HallucinationGuard {
         guard !vad.isEmpty, TextTokens.normalize(text).count <= shortWords else { return true }
         let mean = vad.reduce(0, +) / Float(vad.count)
         return mean >= minimumMean && (vad.max() ?? 0) >= minimumPeak
+    }
+
+    /// Up to this many words, a segment that is neither French nor English is dropped.
+    public static let foreignWords = 3
+    static let minimumForeign = 0.95
+    static let maximumFrenchEnglish = 0.01
+    /// French, English and the other Parakeet v3 languages NaturalLanguage knows.
+    static let languages: [NLLanguage] = [
+        .french, .english, .dutch, .swedish, .german, .spanish, .italian, .portuguese, .polish, .danish,
+        .norwegian, .finnish, .czech, .romanian, .hungarian, .slovak, .croatian, .greek, .bulgarian, .russian, .ukrainian,
+    ]
+
+    /// FLU-147: Parakeet writes short French it half-heard on the call as Swedish, Dutch, German…
+    /// (« Här. », « Waar het moet? »). A segment of up to three words is foreign when the on-device
+    /// recognizer is sure (≥ 0.95) of another language and gives French + English < 1 %. English
+    /// stays (franglais), so do numbers and symbols. Measured: 24 of 46 real foreign outputs
+    /// dropped, 0 of 837 short French/English answers and fragments; « Non. » is Italian at 0.94.
+    public static func isForeign(_ text: String) -> Bool {
+        guard TextTokens.normalize(text).count <= foreignWords,
+              text.filter(\.isNumber).count < text.filter(\.isLetter).count else { return false }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.languageConstraints = languages
+        recognizer.processString(text)
+        let hypotheses = recognizer.languageHypotheses(withMaximum: languages.count)
+        guard let top = hypotheses.max(by: { $0.value < $1.value }), top.key != .french, top.key != .english else { return false }
+        return top.value >= minimumForeign && (hypotheses[.french] ?? 0) + (hypotheses[.english] ?? 0) < maximumFrenchEnglish
     }
 
     /// The probabilities of every hop that `[start, end)` overlaps, clamped to those analysed.
