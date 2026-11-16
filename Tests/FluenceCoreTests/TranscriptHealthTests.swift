@@ -4,6 +4,14 @@ import Testing
 @testable import FluenceCore
 
 struct TranscriptHealthTests {
+    /// FLU-147: Parakeet writes `<unk>` for a sound it has no token for; it is never typed.
+    @Test func unknownTokensAreRemoved() {
+        #expect(TranscriptHealth.withoutUnknownTokens("Il avertit que <unk> personne ne peut") == "Il avertit que personne ne peut")
+        #expect(TranscriptHealth.withoutUnknownTokens("<unk> Bonjour <unk>, ça va <unk>") == "Bonjour, ça va")
+        #expect(TranscriptHealth.withoutUnknownTokens("<unk>") == "")
+        #expect(TranscriptHealth.withoutUnknownTokens("a < b et c > d") == "a < b et c > d")
+    }
+
     @Test func theReportedLoopIsCaught() {
         let looped = Array(repeating: "Node.js", count: 30).joined(separator: ", ")
             + ". Et la cloud, la cloud, ça fait chaud de faire."

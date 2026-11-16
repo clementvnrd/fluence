@@ -20,7 +20,7 @@ public struct TimedToken: Sendable, Hashable {
 /// A token starting with the word-boundary marker `▁` (U+2581) or a space begins a new
 /// word; any other token continues the current one. A word spans its first token's start
 /// to its last token's end, plus `offset`; its confidence is the lowest of its tokens'.
-/// `<blank>`, `<pad>` and empty tokens are skipped.
+/// `<blank>`, `<pad>`, `<unk>` (FLU-147) and empty tokens are skipped.
 public enum WordBuilder {
     public static let boundary: Character = "\u{2581}"
 
@@ -37,7 +37,7 @@ public enum WordBuilder {
 
         for token in tokens {
             let raw = token.text
-            guard !raw.isEmpty, raw != "<blank>", raw != "<pad>" else { continue }
+            guard !raw.isEmpty, raw != "<blank>", raw != "<pad>", raw != "<unk>" else { continue }
             let startsWord = raw.first == boundary || raw.first == " "
             let piece = startsWord ? String(raw.drop { $0 == boundary || $0 == " " }) : raw
 
