@@ -41,18 +41,18 @@ enum MeetingCloud {
         return Request(key: key, terms: DictionaryStore.shared.biasPhrases)
     }
 
-    /// The call's channel, or nil when it fails.
+    /// The call's channel, or why it failed (FLU-147: the meeting says so).
     static func transcribe(
         _ request: Request,
         system url: URL,
         key: SymmetricKey,
         live: [TranscriptSegment],
         corrector: DictionaryCorrector
-    ) async -> Transcript? {
+    ) async -> Result<Transcript, CloudError> {
         do {
             let reader = try MeetingAudioSpoolReader(url: url, key: key)
             // ElevenLabs refuses under 100 ms of audio.
-            guard reader.sampleCount >= MeetingAudioFormat.sampleRate / 10 else { return Transcript(system: live, turns: []) }
+            guard reader.sampleCount >= MeetingAudioFormat.sampleRate / 10 else { return .success(Transcript(system: live, turns: [])) }
             let seconds = Double(reader.sampleCount) / Double(MeetingAudioFormat.sampleRate)
             let (urlRequest, body) = CloudRequest.meeting(key: request.key, terms: request.terms) { body in
                 append(reader, to: &body)
@@ -73,12 +73,12 @@ enum MeetingCloud {
                 \(words.count, privacy: .public) words, \(segments.count, privacy: .public) segments, \
                 \(Set(turns.map(\.speaker)).count, privacy: .public) voices
                 """)
-            return Transcript(system: segments, turns: turns)
+            return .success(Transcript(system: segments, turns: turns))
         } catch {
             let kind = (error as? CloudError)?.kind ?? "spool unreadable"
             Log.speech.error("meeting cloud · \(kind, privacy: .public): the Mac transcribes the meeting")
             Diagnostics.recovery("meeting.cloud.fallback", error)
-            return nil
+            return .failure(error as? CloudError ?? .malformed)
         }
     }
 
@@ -134,8 +134,9 @@ enum MeetingCloud {
     private static func post(_ request: URLRequest, body: Data) async throws -> Data {
         let (data, response) = try await session.upload(for: request, from: body)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        Log.speech.info("meeting cloud · HTTP \(status, privacy: .public)")
-        try CloudResponse.check(status)
+        let code = status >= 400 ? CloudResponse.errorCode(data) ?? "" : ""
+        Log.speech.info("meeting cloud · HTTP \(status, privacy: .public) \(code, privacy: .public)")
+        try CloudResponse.check(status, body: data)
         return data
     }
 }

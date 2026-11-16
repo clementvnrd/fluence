@@ -213,6 +213,7 @@ private struct CloudKeyRow: View {
             status = switch error {
             case nil: "Clé valide"
             case .badKey?, .noKey?: "Clé refusée"
+            case .noCredits?: "Crédits ElevenLabs épuisés"
             case .network?: "Réseau indisponible"
             default: "Service indisponible"
             }

@@ -214,7 +214,9 @@ enum CloudClient {
             let (body, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let host = request.url?.host() ?? ""
-            Log.speech.info("cloud · \(host, privacy: .public) · HTTP \(status, privacy: .public)")
+            // FLU-147: a refusal's machine code (`quota_exceeded`…), a fixed vocabulary.
+            let code = status >= 400 ? CloudResponse.errorCode(body) ?? "" : ""
+            Log.speech.info("cloud · \(host, privacy: .public) · HTTP \(status, privacy: .public) \(code, privacy: .public)")
             return (status, body)
         } catch {
             throw CloudError.network

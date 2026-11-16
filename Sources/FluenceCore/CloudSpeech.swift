@@ -14,8 +14,9 @@ public enum CloudProvider: String, CaseIterable, Sendable {
     public static let termLimit = 100
 }
 
-/// Why the cloud gave no text. Made from the HTTP status or the transport alone: a response
-/// body can hold the dictation, so it is never kept, shown or logged.
+/// Why the cloud gave no text. Made from the HTTP status or the transport, and from a refusal's
+/// machine code (FLU-147, `CloudResponse.errorCode`): a response body can hold the dictation,
+/// so nothing else of it is ever kept, shown or logged.
 public enum CloudError: Error, Equatable, Sendable {
     /// No key saved for the provider.
     case noKey
@@ -33,6 +34,9 @@ public enum CloudError: Error, Equatable, Sendable {
     case timedOut
     /// The Keychain would not give the key (locked, access refused): not a missing key (A2-8).
     case keychain
+    /// FLU-147: the key is accepted but the account has no credits left (402, or 401 / 403
+    /// with ElevenLabs' `quota_exceeded`).
+    case noCredits
 
     /// For the log: fixed words and a status, nothing else.
     public var kind: String {
@@ -46,6 +50,7 @@ public enum CloudError: Error, Equatable, Sendable {
         case .network: "network"
         case .timedOut: "timed out"
         case .keychain: "keychain"
+        case .noCredits: "no credits"
         }
     }
 
@@ -145,22 +150,41 @@ public enum CloudRequest {
 public enum CloudResponse {
     /// The transcript of a transcription answer, in `text`.
     public static func transcript(status: Int, body: Data) throws -> String {
-        try check(status)
+        try check(status, body: body)
         guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               let text = json["text"] as? String
         else { throw CloudError.malformed }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// The error an HTTP status means, from the status alone (the body is never read for it).
-    public static func check(_ status: Int) throws {
+    /// The error an HTTP status means. FLU-147: from a 4xx body, ElevenLabs' machine code alone
+    /// (`errorCode`) tells an empty account from a bad key; nothing else in the body is read.
+    public static func check(_ status: Int, body: Data) throws {
+        if (400..<500).contains(status), let code = errorCode(body), creditCodes.contains(code) {
+            throw CloudError.noCredits
+        }
         switch status {
         case 200..<300: return
         case 401, 403: throw CloudError.badKey
+        case 402: throw CloudError.noCredits
         case 429: throw CloudError.rateLimited
         case 500...: throw CloudError.server(status)
         default: throw CloudError.rejected(status)
         }
+    }
+
+    static let creditCodes: Set = ["quota_exceeded", "insufficient_credits"]
+
+    /// ElevenLabs' `detail.code`, or the older `detail.status`, when it is a short snake_case
+    /// word (a fixed vocabulary, safe to log); nil otherwise.
+    public static func errorCode(_ body: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let detail = json["detail"] as? [String: Any],
+              let code = (detail["code"] ?? detail["status"]) as? String,
+              code.count <= 64, !code.isEmpty,
+              code.allSatisfy({ ("a"..."z").contains($0) || $0 == "_" })
+        else { return nil }
+        return code
     }
 }
 
@@ -254,6 +278,7 @@ public enum CloudFallback {
         case .keychain: "Trousseau indisponible"
         case .badKey: "Clé refusée"
         case .timedOut: "Cloud trop lent"
+        case .noCredits: "Crédits ElevenLabs épuisés"
         case .rateLimited, .server, .rejected, .malformed: "Cloud indisponible"
         }
         return reason + FrenchFormat.space + ": " + engine

@@ -417,14 +417,14 @@ final class MeetingController {
             // that cannot wait for it loses nothing (FLU-54).
             try? Self.saveKeepingEdits(meeting)
 
-            let finalized = await Self.finalPass(
+            let (finalized, voices, cloudFallback) = await Self.finalPass(
                 meeting,
                 spool: session.systemSpoolURL,
                 micSpool: MeetingAudioSpool.url(in: session.directory, source: .microphone),
                 key: session.key,
                 windowRoster: session.roster
             )
-            let completion = Self.complete(finalized, directory: session.directory)
+            let completion = Self.complete((finalized, voices), directory: session.directory)
 
             // A new meeting may be recording by now: only this one's traces are cleared.
             if self.session === session {
@@ -441,6 +441,13 @@ final class MeetingController {
                 self.fail("La réunion n'a pas pu être enregistrée. Son audio est gardé sur ce Mac ; Fluence réessaiera au prochain lancement.")
             case .transcriptionPending where canTell:
                 self.fail(TranscriptionRetry.notice)
+            // FLU-147: a Précis meeting transcribed on the Mac says so once, and why.
+            case .done where canTell:
+                if let cloudFallback {
+                    self.fail(CloudFallback.notice(cloudFallback, local: "réunion transcrite sur ce Mac"))
+                } else if self.state == .processing, self.finalizing == 0 {
+                    self.state = .idle
+                }
             default:
                 if self.state == .processing, self.finalizing == 0 { self.state = .idle }
             }
@@ -496,7 +503,7 @@ final class MeetingController {
         micSpool: URL?,
         key: SymmetricKey?,
         windowRoster: ParticipantRoster
-    ) async -> (Meeting, [String: [Float]]) {
+    ) async -> (Meeting, [String: [Float]], CloudError?) {
         // FLU-33: the mic is diarized only behind the hidden setting, and only if its spool is there.
         let roomSpool = micSpool.flatMap { url in
             NotetakerSettings.shared.diarizeMicrophone && FileManager.default.fileExists(atPath: url.path) ? url : nil
@@ -511,7 +518,7 @@ final class MeetingController {
             cloud: MeetingCloud.request(meeting)
         )
         let output = await Task.detached(priority: .utility) { await MeetingFinalizer.attribute(input) }.value
-        return (MeetingFinalizer.name(output, window: windowRoster), output.voices)
+        return (MeetingFinalizer.name(output, window: windowRoster), output.voices, output.cloudFallback)
     }
 
     enum Completion {
@@ -665,7 +672,7 @@ final class MeetingController {
                     (meeting.segments.map(\.end) + (meeting.untranscribed ?? []).map(\.end)).max() ?? 0
                 )
                 let spool = MeetingAudioSpool.url(in: directory, source: .system)
-                let (finalized, voices) = await Self.finalPass(
+                let (finalized, voices, _) = await Self.finalPass(
                     meeting,
                     spool: FileManager.default.fileExists(atPath: spool.path) ? spool : nil,
                     micSpool: MeetingAudioSpool.url(in: directory, source: .microphone),
