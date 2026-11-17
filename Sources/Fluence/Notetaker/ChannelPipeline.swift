@@ -1,5 +1,6 @@
 import FluidAudio
 import Foundation
+import FluenceCore
 import FluenceDictionary
 
 /// The system channel's samples on the meeting timeline, for the mic's echo canceller.
@@ -111,6 +112,8 @@ actor ChannelPipeline {
     private var vadState = VadStreamState.initial()
     private var vadFailed = false
     private var segmenter = UtteranceSegmenter()
+    /// Every hop's speech probability, for the hallucination guard (FLU-147): ~14 000 an hour.
+    private var probabilities: [Float] = []
     private var transcriptions: [Task<Void, Never>] = []
     /// Every segment this channel produced, returned by `finish()` so the caller does not
     /// depend on the order in which the live callbacks land.
@@ -202,7 +205,8 @@ actor ChannelPipeline {
                 continue
             }
             do {
-                if let segment = try await Self.transcribe(audio, start: span.start, source: source, corrector: corrector, manager: manager) {
+                let vad = evidence(from: start, to: end)
+                if let segment = try await Self.transcribe(audio, start: span.start, source: source, vad: vad, corrector: corrector, manager: manager) {
                     produced.append(segment)
                 }
             } catch {
@@ -250,7 +254,8 @@ actor ChannelPipeline {
             }
             do {
                 let audio = reader.samples(from: start, count: end - start)
-                if let segment = try await transcribe(audio, start: span.start, source: span.source, corrector: corrector, manager: manager) {
+                // No VAD evidence at a later launch: the guard keeps whatever is heard.
+                if let segment = try await transcribe(audio, start: span.start, source: span.source, vad: [], corrector: corrector, manager: manager) {
                     segments.append(segment)
                 }
             } catch {
@@ -363,6 +368,7 @@ actor ChannelPipeline {
             pendingHop.removeAll(keepingCapacity: true)
             history.append(hop)
             let probability = await speechProbability(hop)
+            probabilities.append(probability)
             if probability >= segmenter.config.threshold {
                 callbacks.speech(source, Double(history.count) / Self.rate)
             }
@@ -393,22 +399,29 @@ actor ChannelPipeline {
     private func startTranscription(_ utterance: Utterance) {
         let samples = history.samples(from: utterance.startSample, to: utterance.endSample)
         guard !samples.isEmpty else { return }
-        transcriptions.append(Task { await self.transcribe(samples, startSample: utterance.startSample) })
+        let vad = evidence(from: utterance.startSample, to: utterance.endSample)
+        transcriptions.append(Task { await self.transcribe(samples, startSample: utterance.startSample, vad: vad) })
+    }
+
+    /// The VAD's probabilities over `[start, end)`; none once the energy fallback took over,
+    /// whose two fixed values say nothing about a hallucination.
+    private func evidence(from start: Int, to end: Int) -> [Float] {
+        vadFailed ? [] : Array(HallucinationGuard.hops(probabilities, from: start, to: end, hop: Self.hop))
     }
 
     /// Holds the shared Parakeet for the utterance, so the idle unload (FLU-31) never takes it
     /// away mid-transcription.
-    private func transcribe(_ samples: [Float], startSample: Int) async {
+    private func transcribe(_ samples: [Float], startSample: Int, vad: [Float]) async {
         await ParakeetModels.shared.beginUse()
-        await transcribeHoldingModels(samples, startSample: startSample)
+        await transcribeHoldingModels(samples, startSample: startSample, vad: vad)
         await ParakeetModels.shared.endUse()
     }
 
-    private func transcribeHoldingModels(_ samples: [Float], startSample: Int) async {
+    private func transcribeHoldingModels(_ samples: [Float], startSample: Int, vad: [Float]) async {
         let start = Double(startSample) / Self.rate
         do {
             let manager = try await ParakeetModels.shared.manager()
-            guard let segment = try await Self.transcribe(samples, start: start, source: source, corrector: corrector, manager: manager) else { return }
+            guard let segment = try await Self.transcribe(samples, start: start, source: source, vad: vad, corrector: corrector, manager: manager) else { return }
             produced.append(segment)
             callbacks.segment(segment)
         } catch {
@@ -421,12 +434,15 @@ actor ChannelPipeline {
         }
     }
 
-    /// One utterance through Parakeet, on the meeting clock. `nil` when it held no words;
-    /// throws when the engine failed.
+    /// One utterance through Parakeet, on the meeting clock. `nil` when it held no words, or
+    /// when `vad` (its hop probabilities) says it was no speech (FLU-147); throws when the
+    /// engine failed. No language hint: on French it made Parakeet worse (FLU-147,
+    /// docs/SPEECH-MODELS.md), and a meeting may not be in the dictation's language.
     static func transcribe(
         _ samples: [Float],
         start: TimeInterval,
         source: AudioSource,
+        vad: [Float],
         corrector: DictionaryCorrector,
         manager: AsrManager
     ) async throws -> TranscriptSegment? {
@@ -437,8 +453,20 @@ actor ChannelPipeline {
 
         var decoderState = try TdtDecoderState()
         let result = try await manager.transcribe(audio, decoderState: &decoderState, language: nil)
-        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = TranscriptHealth.withoutUnknownTokens(result.text.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !text.isEmpty else { return nil }
+        guard HallucinationGuard.keeps(text: text, vad: vad) else {
+            let mean = vad.reduce(0, +) / Float(vad.count)
+            Log.speech.info("""
+                meeting \(source.rawValue, privacy: .public) · short segment dropped, no speech evidence \
+                (VAD mean \(mean, format: .fixed(precision: 2)), peak \(vad.max() ?? 0, format: .fixed(precision: 2)))
+                """)
+            return nil
+        }
+        guard !HallucinationGuard.isForeign(text) else {
+            Log.speech.info("meeting \(source.rawValue, privacy: .public) · short segment dropped, neither French nor English")
+            return nil
+        }
 
         let tokens = (result.tokenTimings ?? []).map {
             TimedToken(text: $0.token, start: $0.startTime, end: $0.endTime, confidence: $0.confidence)

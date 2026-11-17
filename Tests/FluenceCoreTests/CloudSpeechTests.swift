@@ -109,6 +109,29 @@ struct CloudSpeechTests {
         #expect(throws: CloudError.rejected(422)) { try CloudResponse.transcript(status: 422, body: body) }
     }
 
+    /// FLU-147: out of credits is not a bad key. ElevenLabs says which in `detail.code`
+    /// (`insufficient_credits`, with 402) or, the older way, `detail.status` (`quota_exceeded`,
+    /// with 401); only that code is read from the body.
+    @Test func outOfCreditsIsNotABadKey() {
+        let quota = Data(#"{"detail":{"status":"quota_exceeded","message":"You have insufficient quota"}}"#.utf8)
+        let credits = Data(#"{"detail":{"type":"payment_required","code":"insufficient_credits","message":"…"}}"#.utf8)
+        #expect(throws: CloudError.noCredits) { try CloudResponse.transcript(status: 401, body: quota) }
+        #expect(throws: CloudError.noCredits) { try CloudResponse.check(402, body: credits) }
+        #expect(throws: CloudError.noCredits) { try CloudResponse.check(402, body: Data()) }
+        #expect(throws: CloudError.badKey) { try CloudResponse.check(401, body: Data("<html>".utf8)) }
+        #expect(CloudError.noCredits.kind == "no credits")
+        #expect(!CloudError.noCredits.isTransient)
+    }
+
+    @Test func theErrorCodeIsAFixedWordOrNothing() {
+        #expect(CloudResponse.errorCode(Data(#"{"detail":{"status":"invalid_api_key","message":"Invalid API key"}}"#.utf8)) == "invalid_api_key")
+        #expect(CloudResponse.errorCode(Data(#"{"detail":{"code":"insufficient_credits","status":"quota_exceeded"}}"#.utf8)) == "insufficient_credits")
+        // Anything that is not a short snake_case word is not logged.
+        #expect(CloudResponse.errorCode(Data(#"{"detail":{"status":"Bonjour Marie, voici le texte"}}"#.utf8)) == nil)
+        #expect(CloudResponse.errorCode(Data(#"{"detail":"Not found"}"#.utf8)) == nil)
+        #expect(CloudResponse.errorCode(Data("{}".utf8)) == nil)
+    }
+
     @Test func aSuccessWithoutTextIsMalformed() {
         #expect(throws: CloudError.malformed) { try CloudResponse.transcript(status: 200, body: Data("{}".utf8)) }
         #expect(throws: CloudError.malformed) { try CloudResponse.transcript(status: 200, body: Data("<html>".utf8)) }
@@ -171,6 +194,8 @@ struct CloudSpeechTests {
         #expect(CloudFallback.notice(.rateLimited, local: "Parakeet") == "Cloud indisponible\(nbsp): Parakeet")
         // A2-8: a locked Keychain is not a missing key.
         #expect(CloudFallback.notice(.keychain, local: "Parakeet") == "Trousseau indisponible\(nbsp): Parakeet")
+        // FLU-147: the key is fine, the account is empty.
+        #expect(CloudFallback.notice(.noCredits, local: "Parakeet") == "Crédits ElevenLabs épuisés\(nbsp): Parakeet")
     }
 
     // MARK: - FLU-129: who wrote the text

@@ -126,7 +126,8 @@ actor ParakeetEngine: TranscriptionEngine {
 
             continuation?.yield(
                 TranscriptionChunk(
-                    text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                    // FLU-147: a `<unk>` would be typed as is.
+                    text: TranscriptHealth.withoutUnknownTokens(text.trimmingCharacters(in: .whitespacesAndNewlines)),
                     isFinal: true
                 )
             )

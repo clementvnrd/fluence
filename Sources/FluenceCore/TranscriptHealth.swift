@@ -8,6 +8,12 @@ public enum TranscriptHealth {
     /// Below this many words there is too little to judge: "non non non" is a real answer.
     static let minimumWords = 6
 
+    /// FLU-147: Parakeet writes `<unk>` for a sound it has no token for; it is never shown.
+    public static func withoutUnknownTokens(_ text: String) -> String {
+        text.replacingOccurrences(of: #"\s*<unk>"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+    }
+
     public static func isDegenerate(_ text: String) -> Bool {
         let words = normalizedWords(text)
         guard words.count >= minimumWords else { return false }

@@ -142,3 +142,68 @@ when the cloud is late or fails. Same bench, run through the API by `cloud.py`, 
 **Verdict:** the most accurate engine measured, 2.4 to 4.5 times fewer words wrong than
 Parakeet Ultra on every set, and the only one that gets most English work words right. It
 stays opt-in because the voice leaves the Mac. Synthetic and read speech only, not Clement's voice.
+
+## Meetings: invented words on short utterances (FLU-147)
+
+A 27-minute French Meet on 0.2.6, cloud refused, both channels on Parakeet: over 60 « Yeah »,
+« Okay », « Mm-hmm », « No » on the mic while the user was silent, a dozen short call fragments
+in other languages, `<unk>` left in the text. Measured with a harness that runs the meeting's
+own call (`ChannelPipeline.transcribe`: Ultra, 0.5 s padding, fresh decoder state) and, for
+streams, the real Silero hops and `UtteranceSegmenter`. Public audio only: synthetic noise,
+ESC-50 sounds (CC BY-NC, 10 per class), FLEURS `fr_fr` dev, macOS French voices. Same arms
+with `language: nil` and with `.french`.
+
+| Input | `nil` | `.french` |
+|---|---:|---:|
+| Synthetic noise clips 0.3–3 s (silence, white/pink −60/−50/−40 dBFS, breath, clicks, hum, Bluetooth room tone; 288) — any text | 1.4 % (« Mm-hmm », « Yeah ») | 1.4 % |
+| … of which Silero would pass (a hop ≥ 0.5) | 0 | 0 |
+| ESC-50 sounds through VAD + segmenter (280 streams → 130 utterances) — any text | 42 % | 42 % |
+| Short FLEURS fragments 0.3–2 s, 1–4 words (535) — an English word or other language | 4.1 % | 3.6 % |
+| The same through a Bluetooth-like channel (535) | 4.9 % | 4.1 % |
+| Short answers, 10 voices × 14 (« Oui. », « D'accord. »…) — an English word | 26 % | 24 % |
+| Full FLEURS utterances (289, 7 021 words) — WER as `score.py` | **4.71 %** | 4.99 % |
+
+* **The French hint does not help.** In FluidAudio it is a script filter (Latin vs Cyrillic):
+  it cannot stop English, Dutch or Swedish, and on full French utterances it was worse on 18
+  and better on 1. Meetings keep `language: nil`.
+* **Synthetic noise is not the cause.** Silero rejects it all. What it lets through are real
+  sounds (a sip, snoring, a cough, a sneeze, a clock tick, a laugh), and on those Parakeet
+  writes the meeting's words: « Yeah. », « Okay. », « Mm-hmm. », « No », « Hmm ».
+* **What separates them is the VAD, not the model's confidence.** Over the utterance's hops,
+  real speech (135 short answers, 945 FLEURS fragments, in 2.5 s of room tone) has a peak
+  ≥ 0.9 in 98 % of cases and a mean ≥ 0.5 in 95 %; the sounds a median peak of 0.91 and mean of
+  0.45. Mean token confidence overlaps (correct short answers: 2nd percentile 0.62; sounds:
+  median 0.62); RMS does not separate at all (a quiet FLEURS speaker is at −47 dBFS).
+
+**The guard** (`HallucinationGuard`, both channels): a segment of one or two words is dropped
+unless its VAD mean is ≥ 0.45 and its peak ≥ 0.9; longer segments are kept. Through the shipped
+code: 32 of 55 sounds with text dropped (58 %; 23 of the 30 « Yeah / Okay / Mm-hmm / No »), all
+4 noise-clip outputs, **0 of 55 correctly transcribed short answers** (none of « Oui », « D'accord »,
+« Ouais ouais », « OK »), 14 of 1 080 real segments (1.3 %, mostly already wrong: « Sheep money. »,
+« Ирун. », « Uh on. »). Adding token confidence < 0.45 dropped 3 more sounds for 33 more real
+segments; it is not used. Without VAD evidence (energy fallback, a retry at a later launch)
+nothing is dropped. `<unk>` is removed from meeting and dictation text.
+
+**Wrong-language fragments** (`HallucinationGuard.isForeign`, both channels, with or without VAD
+evidence): a segment of up to three words is dropped when Apple's on-device `NLLanguageRecognizer`,
+constrained to French, English and the other Parakeet v3 languages it knows, puts another language
+at ≥ 0.95 and French + English below 0.01. English stays (franglais), so do numbers and symbols.
+Through the shipped code:
+
+| Set | Dropped |
+|---|---:|
+| Hand list: short answers, jargon, names, numbers, English (« Oui », « Non », « Bah ouais », « 547 », « GitHub », « cash flow », « same problem ») | 0 / 228 |
+| Harness Parakeet outputs equal to the French reference | 0 / 114 |
+| Partly right French outputs | 0 / 144 |
+| FLEURS fragment references (1–3 words) | 0 / 347 |
+| Stress: every word of FLEURS dev + franglais + tech alone | 3 / 2 019 (« zones », « écozones ») |
+| Stress: 2–3-word windows of the same | 10 / 6 605 (Spanish/Polish names, « de camping », « CI. Il ») |
+| Wrong-language outputs, real words (harness + meeting: « Här. », « Waar het moet? », « Jetzt hören. ») | **24 / 46** |
+| Pseudo-words (« Ooei », « Uace ») | 2 / 45 |
+
+Single French words are the risk: « Non. » scores Italian 0.94 (French + English 0.05), hence
+both thresholds. Still kept: « Sta », « Hola. », « Bueno. », « Bom », « Nie! », and English
+hallucinations by design (« Love you is G. », « Well it's neuf »).
+
+Not solved: laughs and coughs that Silero is sure of (« Ha ha ha », « Yeah. » at peak 1), and
+about half of the wrong-language fragments.

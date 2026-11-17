@@ -1,6 +1,7 @@
 import CryptoKit
 import FluidAudio
 import Foundation
+import FluenceCore
 import FluenceDictionary
 
 extension MeetingAudioSpoolReader: AudioSampleSource {}
@@ -54,6 +55,8 @@ enum MeetingFinalizer {
         var meeting: Meeting
         /// `S1…Sn` → voice embedding, for voice-print matching and enrolment.
         var voices: [String: [Float]]
+        /// FLU-147: why a meeting recorded in Précis was transcribed on the Mac after all.
+        var cloudFallback: CloudError?
     }
 
     /// Steps 1–3. Naming needs the voice-print store (main actor), so it is separate.
@@ -62,8 +65,12 @@ enum MeetingFinalizer {
         var mic = meeting.segments.filter { $0.source == .microphone }
         var system = meeting.segments.filter { $0.source == .system }
         var cloud: MeetingCloud.Transcript?
+        var cloudFallback: CloudError?
         if let request = input.cloud, let url = input.systemSpool, let key = input.key {
-            cloud = await MeetingCloud.transcribe(request, system: url, key: key, live: system, corrector: input.corrector)
+            switch await MeetingCloud.transcribe(request, system: url, key: key, live: system, corrector: input.corrector) {
+            case .success(let transcript): cloud = transcript
+            case .failure(let error): cloudFallback = error
+            }
         }
         if let cloud {
             system = cloud.system
@@ -134,7 +141,7 @@ enum MeetingFinalizer {
         for (raw, label) in attribution.labels {
             if let embedding = rawEmbeddings[raw] { voices[label] = embedding }
         }
-        return Output(meeting: meeting, voices: voices)
+        return Output(meeting: meeting, voices: voices, cloudFallback: cloudFallback)
     }
 
     /// `S2` before `S10`.
