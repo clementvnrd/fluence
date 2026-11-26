@@ -7,7 +7,8 @@
 # 2. Info.plist: CFBundleShortVersionString is Resources/Info.plist's (or $EXPECT_VERSION) and
 #    CFBundleVersion is the build number derived from it (major*10000 + minor*100 + patch);
 # 3. Sparkle: the framework is embedded, the binary links it through @rpath, and the rpath
-#    @executable_path/../Frameworks that finds it is there;
+#    @executable_path/../Frameworks that finds it is there; MLX's Metal kernels (FLU-149) are in
+#    Contents/Resources/mlx.metallib;
 # 4. with --public: no Wispr Flow interop in the binary (FLU-69);
 # 5. the launch: Contents/MacOS/Fluence --selftest must print "selftest: passed" and exit 0
 #    within the timeout. A broken rpath, a bad signature, a trap at launch or a hang all fail.
@@ -85,6 +86,12 @@ if otool -l "$binary" 2>/dev/null | grep -A2 LC_RPATH | grep -q "path @executabl
   pass "rpath: @executable_path/../Frameworks"
 else
   fail "rpath: @executable_path/../Frameworks is missing (rpaths: $(otool -l "$binary" 2>/dev/null | grep -A2 LC_RPATH | sed -n 's/^ *path \(.*\) (offset.*/\1/p' | tr '\n' ' '))"
+fi
+
+if [ -s "$bundle/Contents/Resources/mlx.metallib" ]; then
+  pass "mlx: Contents/Resources/mlx.metallib"
+else
+  fail "mlx: Contents/Resources/mlx.metallib is missing (Cohere Transcribe cannot run without it)"
 fi
 
 # 4. A public build carries no Wispr Flow interop

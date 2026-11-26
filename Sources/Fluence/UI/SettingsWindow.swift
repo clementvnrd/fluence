@@ -541,6 +541,7 @@ struct TranscriptionSettingsSection: View {
         .task {
             await models.refresh()
             ParakeetDownload.shared.refresh()
+            CohereDownload.shared.refresh()
         }
         .onChange(of: settings.engine) { models.reclassify() }
         .onChange(of: settings.whisperModel) { models.reclassify() }
@@ -561,7 +562,12 @@ struct TranscriptionSettingsSection: View {
                 // download, asked for here, with Apple standing in meanwhile.
                 if settings.isWaitingForParakeet {
                     RowDivider()
-                    ParakeetDownloadRow()
+                    ModelDownloadRow(download: ParakeetDownload.shared)
+                }
+                // FLU-149: Cohere chosen but not on disk — the language's usual engine stands in.
+                if settings.engine == .cohere, !CohereDownload.shared.isReady {
+                    RowDivider()
+                    ModelDownloadRow(download: CohereDownload.shared, standIn: settings.activeEngine.shortName)
                 }
                 if settings.engine == .whisper {
                     RowDivider()
@@ -693,6 +699,7 @@ struct TranscriptionSettingsSection: View {
                     await models.moveToTrash(model.model)
                     // FLU-29: Parakeet gone from disk means Apple again until it is fetched.
                     ParakeetDownload.shared.refresh()
+                    CohereDownload.shared.refresh()
                 }
             }
             Button("Annuler", role: .cancel) {}
@@ -722,7 +729,8 @@ struct TranscriptionSettingsSection: View {
     /// FLU-24: on the French bench, Parakeet makes half Apple's errors on tech words and a
     /// quarter of Whisper Small's through a webcam mic. Said where the choice is made.
     private var engineCaveat: String? {
-        guard settings.engine != .parakeet,
+        // Cohere beats Parakeet on a good mic (FLU-149): its ⓘ says where it does not.
+        guard settings.engine != .parakeet, settings.engine != .cohere,
               settings.dictationLanguage == .french || settings.dictationLanguage == .auto
         else { return nil }
         return "Parakeet est plus précis en français."
@@ -756,18 +764,39 @@ struct TranscriptionSettingsSection: View {
     }
 }
 
-/// FLU-29 (mock-up 04): Parakeet Ultra's download in Réglages › Transcription — a button
-/// before, a bar with ✕ during, « Réessayer » after a failure. Apple takes the dictations
-/// until it is done, and the subtitle says so.
-private struct ParakeetDownloadRow: View {
-    @State private var download = ParakeetDownload.shared
+/// What `ModelDownloadRow` shows and drives: Parakeet's or Cohere's download.
+@MainActor
+protocol ModelDownload: AnyObject, Observable {
+    var phase: ModelDownloadPhase { get }
+    func start()
+    func cancel()
+    /// The row's title.
+    static var modelName: String { get }
+    static var totalBytes: Int64 { get }
+}
+
+extension ParakeetDownload: ModelDownload {
+    static var modelName: String { "Parakeet Ultra" }
+}
+
+extension CohereDownload: ModelDownload {
+    static var modelName: String { SpeechModel.cohere.displayName }
+    static var totalBytes: Int64 { CohereModel.totalBytes }
+}
+
+/// FLU-29 (mock-up 04): a model's download in Réglages › Transcription — a button before, a
+/// bar with ✕ during, « Réessayer » after a failure. Another engine takes the dictations
+/// until it is done, and the subtitle says which.
+private struct ModelDownloadRow<Download: ModelDownload>: View {
+    let download: Download
+    var standIn = "Apple"
 
     private var failed: Bool { download.phase == .failed }
 
     var body: some View {
         SettingsRow(
             systemImage: failed ? "exclamationmark.triangle.fill" : "arrow.down.circle",
-            title: "Parakeet Ultra",
+            title: Download.modelName,
             subtitle: subtitle,
             iconTint: failed ? DS.Color.meterAmber : DS.Color.accent
         ) {
@@ -801,11 +830,11 @@ private struct ParakeetDownloadRow: View {
     private var subtitle: String {
         switch download.phase {
         case .downloading(let fraction):
-            DownloadProgressText.amount(fraction: fraction, totalBytes: ParakeetDownload.totalBytes) + " · Apple en attendant"
+            DownloadProgressText.amount(fraction: fraction, totalBytes: Download.totalBytes) + " · \(standIn) en attendant"
         case .idle:
-            "Environ " + FrenchFormat.bytes(ParakeetDownload.totalBytes) + " · Apple en attendant"
+            "Environ " + FrenchFormat.bytes(Download.totalBytes) + " · \(standIn) en attendant"
         case .failed:
-            "Échec du téléchargement · Apple en attendant"
+            "Échec du téléchargement · \(standIn) en attendant"
         }
     }
 }
@@ -816,6 +845,7 @@ extension SpeechEngineChoice {
         case .apple: "Apple : le texte s'affiche pendant que vous parlez. Rien à télécharger ; moins précis sur les mots techniques."
         case .whisper: "Whisper : le texte arrive au relâchement. Plus lent et moins précis que Parakeet en français."
         case .parakeet: "Parakeet Ultra : le plus précis et le plus rapide, en français comme en anglais. Le texte arrive au relâchement. Recommandé."
+        case .cohere: "Cohere Transcribe : plus précis que Parakeet avec un bon micro, moins bon avec un micro de webcam ou dans le bruit. Dictée seulement : les réunions restent sur Parakeet."
         }
     }
 }

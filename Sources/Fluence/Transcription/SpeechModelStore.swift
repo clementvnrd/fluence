@@ -1,3 +1,4 @@
+import CohereMLX
 import FluenceCore
 import FluidAudio
 import Foundation
@@ -27,6 +28,7 @@ final class SpeechModelStore {
             WhisperModels.downloadDirectory
                 .appendingPathComponent("models/argmaxinc/whisperkit-coreml", isDirectory: true)
                 .appendingPathComponent(model.whisperVariant ?? model.rawValue, isDirectory: true)
+        case .cohere: CohereModels.folder
         }
     }
 
@@ -36,6 +38,7 @@ final class SpeechModelStore {
         case .apple: .apple
         case .whisper: .whisper
         case .parakeet: .parakeet
+        case .cohere: .cohere
         }
         return SpeechModelSettings(
             engine: engine,
@@ -76,6 +79,10 @@ final class SpeechModelStore {
             Log.app.info("speech model moved to the Trash: \(model.rawValue, privacy: .public)")
             if let variant = model.whisperVariant {
                 await WhisperModels.shared.forget(variant: variant)
+            }
+            if model == .cohere {
+                await CohereRunner.shared.unload()
+                CohereDownload.shared.refresh()
             }
         } catch {
             Log.app.error("speech model not moved to the Trash: \(model.rawValue, privacy: .public) — \(error.localizedDescription, privacy: .public)")

@@ -22,9 +22,13 @@ public enum EngineDefault {
     }
 
     /// The engine that runs at key-down: the selected one, except Parakeet while its model is
-    /// not complete on disk, when Apple stands in.
-    public static func active(chosen: ComparedEngine?, language: DictationLanguage, parakeetReady: Bool) -> ComparedEngine {
+    /// not complete on disk, when Apple stands in; and Cohere (FLU-149) while its model is not
+    /// on disk or in a language it lacks (Auto included), when the language's own default does.
+    public static func active(chosen: ComparedEngine?, language: DictationLanguage, parakeetReady: Bool, cohereReady: Bool = false) -> ComparedEngine {
         let selected = selected(chosen: chosen, language: language)
+        if selected == .cohere, !cohereReady || CohereModel.languageCode(for: language) == nil {
+            return active(chosen: nil, language: language, parakeetReady: parakeetReady)
+        }
         return selected == .parakeet && !parakeetReady ? .apple : selected
     }
 

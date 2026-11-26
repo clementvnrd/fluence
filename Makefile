@@ -96,6 +96,12 @@ SPARKLE_SRC      := $(SPARKLE_ARTIFACT)/Sparkle.xcframework/macos-arm64_x86_64/S
 SPARKLE_DST      := $(CONTENTS)/Frameworks/Sparkle.framework
 SPARKLE_BIN      := $(SPARKLE_ARTIFACT)/bin
 
+## MLX's Metal kernels (FLU-149): SwiftPM on the command line compiles mlx-swift's C++ but not its
+## shaders, so they are compiled here, once per mlx-swift version, and shipped as
+## Contents/Resources/mlx.metallib, where CohereEngine points MLX. Needs the Metal toolchain
+## (Xcode 26: the script downloads it once when missing).
+MLX_METALLIB := $(SCRATCH)/mlx.metallib
+
 ## SwiftUI's macros only ship with Xcode. When the active developer directory is the
 ## Command Line Tools but Xcode is installed, use Xcode for this build without asking for
 ## `sudo xcode-select`.
@@ -123,9 +129,12 @@ notices:
 	@swift package resolve --scratch-path "$(SCRATCH)"
 	@Tools/generate_third_party_notices.sh "$(SCRATCH)/checkouts"
 
+$(MLX_METALLIB): Package.resolved Tools/build_mlx_metallib.sh | build
+	@Tools/build_mlx_metallib.sh "$(SCRATCH)/checkouts/mlx-swift" "$@"
+
 ## Assembles a real .app bundle: TCC (microphone, Accessibility) recognises an app by its bundle
 ## identity and its code signature, so the bare executable SwiftPM produces will not do.
-app: build
+app: build $(MLX_METALLIB)
 	@test -n "$(APP_BUILD)" || { echo "APP_VERSION must look like 1.2.3, not '$(APP_VERSION)'"; exit 1; }
 	@rm -rf "$(BUNDLE)"
 	@mkdir -p "$(CONTENTS)/MacOS" "$(CONTENTS)/Resources" "$(CONTENTS)/Frameworks"
@@ -140,6 +149,7 @@ app: build
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(CONTENTS)/Resources/"; fi
 	@# The licences of the libraries and models Fluence uses (FLU-68), opened from Settings › About.
 	@cp Resources/THIRD-PARTY-NOTICES.txt "$(CONTENTS)/Resources/"
+	@cp "$(MLX_METALLIB)" "$(CONTENTS)/Resources/mlx.metallib"
 	@# The brand mark is drawn (`AquaOrbView`, FLU-12); Resources/AquaOrb.png is the artwork
 	@# it was drawn from and is not shipped.
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"

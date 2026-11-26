@@ -27,6 +27,21 @@ struct EngineDefaultTests {
         #expect(!EngineDefault.isWaitingForParakeet(chosen: .apple, language: .french, parakeetReady: false))
     }
 
+    /// FLU-149: Cohere is never the default, and runs only with its model on disk and a
+    /// language it is told; otherwise the language's own default stands in.
+    @Test func cohereRunsOnlyWhenItCan() {
+        for language in DictationLanguage.allCases {
+            #expect(EngineDefault.preferred(for: language) != .cohere)
+        }
+        #expect(EngineDefault.active(chosen: .cohere, language: .french, parakeetReady: true, cohereReady: true) == .cohere)
+        #expect(EngineDefault.active(chosen: .cohere, language: .english, parakeetReady: false, cohereReady: true) == .cohere)
+        #expect(EngineDefault.active(chosen: .cohere, language: .french, parakeetReady: true, cohereReady: false) == .parakeet)
+        #expect(EngineDefault.active(chosen: .cohere, language: .french, parakeetReady: false, cohereReady: false) == .apple)
+        #expect(EngineDefault.active(chosen: .cohere, language: .auto, parakeetReady: true, cohereReady: true) == .parakeet)
+        #expect(EngineDefault.active(chosen: .cohere, language: .swedish, parakeetReady: true, cohereReady: true) == .apple)
+        #expect(!EngineDefault.isWaitingForParakeet(chosen: .cohere, language: .french, parakeetReady: false))
+    }
+
     @Test func theOnboardingStepOnlyForFrenchOrAutoWithoutTheModel() {
         #expect(EngineDefault.offersParakeetStep(language: .french, parakeetReady: false))
         #expect(EngineDefault.offersParakeetStep(language: .auto, parakeetReady: false))

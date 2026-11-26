@@ -526,6 +526,13 @@ private struct MenuContent: View {
                 .disabled(download.isDownloading || download.isReady)
         }
 
+        // FLU-149: the same for Cohere's 1,5 Go.
+        if settings.engine == .cohere {
+            let cohere = CohereDownload.shared
+            Button(cohere.isReady ? "Modèle Cohere installé ✓" : "Télécharger Cohere Transcribe…") { cohere.start() }
+                .disabled(cohere.isDownloading || cohere.isReady)
+        }
+
         if settings.engine == .whisper {
             let isLoaded = WhisperModels.isDownloaded(variant: settings.whisperModel)
             Button(isLoaded ? "Modèle Whisper prêt ✓" : "Télécharger le modèle Whisper…") {

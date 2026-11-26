@@ -49,7 +49,8 @@ struct ComparisonWindow: View {
     private var comparedEngines: [ComparedEngine] {
         ComparisonPlan.engines(
             parakeetOnDisk: parakeetOnDisk,
-            whisperOnDisk: WhisperModels.isDownloaded(variant: settings.whisperModel)
+            whisperOnDisk: WhisperModels.isDownloaded(variant: settings.whisperModel),
+            cohereOnDisk: CohereDownload.shared.isReady
         )
     }
 

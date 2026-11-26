@@ -405,6 +405,11 @@ public enum DictationRetry {
         case .failed:
             return engine
         case .repeated:
+            // Cohere decodes greedily: the same audio would loop the same way (FLU-149).
+            if engine == .cohere {
+                let other = otherEngine(than: engine, parakeetReady: parakeetReady, whisperReady: whisperReady)
+                return other == engine ? nil : other
+            }
             return engine == .whisper ? nil : engine
         }
     }
@@ -414,7 +419,7 @@ public enum DictationRetry {
     public static func otherEngine(than failed: ComparedEngine, parakeetReady: Bool, whisperReady: Bool) -> ComparedEngine {
         switch failed {
         case .parakeet: .apple
-        case .whisper: parakeetReady ? .parakeet : .apple
+        case .whisper, .cohere: parakeetReady ? .parakeet : .apple
         case .apple: parakeetReady ? .parakeet : (whisperReady ? .whisper : .apple)
         }
     }

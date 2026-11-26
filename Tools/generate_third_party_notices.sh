@@ -7,7 +7,8 @@
 #   Tools/generate_third_party_notices.sh <checkouts-dir>      # e.g. $(SCRATCH)/checkouts
 #
 # The models section is written by hand below: models are downloaded at runtime, so no package
-# carries their licence. Each entry was read on its Hugging Face model card on 2026-10-11.
+# carries their licence. Each entry was read on its Hugging Face model card on 2026-10-11
+# (Cohere Transcribe on 2026-11-16, FLU-149).
 set -euo pipefail
 
 CHECKOUTS="${1:?usage: $0 <SwiftPM checkouts directory>}"
@@ -70,6 +71,28 @@ HEADER
         "https://github.com/apple/swift-argument-parser" "Apache-2.0" \
         LICENSE.txt
 
+    library "MLX (mlx-swift)" mlx-swift mlx-swift \
+        "https://github.com/ml-explore/mlx-swift" "MIT, plus the licences of the code it bundles" \
+        LICENSE \
+        Source/Cmlx/mlx/LICENSE \
+        Source/Cmlx/mlx-c/LICENSE \
+        Source/Cmlx/fmt/LICENSE \
+        Source/Cmlx/json/LICENSE.MIT \
+        Source/Cmlx/metal-cpp/LICENSE.txt
+
+    library "swift-numerics (a dependency of mlx-swift)" swift-numerics swift-numerics \
+        "https://github.com/apple/swift-numerics" "Apache-2.0" \
+        LICENSE.txt
+
+    # Copied into the repository rather than fetched: the Cohere Transcribe model code (FLU-149).
+    rule
+    echo "mlx-audio-swift v0.1.9 (Cohere Transcribe model code, vendored in Sources/CohereMLX)"
+    echo "https://github.com/Neywa-Labs/mlx-audio-swift (tag v0.1.9, commit 0e03fee)"
+    echo "Licence: MIT"
+    echo "================================================================================"
+    printf '\n--- LICENSE ---\n\n'
+    cat Sources/CohereMLX/LICENSE
+
     rule
     cat <<'MODELS'
 Speech models downloaded on first use (not part of the app bundle)
@@ -105,6 +128,12 @@ and runs them on this Mac.
 * OpenAI Whisper (base, small, large-v3 turbo), Core ML builds by Argmax
   (argmaxinc/whisperkit-coreml).
   Licence: MIT. Copyright OpenAI (https://github.com/openai/whisper) and Argmax, Inc.
+
+* Cohere Transcribe 03-2026, MLX 4-bit build by lyzgeorge
+  (lyzgeorge/cohere-transcribe-03-2026-mlx-4bit, revision f2f6d89b1a300c51f48ae1ecb8523dbb58636cb0),
+  from Cohere's CohereLabs/cohere-transcribe-03-2026. Downloaded only when chosen for dictation.
+  Licence: Apache-2.0, https://www.apache.org/licenses/LICENSE-2.0
+  Developed by Cohere and Cohere Labs. Converted to MLX and quantized by lyzgeorge.
 
 Apple's own speech recognition (SpeechAnalyzer) and Foundation Models are part of macOS and
 are used under Apple's licence for the operating system.

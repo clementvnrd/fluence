@@ -3,6 +3,14 @@ import FluidAudio
 import Foundation
 import Observation
 
+/// A model download as the UI shows it (Parakeet's, FLU-29; Cohere's, FLU-149).
+enum ModelDownloadPhase: Equatable {
+    case idle
+    /// 0…1 of the bytes.
+    case downloading(Double)
+    case failed
+}
+
 /// Parakeet Ultra's download, asked for and watched (FLU-29).
 ///
 /// French and Auto default to Parakeet, but its ~600 MB are fetched only once the user says
@@ -15,12 +23,7 @@ import Observation
 final class ParakeetDownload {
     static let shared = ParakeetDownload()
 
-    enum Phase: Equatable {
-        case idle
-        /// 0…1 of the bytes.
-        case downloading(Double)
-        case failed
-    }
+    typealias Phase = ModelDownloadPhase
 
     private(set) var phase: Phase = .idle
     /// The model is complete on disk. Read from the disk at launch, after a download, and
